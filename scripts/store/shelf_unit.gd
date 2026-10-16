@@ -52,6 +52,7 @@ func build(space_binders: Array, material: Material) -> void:
 		label.position.y -= BOARD_THICKNESS / 2
 		label.position.z = DEPTH / 2 + 0.002
 		label.set_meta("binder_label", binder.label)
+		label.visibility_range_end = 6.0
 		add_child(label)
 
 

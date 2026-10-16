@@ -13,7 +13,17 @@ Pickup is free and always will be.
 1. Install [Godot 4.7](https://godotengine.org/download) (standard build, not .NET).
 2. Open `project.godot` in Godot and press **Play** (F5). You start just inside the store's front door.
 
-Controls: WASD to move, mouse to look, Ctrl or C to crouch, Esc to free the mouse (click to capture it again).
+Controls: WASD to move, mouse to look, Ctrl or C to crouch, left-click to pick up the card under the crosshair, right-click to put it back down, Esc to free the mouse (click to capture it again).
+
+## Benchmark
+
+The whole collection (~30,000 cards) is on the floor at once. To measure frame rate, run the scripted walk-through, which prints average fps and 1% lows after 20 seconds:
+
+```sh
+godot --path . -- --benchmark
+```
+
+The target is 60 fps on a mid-range laptop.
 
 ## Card data
 
@@ -41,7 +51,9 @@ data/placeholder/   generated placeholder card data
 scenes/             main scene, player
 scripts/data/       CardData, SetData, BinderRange, BinderLayout, CardSort, CardDatabase, CardFileLoader
 scripts/player/     first-person controller
+scripts/pile/       the card pile: PileWorld (packed arrays + chunked MultiMeshes), scatter, picking, gap fill
 scripts/store/      graybox store builder, shelf units, shelf layout (which binder goes in which space)
-tests/              headless checks for the data layer
+shaders/            card faces drawn procedurally (no textures until real data)
+tests/              headless checks for the data layer, shelving and pile
 tools/              data generators (and later the Scryfall importer)
 ```
