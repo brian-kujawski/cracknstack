@@ -107,14 +107,19 @@ func _test_card_sort() -> void:
 
 
 func _test_shelf_layout() -> void:
-	_check(ShelfLayout.slot_for_index(0) == Vector3i(0, 0, 0), "first binder is top-left of the first unit")
-	_check(ShelfLayout.slot_for_index(11) == Vector3i(0, 0, 11), "binder 12 ends the top shelf")
-	_check(ShelfLayout.slot_for_index(12) == Vector3i(0, 1, 0), "binder 13 starts the second shelf")
-	_check(ShelfLayout.slot_for_index(60) == Vector3i(1, 0, 0), "binder 61 starts the next unit")
-
 	var binders := CardDatabase.all_binders()
-	var unit_count := ShelfLayout.units_needed(binders.size())
-	var units := ShelfLayout.assign(binders, unit_count)
+	var few: Array[BinderRange] = []
+	few.assign(binders.slice(0, 31))
+	var split := ShelfLayout.assign(few, [12, 20, 12] as Array[int])
+	_check(split[0].size() == 60 and split[1].size() == 100, "a unit has 5 shelves of its own width")
+	_check(split[0][0] == few[0] and split[0][10] == few[10] and split[0][11] == null,
+		"the first unit takes the first 11 of 31 binders, top shelf left to right")
+	_check(split[1][0] == few[11] and split[2][0] == few[21] and split[2][9] == few[30] and split[2][10] == null,
+		"the rest split 10 and 10, in order")
+	var wide := ShelfLayout.assign(few, [8] as Array[int])
+	_check(wide[0][7] == few[7] and wide[0][8] == few[8], "binders wrap onto the next shelf down")
+
+	var units := ShelfLayout.assign(binders, [54, 79, 54] as Array[int])
 	var seen := 0
 	var previous: BinderRange = null
 	var in_order := true
@@ -323,7 +328,7 @@ func _test_binder_pockets() -> void:
 func _test_shelving() -> void:
 	var ranges := CardDatabase.all_binders()
 	var unit := ShelfUnit.new()
-	unit.build(ShelfLayout.assign(ranges, ShelfLayout.units_needed(ranges.size()))[0], StandardMaterial3D.new())
+	unit.build(ShelfLayout.assign(ranges, [12, 12, 12] as Array[int])[0], StandardMaterial3D.new())
 	add_child(unit)
 	unit.position = Vector3(3, 0, 1)
 	unit.rotation.y = PI / 2
@@ -331,7 +336,7 @@ func _test_shelving() -> void:
 	var space_point := unit.to_global(unit.space_position(0, 1) + Vector3(0, 0.1, ShelfUnit.DEPTH / 2))
 	_check(unit.space_at(space_point) == 1, "aiming at the front of the top shelf's second space finds space 1")
 	var lower := unit.to_global(unit.space_position(2, 11) + Vector3(0, 0.2, ShelfUnit.DEPTH / 2))
-	_check(unit.space_at(lower) == 2 * ShelfLayout.SPACES_PER_SHELF + 11, "a lower shelf's last space")
+	_check(unit.space_at(lower) == 2 * unit.spaces_per_shelf + 11, "a lower shelf's last space")
 
 	var right := Binder.new()
 	right.setup(ranges[0], Color.RED, null)
@@ -351,7 +356,7 @@ func _test_shelving() -> void:
 
 	# Fill every binder on the top shelf, shelve them all: the shelf lights up.
 	var shelf_binders: Array[Binder] = [right]
-	for space in range(1, ShelfLayout.SPACES_PER_SHELF):
+	for space in range(1, unit.spaces_per_shelf):
 		if unit.spaces[space] == null:
 			continue
 		var b := Binder.new()

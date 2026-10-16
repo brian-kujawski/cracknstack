@@ -8,9 +8,9 @@ extends RefCounted
 ## the floor gets deep drifts and thin patches instead of an even carpet.
 
 const MAX_TRIES := 40
-const HEAP_SHARE := 0.35
-const HEAP_COUNT := 18
-const HEAP_RADIUS := Vector2(0.8, 1.8)
+const HEAP_SHARE := 0.5
+const HEAP_COUNT := 8
+const HEAP_RADIUS := Vector2(0.6, 1.3)
 
 
 class Placement:

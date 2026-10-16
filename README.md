@@ -11,7 +11,7 @@ Pickup is free and always will be.
 ## Running it
 
 1. Install [Godot 4.7](https://godotengine.org/download) (standard build, not .NET).
-2. Open `project.godot` in Godot and press **Play** (F5). You start just inside the store's front door.
+2. Open `project.godot` in Godot and press **Play** (F5). You start just inside the door of the store's one cramped room: three wall-length binder shelves (left, back, right; the timeline runs round the room in that order) and four work tables in the middle.
 
 Controls:
 
@@ -67,7 +67,7 @@ scripts/data/       CardData, SetData, BinderRange, BinderLayout, CardSort, Card
 scripts/feedback/   placeholder sounds, synthesised in code
 scripts/player/     first-person controller and Hands (everything you do with a card or binder)
 scripts/pile/       the card pile: PileWorld (packed arrays + chunked MultiMeshes), scatter, picking, gap fill
-scripts/store/      graybox store builder, shelf units, shelf layout (which binder goes in which space)
+scripts/store/      graybox room builder, shelf units, shelf layout (binders split evenly across the three wall shelves)
 shaders/            card faces and binder pages drawn procedurally (no textures until real data)
 tests/              headless checks for the data layer, shelving and pile
 tools/              data generators (and later the Scryfall importer)

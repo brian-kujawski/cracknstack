@@ -224,7 +224,7 @@ func _shelve_carried_binder() -> void:
 	var correct := _aim_shelf.shelve(_aim_space, binder)
 	held_changed.emit(null, null)
 	if correct:
-		var lit := _aim_shelf.is_section_complete(_aim_space / ShelfLayout.SPACES_PER_SHELF)
+		var lit := _aim_shelf.is_section_complete(_aim_shelf.shelf_of(_aim_space))
 		FeedbackSounds.play(pile, binder.global_position,
 			FeedbackSounds.Kind.SECTION_COMPLETE if lit else FeedbackSounds.Kind.BINDER_SHELVED)
 

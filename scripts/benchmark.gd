@@ -6,10 +6,11 @@ extends Node
 
 const WARMUP := 2.0
 const DURATION := 20.0
-## Eye-height waypoints (x, z) through the shop floor and back room.
+## Eye-height waypoints (x, z): a lap of the room past all three shelves,
+## then through the middle between the tables.
 const PATH := [
-	Vector2(9, 12.8), Vector2(9.5, 3), Vector2(3, 2.5), Vector2(2.5, 9),
-	Vector2(15, 9), Vector2(19.5, 7), Vector2(25, 7), Vector2(25, 3), Vector2(19.5, 7), Vector2(9, 12.8),
+	Vector2(6, 7.3), Vector2(1.4, 6.6), Vector2(1.4, 1.2), Vector2(6, 1.2), Vector2(10.6, 1.2),
+	Vector2(10.6, 6.6), Vector2(6, 6.6), Vector2(6, 1.6), Vector2(6, 7.3),
 ]
 
 var _camera: Camera3D
