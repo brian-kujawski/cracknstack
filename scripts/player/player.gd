@@ -1,5 +1,6 @@
 extends CharacterBody3D
-## First-person controller: walk, look, crouch. Hands live in PilePicker.
+## First-person controller: walk, look, crouch. What you do with your hands
+## lives in Hands.
 
 @export var walk_speed := 3.5
 @export var crouch_speed := 1.6
@@ -47,7 +48,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 
-## Registers WASD, crouch and the mouse buttons in code so the project file stays readable. Rebinding
+## Registers the keys and mouse buttons in code so the project file stays readable. Rebinding
 ## in Project Settings still works: existing actions are left alone.
 static func _ensure_input_actions() -> void:
 	var bindings := {
@@ -56,10 +57,14 @@ static func _ensure_input_actions() -> void:
 		"move_left": [KEY_A, KEY_LEFT],
 		"move_right": [KEY_D, KEY_RIGHT],
 		"crouch": [KEY_CTRL, KEY_C],
+		"interact": [KEY_E],
+		"stack_card": [KEY_F],
 	}
 	var mouse_bindings := {
 		"use_hand": MOUSE_BUTTON_LEFT,
 		"toss": MOUSE_BUTTON_RIGHT,
+		"flip_next": MOUSE_BUTTON_WHEEL_DOWN,
+		"flip_previous": MOUSE_BUTTON_WHEEL_UP,
 	}
 	for action in mouse_bindings:
 		if InputMap.has_action(action):

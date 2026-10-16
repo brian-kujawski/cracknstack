@@ -35,3 +35,21 @@ static func is_back_of_sheet(page: int) -> bool:
 
 static func page_count(binder: BinderRange) -> int:
 	return ceili(float(binder.card_capacity()) / POCKETS_PER_PAGE)
+
+
+## Spreads are what you see with the binder open flat: spread 0 is the
+## inside front cover (left) and page 0 (right); after that each spread is
+## the back of one sheet (left) and the front of the next (right).
+static func spread_count(binder: BinderRange) -> int:
+	return page_count(binder) / PAGES_PER_SHEET + 1
+
+
+## The (left, right) page indices of a spread; -1 where it's a bare cover.
+static func spread_pages(binder: BinderRange, spread: int) -> Vector2i:
+	var left := spread * PAGES_PER_SHEET - 1
+	var right := spread * PAGES_PER_SHEET
+	return Vector2i(left, right if right < page_count(binder) else -1)
+
+
+static func spread_of_page(page: int) -> int:
+	return (page + 1) / PAGES_PER_SHEET
