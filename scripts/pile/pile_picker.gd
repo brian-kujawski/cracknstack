@@ -10,11 +10,20 @@ signal held_card_changed(card: CardData)
 
 ## How far from the eye the player can reach.
 @export var reach := 2.6
-## Toss: forward and upward speed (m/s) and tumble rate (flips per second).
+## Toss: each throw picks its forward and upward speed (m/s) and its
+## end-over-end flip rate (flips per second) at random between min and max.
 ## A gentle lob, not a throw.
-@export var toss_forward_speed := 1.6
-@export var toss_up_speed := 1.0
-@export var toss_flips_per_second := Vector2(0.8, 1.8)
+@export var toss_forward_speed_min := 1.4
+@export var toss_forward_speed_max := 1.8
+@export var toss_up_speed_min := 0.8
+@export var toss_up_speed_max := 1.2
+@export var toss_flips_per_second_min := 0.8
+@export var toss_flips_per_second_max := 1.8
+## Slight wobble on the other two axes, up to this many turns per second
+## either way: roll around the card's long axis, and spin flat like a
+## frisbee. Keep these well under the flip rate so the flip still reads.
+@export var toss_roll_per_second_max := 0.25
+@export var toss_spin_per_second_max := 0.35
 @export var zoom_seconds := 0.18
 
 ## Where the held card sits relative to the camera: low and to the right,
@@ -98,9 +107,15 @@ func _toss() -> void:
 	_apply_card(material, held_card_id)
 	pile.add_child(card)
 	card.exclude = [(get_parent() as CollisionObject3D).get_rid()]
-	var velocity := forward * toss_forward_speed * randf_range(0.85, 1.15) + Vector3.UP * toss_up_speed
-	var flips := randf_range(toss_flips_per_second.x, toss_flips_per_second.y) * (1 if randf() < 0.5 else -1)
-	card.launch(held_card_id, pile, material, _held_view.global_transform, velocity, flips * TAU)
+	var velocity := forward * randf_range(toss_forward_speed_min, toss_forward_speed_max) \
+			+ Vector3.UP * randf_range(toss_up_speed_min, toss_up_speed_max)
+	# Turns per second around the card's own axes: mostly end over end
+	# (left-right axis), with a little roll (long axis) and flat spin (face
+	# normal) so no two tosses tumble quite the same.
+	var flips := randf_range(toss_flips_per_second_min, toss_flips_per_second_max) * (1 if randf() < 0.5 else -1)
+	var roll := randf_range(-toss_roll_per_second_max, toss_roll_per_second_max)
+	var spin := randf_range(-toss_spin_per_second_max, toss_spin_per_second_max)
+	card.launch(held_card_id, pile, material, _held_view.global_transform, velocity, Vector3(flips, roll, spin) * TAU)
 
 
 ## Files the held card into the binder pocket under the crosshair. Binders

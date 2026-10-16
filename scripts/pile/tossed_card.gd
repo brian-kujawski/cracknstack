@@ -1,6 +1,6 @@
 class_name TossedCard
 extends MeshInstance3D
-## A card the player tossed: a short scripted arc that tumbles end over end
+## A card the player tossed: a short scripted arc that tumbles mostly end over end
 ## and lands on the pile. Not a physics body (the pile stays klunky): it
 ## integrates its own gentle arc, stops dead against anything it hits, and
 ## when it reaches the top of the pile it hands itself back to PileWorld,
@@ -12,17 +12,18 @@ const AIR_DRAG := 1.2 # per second, horizontal only; keeps the toss soft
 var card_id: int
 var pile: PileWorld
 var velocity: Vector3
-## Radians per second around the card's own left-right axis.
-var tumble_speed: float
+## Radians per second around the card's own axes: x is end over end, y
+## rolls around the long axis, z spins flat.
+var tumble: Vector3
 var exclude: Array[RID] = []
 
 
 ## Builds the visual from the held card's material and launches it.
-func launch(id: int, world: PileWorld, material: Material, start: Transform3D, launch_velocity: Vector3, spin: float) -> void:
+func launch(id: int, world: PileWorld, material: Material, start: Transform3D, launch_velocity: Vector3, spin: Vector3) -> void:
 	card_id = id
 	pile = world
 	velocity = launch_velocity
-	tumble_speed = spin
+	tumble = spin
 	var quad := QuadMesh.new()
 	quad.size = PileWorld.CARD_SIZE
 	mesh = quad
@@ -53,7 +54,8 @@ func _physics_process(delta: float) -> void:
 		return
 
 	global_position = to
-	rotate_object_local(Vector3.RIGHT, tumble_speed * delta)
+	if not tumble.is_zero_approx():
+		rotate_object_local(tumble.normalized(), tumble.length() * delta)
 
 	var floor_height := pile.height_at(Vector2(to.x, to.z))
 	if to.y <= floor_height + PileWorld.CARD_THICKNESS:

@@ -183,7 +183,7 @@ func _test_pile() -> void:
 	var tossed := TossedCard.new()
 	pile.add_child(tossed)
 	var start := Transform3D(Basis(), Vector3(5.0, 1.3, 5.0))
-	tossed.launch(top, pile, ShaderMaterial.new(), start, Vector3(1.6, 1.0, 0.0), TAU)
+	tossed.launch(top, pile, ShaderMaterial.new(), start, Vector3(1.6, 1.0, 0.0), Vector3(TAU, 0.2, 0.3))
 	var steps := 0
 	while is_instance_valid(tossed) and not tossed.is_queued_for_deletion() and steps < 600:
 		tossed._physics_process(1.0 / 60.0)
