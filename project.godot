@@ -18,7 +18,3 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 [autoload]
 
 CardDatabase="*res://scripts/data/card_database.gd"
-
-[rendering]
-
-renderer/rendering_method="forward_plus"
