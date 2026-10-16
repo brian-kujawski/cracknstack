@@ -14,6 +14,7 @@ func _ready() -> void:
 	_test_binder_ranges()
 	_test_binder_layout()
 	_test_card_sort()
+	_test_shelf_layout()
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
 
@@ -96,3 +97,30 @@ func _test_card_sort() -> void:
 	var c := CardDatabase.cards_in_set(last_set.code)[0]
 	_check(CardSort.compare(a, b) and not CardSort.compare(b, a), "lower collector number sorts first")
 	_check(CardSort.compare(b, c), "earlier set sorts before later set regardless of number")
+
+
+func _test_shelf_layout() -> void:
+	_check(ShelfLayout.slot_for_index(0) == Vector3i(0, 0, 0), "first binder is top-left of the first unit")
+	_check(ShelfLayout.slot_for_index(11) == Vector3i(0, 0, 11), "binder 12 ends the top shelf")
+	_check(ShelfLayout.slot_for_index(12) == Vector3i(0, 1, 0), "binder 13 starts the second shelf")
+	_check(ShelfLayout.slot_for_index(60) == Vector3i(1, 0, 0), "binder 61 starts the next unit")
+
+	var binders := CardDatabase.all_binders()
+	var unit_count := ShelfLayout.units_needed(binders.size())
+	var units := ShelfLayout.assign(binders, unit_count)
+	var seen := 0
+	var previous: BinderRange = null
+	var in_order := true
+	for unit in units:
+		for binder in unit:
+			if binder == null:
+				continue
+			seen += 1
+			if previous != null:
+				var prev_set := CardDatabase.get_set(previous.set_code)
+				var this_set := CardDatabase.get_set(binder.set_code)
+				var same_set_later_volume: bool = previous.set_code == binder.set_code and previous.volume < binder.volume
+				in_order = in_order and (same_set_later_volume or CardSort.compare_sets(prev_set, this_set))
+			previous = binder
+	_check(seen == binders.size(), "every binder gets exactly one shelf space (%d of %d)" % [seen, binders.size()])
+	_check(in_order, "shelf spaces read in release-date order")

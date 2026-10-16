@@ -11,7 +11,7 @@ Pickup is free and always will be.
 ## Running it
 
 1. Install [Godot 4.7](https://godotengine.org/download) (standard build, not .NET).
-2. Open `project.godot` in Godot and press **Play** (F5).
+2. Open `project.godot` in Godot and press **Play** (F5). You start just inside the store's front door.
 
 Controls: WASD to move, mouse to look, Ctrl or C to crouch, Esc to free the mouse (click to capture it again).
 
@@ -41,6 +41,7 @@ data/placeholder/   generated placeholder card data
 scenes/             main scene, player
 scripts/data/       CardData, SetData, BinderRange, BinderLayout, CardSort, CardDatabase, CardFileLoader
 scripts/player/     first-person controller
+scripts/store/      graybox store builder, shelf units, shelf layout (which binder goes in which space)
 tests/              headless checks for the data layer
 tools/              data generators (and later the Scryfall importer)
 ```
