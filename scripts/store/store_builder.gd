@@ -16,11 +16,20 @@ const WALL_THICKNESS := 0.2
 const ENTRANCE := Vector2(8.0, 10.0) # x range of the front door gap
 const BACK_ROOM_DOOR := Vector2(6.0, 8.0) # z range of the doorway in the partition
 
+## Floor footprints the pile must avoid (shelving, counter, partition), as
+## x/z rectangles. Tables are left out: cards can end up underneath them.
+var obstacles: Array[Rect2] = []
+
 var _wall_material := _material(Color(0.86, 0.84, 0.8))
 var _floor_material := _material(Color(0.55, 0.5, 0.45))
 var _shelf_material := _material(Color(0.62, 0.48, 0.34))
 var _fixture_material := _material(Color(0.3, 0.32, 0.36))
 var _table_material := _material(Color(0.2, 0.42, 0.3))
+
+
+## The floor area cards can land on, inset a little from the walls.
+func floor_bounds() -> Rect2:
+	return Rect2(0.05, 0.05, TOTAL_WIDTH - 0.1, DEPTH - 0.1)
 
 
 func _ready() -> void:
@@ -48,6 +57,8 @@ func _build_shell() -> void:
 	# Partition between the shop floor and the back room, with a doorway.
 	_add_wall_z(MAIN_WIDTH, 0.0, BACK_ROOM_DOOR.x)
 	_add_wall_z(MAIN_WIDTH, BACK_ROOM_DOOR.y, DEPTH)
+	obstacles.append(Rect2(MAIN_WIDTH - half, 0.0, WALL_THICKNESS, BACK_ROOM_DOOR.x))
+	obstacles.append(Rect2(MAIN_WIDTH - half, BACK_ROOM_DOOR.y, WALL_THICKNESS, DEPTH - BACK_ROOM_DOOR.y))
 	_add_solid(Vector3(WALL_THICKNESS, 0.9, BACK_ROOM_DOOR.y - BACK_ROOM_DOOR.x),
 		Vector3(MAIN_WIDTH, CEILING_HEIGHT - 0.45, (BACK_ROOM_DOOR.x + BACK_ROOM_DOOR.y) / 2), _wall_material)
 
@@ -72,7 +83,7 @@ func _build_labelled_shelving() -> void:
 			var along := u - back_wall_units
 			unit.rotation.y = PI / 2
 			unit.position = Vector3(ShelfUnit.DEPTH / 2, 0, 1.0 + unit_width * (along + 0.5))
-		add_child(unit)
+		_add_shelf(unit)
 
 
 ## Two aisles of double-sided gondola shelving in the middle of the shop
@@ -89,12 +100,13 @@ func _build_aisles() -> void:
 				unit.rotation.y = facing
 				# Facing +x sits on the +x side of the row's spine, and vice versa.
 				unit.position = Vector3(row_x + (ShelfUnit.DEPTH / 2) * (1 if facing > 0 else -1), 0, z)
-				add_child(unit)
+				_add_shelf(unit)
 
 
 func _build_fixtures() -> void:
 	# Front counter, right of the door.
 	_add_solid(Vector3(4.0, 1.0, 0.8), Vector3(16.0, 0.5, 11.2), _fixture_material)
+	obstacles.append(Rect2(14.0, 10.8, 4.0, 0.8))
 	# Play tables, left of the door.
 	for center in [Vector2(2.6, 11.8), Vector2(5.4, 11.8), Vector2(2.6, 9.8)]:
 		_add_solid(Vector3(1.8, 0.75, 0.9), Vector3(center.x, 0.375, center.y), _table_material)
@@ -107,14 +119,15 @@ func _build_back_room() -> void:
 		var rack := ShelfUnit.new()
 		rack.build([], _shelf_material)
 		rack.position = Vector3(MAIN_WIDTH + 1.0 + unit_width * (i + 0.5), 0, ShelfUnit.DEPTH / 2)
-		add_child(rack)
+		_add_shelf(rack)
 	for i in 8:
 		var rack := ShelfUnit.new()
 		rack.build([], _shelf_material)
 		rack.rotation.y = -PI / 2
 		rack.position = Vector3(TOTAL_WIDTH - ShelfUnit.DEPTH / 2, 0, 2.5 + unit_width * (i + 0.5))
-		add_child(rack)
+		_add_shelf(rack)
 	_add_solid(Vector3(2.0, 0.9, 1.0), Vector3(23.5, 0.45, 11.0), _fixture_material) # work table
+	obstacles.append(Rect2(22.5, 10.5, 2.0, 1.0))
 
 
 func _build_lights() -> void:
@@ -125,6 +138,15 @@ func _build_lights() -> void:
 			light.omni_range = 6.5
 			light.light_energy = 1.2
 			add_child(light)
+
+
+func _add_shelf(unit: ShelfUnit) -> void:
+	add_child(unit)
+	# Footprint is width × depth, turned with the unit (always a multiple of 90°).
+	var size := Vector2(ShelfUnit.WIDTH + 2 * ShelfUnit.SIDE_THICKNESS, ShelfUnit.DEPTH)
+	if absf(sin(unit.rotation.y)) > 0.5:
+		size = Vector2(size.y, size.x)
+	obstacles.append(Rect2(Vector2(unit.position.x, unit.position.z) - size / 2, size))
 
 
 func _add_wall_x(x_from: float, x_to: float, z: float) -> void:
