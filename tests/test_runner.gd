@@ -17,6 +17,8 @@ func _ready() -> void:
 	_test_shelf_layout()
 	_test_pile()
 	_test_pile_clearing()
+	_test_pile_stacking()
+	_test_pile_grid()
 	_test_binder_spreads()
 	_test_binder_contents()
 	_test_binder_pockets()
@@ -223,20 +225,63 @@ func _test_pile_clearing() -> void:
 		pile._process(1.0)
 		cleared += 1
 		id = pile.top_card_at(spot)
-	# Brute force: the highest card still on the floor whose footprint
-	# touches the spot's height cell, or the floor itself.
+	# Recheck from the cards themselves: the highest card still on the floor
+	# covering the spot's height cell, or the floor itself.
 	var height_cell := pile._height_index(spot_2d)
 	var expected := 0.0
-	for card in pile._cards_near(spot_2d):
+	for card in pile._cards_near(pile._height_cell_center(height_cell)):
 		if not pile.is_on_floor(card):
 			continue
-		var at := pile.card_position(card)
-		for q in pile._footprint_points(Vector2(at.x, at.z), pile._rotations[card]):
-			if pile._height_index(q) == height_cell:
-				expected = maxf(expected, at.y)
+		if pile._covers(card, pile._height_cell_center(height_cell)):
+			expected = maxf(expected, pile.card_position(card).y)
 	_check(cleared > 0 and is_equal_approx(pile.height_at(spot_2d), expected),
 		"a cleared spot drops to what's left (%.4f before, %.4f after %d pick-ups, expected %.4f)" % [
 			height_before, pile.height_at(spot_2d), cleared, expected])
+
+	pile.queue_free()
+
+
+## Cards rest on what's really under them, and the dump is deep in the
+## middle and thin at the edges.
+func _test_pile_stacking() -> void:
+	var pile := PileWorld.new()
+	add_child(pile)
+	var bounds := Rect2(0.05, 0.05, 11.9, 7.9)
+	var no_obstacles: Array[Rect2] = []
+	pile.build(bounds, no_obstacles, 11)
+	var resting := 0
+	var sampled := 0
+	for k in 300:
+		var id := k * 97
+		var at := pile.card_position(id)
+		var support := 0.0
+		for cell in pile._footprint_cells(Vector2(at.x, at.z), pile._rotations[id]):
+			var center := pile._height_cell_center(cell)
+			for other in pile._cards_near(center):
+				var oy := pile.card_position(other).y
+				if other != id and oy < at.y and oy > support and pile._covers(other, center):
+					support = oy
+		sampled += 1
+		if is_equal_approx(at.y, support + PileWorld.CARD_THICKNESS):
+			resting += 1
+	_check(resting == sampled, "every card rests one card's thickness above what's under it (%d of %d)" % [resting, sampled])
+
+	var middle := Rect2(bounds.position + bounds.size / 4, bounds.size / 2)
+	var inside := 0
+	for id in CardDatabase.card_count():
+		var at := pile.card_position(id)
+		if middle.has_point(Vector2(at.x, at.z)):
+			inside += 1
+	var share := float(inside) / CardDatabase.card_count()
+	_check(share > 0.5, "most cards land in the middle quarter of the floor (%.0f%%)" % (share * 100))
+	pile.queue_free()
+
+
+func _test_pile_grid() -> void:
+	var pile := PileWorld.new()
+	add_child(pile)
+	var no_obstacles: Array[Rect2] = []
+	pile.build(Rect2(0, 0, 28, 14), no_obstacles, 7)
 
 	# Gap fill keeps the picking grid tidy: one entry per card on the floor.
 	for k in 400:

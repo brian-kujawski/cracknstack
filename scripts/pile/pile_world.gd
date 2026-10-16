@@ -10,14 +10,18 @@ extends Node3D
 ## nothing else reacts. No physics, no chains.
 
 const CARD_SIZE := Vector2(0.063, 0.088) # metres, real card size
-const CARD_THICKNESS := 0.0006
+## Three times a real card (about 0.3 mm): real thickness is too thin for a
+## pile to read as a pile.
+const CARD_THICKNESS := 0.0018
 const CHUNK_SIZE := 2.0
 ## Picking grid: each card is filed under the cell holding its centre. Cells
 ## are wider than half a card's diagonal, so a 3×3 query finds every card
 ## that could cover a point.
 const GRID_CELL := 0.1
-## Height map resolution used to stack cards on top of each other.
-const HEIGHT_CELL := 0.05
+## Height map resolution used to stack cards on top of each other. Fine
+## enough that a card only rests on cards that are really under it, rather
+## than on anything nearby.
+const HEIGHT_CELL := 0.015
 const GAP_FILL_MAX_CARDS := 6
 const GAP_FILL_PULL := 0.35 # fraction of the way toward the gap
 const GAP_FILL_SECONDS := 0.18
@@ -57,7 +61,7 @@ var _heights := PackedFloat32Array()
 
 var _highlighted := -1
 var _material: ShaderMaterial
-var _mesh: PlaneMesh
+var _mesh: ArrayMesh
 
 ## card id -> {from: Vector3, to: Vector3, t: float}
 var _slides := {}
@@ -140,7 +144,7 @@ func pick_up(id: int) -> void:
 	_states[id] = State.HELD
 	_grid_remove(id)
 	_chunk_remove(id)
-	_refresh_heights(_footprint_points(gap, _rotations[id]))
+	_refresh_cells(_footprint_cells(gap, _rotations[id]))
 	_start_gap_fill(gap)
 
 
@@ -207,9 +211,9 @@ func _process(delta: float) -> void:
 		_slides.erase(id)
 		_grid_remove(id)
 		_grid_add(id)
-		var points := _footprint_points(Vector2(from.x, from.z), _rotations[id])
-		points.append_array(_footprint_points(Vector2(_positions[id].x, _positions[id].z), _rotations[id]))
-		_refresh_heights(points)
+		var cells := _footprint_cells(Vector2(from.x, from.z), _rotations[id])
+		cells.append_array(_footprint_cells(Vector2(_positions[id].x, _positions[id].z), _rotations[id]))
+		_refresh_cells(cells)
 
 
 func _start_gap_fill(gap: Vector2) -> void:
@@ -241,8 +245,7 @@ func _allocate(count: int) -> void:
 
 	_chunk_columns = ceili(bounds.size.x / CHUNK_SIZE)
 	var chunk_rows := ceili(bounds.size.y / CHUNK_SIZE)
-	_mesh = PlaneMesh.new()
-	_mesh.size = CARD_SIZE
+	_mesh = _card_mesh()
 	_material = ShaderMaterial.new()
 	_material.shader = preload("res://shaders/floor_card.gdshader")
 	for c in _chunk_columns * chunk_rows:
@@ -283,16 +286,51 @@ func _build_set_lookup() -> void:
 		_accents[id] = CardDatabase.get_set(card.set_code).accent_color
 
 
+## A card with thickness: the face on top (a PlaneMesh, so floor_card's UVs
+## still apply) and four edges running down CARD_THICKNESS below it. Edge
+## vertices get UV (-1, -1) so the shader can paint them as card edge.
+static func _card_mesh() -> ArrayMesh:
+	var plane := PlaneMesh.new()
+	plane.size = CARD_SIZE
+	var arrays := plane.get_mesh_arrays()
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var half := CARD_SIZE / 2
+	var corners := [Vector3(-half.x, 0, -half.y), Vector3(half.x, 0, -half.y), Vector3(half.x, 0, half.y), Vector3(-half.x, 0, half.y)]
+	var down := Vector3(0, -CARD_THICKNESS, 0)
+	for i in 4:
+		var a: Vector3 = corners[i]
+		var b: Vector3 = corners[(i + 1) % 4]
+		var normal := Vector3(a.x + b.x, 0, a.z + b.z).normalized()
+		var first := vertices.size()
+		for v in [a, b, b + down, a + down]:
+			vertices.append(v)
+			normals.append(normal)
+			uvs.append(Vector2(-1, -1))
+		indices.append_array([first, first + 1, first + 2, first, first + 2, first + 3])
+	var surface := []
+	surface.resize(Mesh.ARRAY_MAX)
+	surface[Mesh.ARRAY_VERTEX] = vertices
+	surface[Mesh.ARRAY_NORMAL] = normals
+	surface[Mesh.ARRAY_TEX_UV] = uvs
+	surface[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface)
+	return mesh
+
+
 ## Places a card on top of the stack at p and files it in grid and chunk.
 ## The caller rebuilds the chunk's buffer.
 func _put_on_floor(id: int, p: Vector2, rotation_y: float) -> void:
-	var footprint := _footprint_points(p, rotation_y)
+	var footprint := _footprint_cells(p, rotation_y)
 	var top := 0.0
-	for q in footprint:
-		top = maxf(top, _heights[_height_index(q)])
+	for cell in footprint:
+		top = maxf(top, _heights[cell])
 	var y := top + CARD_THICKNESS
-	for q in footprint:
-		_heights[_height_index(q)] = y
+	for cell in footprint:
+		_heights[cell] = y
 	_positions[id] = Vector3(p.x, y, p.y)
 	_rotations[id] = rotation_y
 	_grid_add(id)
@@ -304,32 +342,50 @@ func _put_on_floor(id: int, p: Vector2, rotation_y: float) -> void:
 	_chunk_cards[chunk] = cards
 
 
-## Recomputes the height map cells under these points from the cards still
-## on the floor, so a cleared patch drops back down to the floor instead of
-## remembering the pile that used to be there.
-func _refresh_heights(points: Array[Vector2]) -> void:
-	var cells := {}
-	for q in points:
-		cells[_height_index(q)] = q
+## Recomputes height map cells from the cards still on the floor, so a
+## cleared patch drops back down instead of remembering the pile that used to
+## be there.
+func _refresh_cells(cells: PackedInt32Array) -> void:
+	var done := {}
 	for cell in cells:
+		if done.has(cell):
+			continue
+		done[cell] = true
+		var center := _height_cell_center(cell)
 		var top := 0.0
-		for id in _cards_near(cells[cell]):
-			if _states[id] != State.ON_FLOOR or _positions[id].y <= top:
-				continue
-			for q in _footprint_points(Vector2(_positions[id].x, _positions[id].z), _rotations[id]):
-				if _height_index(q) == cell:
-					top = _positions[id].y
-					break
+		for id in _cards_near(center):
+			if _states[id] == State.ON_FLOOR and _positions[id].y > top and _covers(id, center):
+				top = _positions[id].y
 		_heights[cell] = top
 
 
-func _footprint_points(p: Vector2, rotation_y: float) -> Array[Vector2]:
-	var points: Array[Vector2] = []
+## The height map cells whose centres a card at p, turned by rotation_y,
+## covers (at least the one under its centre).
+func _footprint_cells(p: Vector2, rotation_y: float) -> PackedInt32Array:
+	var cells := PackedInt32Array()
 	var half := CARD_SIZE / 2
-	for fx in [-1.0, 0.0, 1.0]:
-		for fz in [-1.0, 0.0, 1.0]:
-			points.append(p + _rotated(Vector2(fx * half.x, fz * half.y), rotation_y))
-	return points
+	var reach := Vector2(
+		absf(cos(rotation_y)) * half.x + absf(sin(rotation_y)) * half.y,
+		absf(sin(rotation_y)) * half.x + absf(cos(rotation_y)) * half.y)
+	var columns := _height_columns
+	var rows := _heights.size() / columns
+	var lo := ((p - reach - bounds.position) / HEIGHT_CELL).floor()
+	var hi := ((p + reach - bounds.position) / HEIGHT_CELL).floor()
+	var c := cos(rotation_y)
+	var s := sin(rotation_y)
+	for row in range(maxi(0, int(lo.y)), mini(rows - 1, int(hi.y)) + 1):
+		for column in range(maxi(0, int(lo.x)), mini(columns - 1, int(hi.x)) + 1):
+			var d := bounds.position + Vector2(column + 0.5, row + 0.5) * HEIGHT_CELL - p
+			# Inverse of _rotated(), as in _covers().
+			if absf(d.x * c - d.y * s) <= half.x and absf(d.x * s + d.y * c) <= half.y:
+				cells.append(row * columns + column)
+	if cells.is_empty():
+		cells.append(_height_index(p))
+	return cells
+
+
+func _height_cell_center(cell: int) -> Vector2:
+	return bounds.position + Vector2(cell % _height_columns + 0.5, cell / _height_columns + 0.5) * HEIGHT_CELL
 
 
 ## An x/z offset turned the same way as Basis(Vector3.UP, rotation_y).
