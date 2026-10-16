@@ -1,0 +1,13 @@
+# Godot
+.godot/
+*.translation
+export_presets.cfg
+builds/
+
+# Real card data and images are downloaded by tools/import_scryfall.py and kept out of git
+data/real/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.tmp
