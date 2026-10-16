@@ -223,8 +223,20 @@ func _test_pile_clearing() -> void:
 		pile._process(1.0)
 		cleared += 1
 		id = pile.top_card_at(spot)
-	_check(pile.height_at(spot_2d) < height_before,
-		"a cleared spot drops (%.4f -> %.4f after %d pick-ups)" % [height_before, pile.height_at(spot_2d), cleared])
+	# Brute force: the highest card still on the floor whose footprint
+	# touches the spot's height cell, or the floor itself.
+	var cell := pile._height_index(spot_2d)
+	var expected := 0.0
+	for card in pile._cards_near(spot_2d):
+		if not pile.is_on_floor(card):
+			continue
+		var at := pile.card_position(card)
+		for q in pile._footprint_points(Vector2(at.x, at.z), pile._rotations[card]):
+			if pile._height_index(q) == cell:
+				expected = maxf(expected, at.y)
+	_check(cleared > 0 and is_equal_approx(pile.height_at(spot_2d), expected),
+		"a cleared spot drops to what's left (%.4f before, %.4f after %d pick-ups, expected %.4f)" % [
+			height_before, pile.height_at(spot_2d), cleared, expected])
 
 	# Gap fill keeps the picking grid tidy: one entry per card on the floor.
 	for k in 400:

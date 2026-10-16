@@ -2,12 +2,18 @@ class_name TossedCard
 extends MeshInstance3D
 ## A card the player tossed: a short scripted arc that tumbles mostly end over end
 ## and lands on the pile. Not a physics body (the pile stays klunky): it
-## integrates its own gentle arc, stops dead against anything it hits, and
+## integrates its own gentle arc, bounces softly off walls and furniture, and
 ## when it reaches the top of the pile it hands itself back to PileWorld,
-## face up or down depending on how it landed.
+## face up or down depending on how it landed. PileWorld nudges it clear of
+## anything solid as it lands, so a card never ends up poking into a wall.
 
 const GRAVITY := 9.8
 const AIR_DRAG := 1.2 # per second, horizontal only; keeps the toss soft
+## Share of horizontal speed kept after bouncing off a wall.
+const BOUNCE := 0.35
+## Look this far past the card's centre for walls (half a card's diagonal),
+## so its edge, not its centre, is what bounces.
+const EDGE_REACH := 0.055
 
 var card_id: int
 var pile: PileWorld
@@ -40,18 +46,23 @@ func _physics_process(delta: float) -> void:
 	velocity.z = horizontal.y
 	var to := from + velocity * delta
 
-	# Anything solid in the way (wall, shelf, table) stops the card's forward
-	# travel; it just drops from there.
-	var query := PhysicsRayQueryParameters3D.create(from, to)
+	# Anything solid in the way (wall, shelf, table leg) bounces the card
+	# back softly; it stays where it is this step.
+	var heading := Vector3(velocity.x, 0, velocity.z).normalized() * EDGE_REACH
+	var query := PhysicsRayQueryParameters3D.create(from, to + heading)
 	query.exclude = exclude
 	query.collision_mask = 1 # the store itself, not binders or stacks
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if not hit.is_empty() and hit.normal.y < 0.7:
-		velocity.x = 0.0
-		velocity.z = 0.0
-		to = Vector3(from.x, to.y, from.z) + hit.normal * 0.01
+		var wall := Vector2(hit.normal.x, hit.normal.z).normalized()
+		var across := Vector2(velocity.x, velocity.z)
+		if across.dot(wall) < 0.0:
+			across = across.bounce(wall) * BOUNCE
+		velocity.x = across.x
+		velocity.z = across.y
+		to = Vector3(from.x, to.y, from.z)
 	elif not hit.is_empty():
-		_land(hit.position)
+		_land(Vector3(to.x, hit.position.y, to.z))
 		return
 
 	global_position = to

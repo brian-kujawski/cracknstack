@@ -17,7 +17,7 @@ var _stats_timer := 0.0
 func _ready() -> void:
 	var started := Time.get_ticks_msec()
 	_pile.build(_store.floor_bounds(), _store.obstacles, PILE_SEED)
-	_pile.spawn_binders(_store.obstacles, PILE_SEED)
+	_pile.spawn_binders(PILE_SEED)
 	print("Pile built: %d cards in %d ms" % [CardDatabase.card_count(), Time.get_ticks_msec() - started])
 	_hands.pile = _pile
 	_hands.held_changed.connect(_on_held_changed)

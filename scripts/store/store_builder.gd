@@ -23,8 +23,9 @@ const RIGHT_SHELF := Vector2(1.2, 6.7) # z range
 const TABLE_SIZE := Vector3(1.3, 0.75, 1.3)
 const TABLE_CENTERS := [Vector2(4.6, 2.9), Vector2(7.4, 2.9), Vector2(4.6, 5.3), Vector2(7.4, 5.3)]
 
-## Floor footprints the pile must avoid (the shelves), as x/z rectangles.
-## Tables are left out: cards can end up underneath them.
+## Floor footprints nothing on the floor may overlap (the shelves and the
+## table legs), as x/z rectangles. The space under a table top is open:
+## cards can end up underneath.
 var obstacles: Array[Rect2] = []
 
 var _wall_material := _material(Color(0.86, 0.84, 0.8))
@@ -95,6 +96,7 @@ func _build_tables() -> void:
 		for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
 			var leg: Vector2 = center + corner * half
 			_add_solid(Vector3(LEG, TABLE_SIZE.y - TOP, LEG), Vector3(leg.x, (TABLE_SIZE.y - TOP) / 2, leg.y), _table_material)
+			obstacles.append(Rect2(leg - Vector2(LEG, LEG) / 2, Vector2(LEG, LEG)))
 
 
 func _build_lights() -> void:

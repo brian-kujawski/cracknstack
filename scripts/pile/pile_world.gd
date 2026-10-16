@@ -26,6 +26,8 @@ const OVERLAP_DISTANCE := 0.075
 enum State { ON_FLOOR, HELD }
 
 var bounds: Rect2
+## Floor footprints nothing may overlap (walls are the edge of `bounds`).
+var obstacles: Array[Rect2] = []
 ## Every binder in the store, in shelf order (wherever each one is now).
 var binders: Array[Binder] = []
 
@@ -63,8 +65,9 @@ var _slides := {}
 
 ## Scatters every card in the database over `floor_bounds`, avoiding the
 ## footprints in `obstacles`. Binders are placed separately by spawn_binders().
-func build(floor_bounds: Rect2, obstacles: Array[Rect2], random_seed: int) -> void:
+func build(floor_bounds: Rect2, floor_obstacles: Array[Rect2], random_seed: int) -> void:
 	bounds = floor_bounds
+	obstacles = floor_obstacles
 	var count := CardDatabase.card_count()
 	_allocate(count)
 	_build_set_lookup()
@@ -86,10 +89,11 @@ func build(floor_bounds: Rect2, obstacles: Array[Rect2], random_seed: int) -> vo
 		_rebuild_chunk(c)
 
 
-## Lays each binder volume closed somewhere on top of the pile.
-func spawn_binders(obstacles: Array[Rect2], random_seed: int) -> void:
+## Lays each binder volume closed somewhere on top of the pile, with room to
+## open it where it lies.
+func spawn_binders(random_seed: int) -> void:
 	var ranges := CardDatabase.all_binders()
-	var placements := PileGenerator.scatter(ranges.size(), bounds, obstacles, random_seed + 2)
+	var placements := PileGenerator.scatter(ranges.size(), bounds, obstacles, random_seed + 2, Binder.OPEN_HALF_FOOTPRINT)
 	for i in ranges.size():
 		var binder := Binder.new()
 		binder.setup(ranges[i], CardDatabase.get_set(ranges[i].set_code).accent_color, self)
@@ -145,7 +149,7 @@ func drop(id: int, point: Vector3, rotation_y: float, face_up := true) -> void:
 	if _states[id] != State.HELD:
 		return
 	_states[id] = State.ON_FLOOR
-	var p := Vector2(clampf(point.x, bounds.position.x, bounds.end.x), clampf(point.z, bounds.position.y, bounds.end.y))
+	var p := clear_point(Vector2(point.x, point.z), CARD_SIZE / 2, rotation_y)
 	_face_up[id] = 1 if face_up else 0
 	_put_on_floor(id, p, rotation_y)
 	_rebuild_chunk(_chunk_of[id])
@@ -160,6 +164,12 @@ func set_highlight(id: int) -> void:
 		_update_instance_custom(previous)
 	if id >= 0:
 		_update_instance_custom(id)
+
+
+## The nearest floor point to p where a footprint (half size, turned by
+## rotation_y) is inside the walls and clear of every obstacle.
+func clear_point(p: Vector2, half_size: Vector2, rotation_y: float) -> Vector2:
+	return PileGenerator.nearest_clear(p, half_size, rotation_y, bounds, obstacles)
 
 
 ## Top of the stack at a floor point (used to rest binders and dropped cards).
@@ -214,7 +224,8 @@ func _start_gap_fill(gap: Vector2) -> void:
 	for id in neighbours.slice(0, GAP_FILL_MAX_CARDS):
 		var from := _positions[id]
 		var to := from.lerp(Vector3(gap.x, from.y, gap.y), GAP_FILL_PULL)
-		_slides[id] = {"from": from, "to": to, "t": 0.0}
+		if PileGenerator.footprint_clear(Vector2(to.x, to.z), CARD_SIZE / 2, _rotations[id], bounds, obstacles):
+			_slides[id] = {"from": from, "to": to, "t": 0.0}
 
 
 func _allocate(count: int) -> void:

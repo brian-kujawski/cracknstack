@@ -20,6 +20,9 @@ const SIZE := Vector3(COVER.x, THICKNESS, COVER.y)
 ## Page and pocket grid, in metres (keep in step with binder_page.gdshader).
 const PAGE := Vector2(0.24, 0.31)
 const CELL := Vector2(0.074, 0.099)
+## Half the floor footprint when open (two covers side by side). Binders are
+## only put down where there's room for this, so they can always be opened.
+const OPEN_HALF_FOOTPRINT := Vector2(COVER.x, COVER.y / 2)
 ## Height of the page surface when the binder lies open.
 const OPEN_HEIGHT := 0.012
 const CLOSE_AFTER_COMPLETE := 1.2

@@ -195,7 +195,8 @@ func _stack_held_card() -> void:
 		var stack := UnsortedStack.new()
 		stack.setup(pile)
 		pile.add_child(stack)
-		stack.place(_aim_point, _yaw_facing_player(_aim_point), _aim == Aim.FLOOR)
+		var yaw := _yaw_facing_player(_aim_point)
+		stack.place(_clear_of_obstacles(_aim_point, PileWorld.CARD_SIZE / 2, yaw), yaw, _aim == Aim.FLOOR)
 		stack.push(held_card_id)
 	else:
 		return
@@ -211,7 +212,8 @@ func _carry(binder: Binder) -> void:
 
 
 func _set_binder_down() -> void:
-	carried_binder.put_down(pile, _aim_point, _yaw_facing_player(_aim_point), _aim == Aim.FLOOR)
+	var yaw := _yaw_facing_player(_aim_point)
+	carried_binder.put_down(pile, _clear_of_obstacles(_aim_point, Binder.OPEN_HALF_FOOTPRINT, yaw), yaw, _aim == Aim.FLOOR)
 	carried_binder = null
 	held_changed.emit(null, null)
 
@@ -227,6 +229,15 @@ func _shelve_carried_binder() -> void:
 		var lit := _aim_shelf.is_section_complete(_aim_shelf.shelf_of(_aim_space))
 		FeedbackSounds.play(pile, binder.global_position,
 			FeedbackSounds.Kind.SECTION_COMPLETE if lit else FeedbackSounds.Kind.BINDER_SHELVED)
+
+
+## On the floor, nudges a footprint at `point` clear of walls, shelves and
+## table legs. Table tops are left as aimed.
+func _clear_of_obstacles(point: Vector3, half_size: Vector2, yaw: float) -> Vector3:
+	if _aim != Aim.FLOOR:
+		return point
+	var p := pile.clear_point(Vector2(point.x, point.z), half_size, yaw)
+	return Vector3(p.x, point.y, p.y)
 
 
 ## Turned so its bottom edge (local +z) faces the player.
