@@ -1,8 +1,10 @@
 class_name PilePicker
 extends Node
-## The player's hands: aim at the floor to highlight the top card under the
-## crosshair, left-click to pick it up, right-click to toss it back onto the
-## pile. Filing into binders comes in M3.
+## The player's hands. Aim at the floor to highlight the top card under the
+## crosshair. Left-click is context sensitive: with empty hands it picks the
+## card up; holding a card, it files the card into the binder pocket you're
+## looking at (M3), or anywhere else brings the card up close to your face
+## (click again to lower it). Right-click tosses the card back onto the pile.
 
 signal held_card_changed(card: CardData)
 
@@ -13,6 +15,14 @@ signal held_card_changed(card: CardData)
 @export var toss_forward_speed := 1.6
 @export var toss_up_speed := 1.0
 @export var toss_flips_per_second := Vector2(0.8, 1.8)
+@export var zoom_seconds := 0.18
+
+## Where the held card sits relative to the camera: low and to the right,
+## or close up and square to your face.
+const HELD_POSITION := Vector3(0.075, -0.05, -0.2)
+const HELD_ROTATION := Vector3(0.12, -0.25, 0.04)
+const ZOOMED_POSITION := Vector3(0.0, 0.0, -0.11)
+const ZOOMED_ROTATION := Vector3.ZERO
 
 var pile: PileWorld
 var held_card_id := -1
@@ -21,6 +31,8 @@ var held_card_id := -1
 var _held_view: MeshInstance3D
 var _aim_point := Vector3.ZERO
 var _aim_valid := false
+var _zoomed := false
+var _zoom_tween: Tween
 
 
 func _ready() -> void:
@@ -31,8 +43,8 @@ func _ready() -> void:
 	var material := ShaderMaterial.new()
 	material.shader = preload("res://shaders/held_card.gdshader")
 	_held_view.material_override = material
-	_held_view.position = Vector3(0.075, -0.05, -0.2)
-	_held_view.rotation = Vector3(0.12, -0.25, 0.04)
+	_held_view.position = HELD_POSITION
+	_held_view.rotation = HELD_ROTATION
 	_held_view.visible = false
 	_camera.add_child(_held_view)
 
@@ -48,11 +60,15 @@ func _physics_process(_delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if pile == null or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
-	if event.is_action_pressed("pick_up") and held_card_id < 0 and _aim_valid:
-		var id := pile.top_card_at(_aim_point)
-		if id >= 0:
-			pile.pick_up(id)
-			_hold(id)
+	if event.is_action_pressed("use_hand"):
+		if held_card_id < 0:
+			if _aim_valid:
+				var id := pile.top_card_at(_aim_point)
+				if id >= 0:
+					pile.pick_up(id)
+					_hold(id)
+		elif not _try_file_held_card():
+			_set_zoomed(not _zoomed)
 	elif event.is_action_pressed("toss") and held_card_id >= 0:
 		_toss()
 		_hold(-1)
@@ -87,7 +103,27 @@ func _toss() -> void:
 	card.launch(held_card_id, pile, material, _held_view.global_transform, velocity, flips * TAU)
 
 
+## Files the held card into the binder pocket under the crosshair. Binders
+## become interactive in M3; until then there's never a pocket to aim at.
+func _try_file_held_card() -> bool:
+	return false
+
+
+func _set_zoomed(zoomed: bool) -> void:
+	_zoomed = zoomed
+	if _zoom_tween:
+		_zoom_tween.kill()
+	_zoom_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_zoom_tween.tween_property(_held_view, "position", ZOOMED_POSITION if zoomed else HELD_POSITION, zoom_seconds)
+	_zoom_tween.tween_property(_held_view, "rotation", ZOOMED_ROTATION if zoomed else HELD_ROTATION, zoom_seconds)
+
+
 func _hold(id: int) -> void:
+	if _zoom_tween:
+		_zoom_tween.kill()
+	_zoomed = false
+	_held_view.position = HELD_POSITION
+	_held_view.rotation = HELD_ROTATION
 	held_card_id = id
 	_held_view.visible = id >= 0
 	if id < 0:

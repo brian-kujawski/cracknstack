@@ -58,7 +58,7 @@ static func _ensure_input_actions() -> void:
 		"crouch": [KEY_CTRL, KEY_C],
 	}
 	var mouse_bindings := {
-		"pick_up": MOUSE_BUTTON_LEFT,
+		"use_hand": MOUSE_BUTTON_LEFT,
 		"toss": MOUSE_BUTTON_RIGHT,
 	}
 	for action in mouse_bindings:

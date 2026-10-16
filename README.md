@@ -13,7 +13,7 @@ Pickup is free and always will be.
 1. Install [Godot 4.7](https://godotengine.org/download) (standard build, not .NET).
 2. Open `project.godot` in Godot and press **Play** (F5). You start just inside the store's front door.
 
-Controls: WASD to move, mouse to look, Ctrl or C to crouch, left-click to pick up the card under the crosshair, right-click to toss it back onto the pile, Esc to free the mouse (click to capture it again).
+Controls: WASD to move, mouse to look, Ctrl or C to crouch, left-click to pick up the card under the crosshair (left-click again while holding it to bring it up close), right-click to toss it back onto the pile, Esc to free the mouse (click to capture it again).
 
 ## Benchmark
 
