@@ -134,13 +134,13 @@ func pick_up(id: int) -> void:
 	_start_gap_fill(gap)
 
 
-## Puts a held card back down on top of whatever is at `point`.
-func drop(id: int, point: Vector3, rotation_y: float) -> void:
+## Lays a held card on top of whatever is at `point`, face up or down.
+func drop(id: int, point: Vector3, rotation_y: float, face_up := true) -> void:
 	if _states[id] != State.HELD:
 		return
 	_states[id] = State.ON_FLOOR
 	var p := Vector2(clampf(point.x, bounds.position.x, bounds.end.x), clampf(point.z, bounds.position.y, bounds.end.y))
-	_face_up[id] = 1
+	_face_up[id] = 1 if face_up else 0
 	_put_on_floor(id, p, rotation_y)
 	_rebuild_chunk(_chunk_of[id])
 

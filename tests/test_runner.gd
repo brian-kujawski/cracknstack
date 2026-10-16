@@ -177,4 +177,18 @@ func _test_pile() -> void:
 	pile.drop(top, drop_point, 0.3)
 	_check(pile.is_on_floor(top) and pile.card_count_on_floor() == total, "dropped card is back on the floor")
 	_check(pile.top_card_at(drop_point) == top, "dropped card lands on top of the stack")
+
+	# Toss a card: it arcs forward, lands on the pile and is pickable again.
+	pile.pick_up(top)
+	var tossed := TossedCard.new()
+	pile.add_child(tossed)
+	var start := Transform3D(Basis(), Vector3(5.0, 1.3, 5.0))
+	tossed.launch(top, pile, ShaderMaterial.new(), start, Vector3(1.6, 1.0, 0.0), TAU)
+	var steps := 0
+	while is_instance_valid(tossed) and not tossed.is_queued_for_deletion() and steps < 600:
+		tossed._physics_process(1.0 / 60.0)
+		steps += 1
+	var landed := pile.card_position(top)
+	_check(pile.is_on_floor(top), "tossed card lands back on the floor (after %d steps)" % steps)
+	_check(landed.x > 5.3 and landed.x < 7.5 and absf(landed.z - 5.0) < 0.05, "toss is a gentle lob forward (landed at x=%.2f)" % landed.x)
 	pile.queue_free()

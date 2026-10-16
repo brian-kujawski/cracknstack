@@ -1,13 +1,18 @@
 class_name PilePicker
 extends Node
 ## The player's hands: aim at the floor to highlight the top card under the
-## crosshair, left-click to pick it up, right-click to put it back down where
-## you're aiming. Filing into binders comes in M3.
+## crosshair, left-click to pick it up, right-click to toss it back onto the
+## pile. Filing into binders comes in M3.
 
 signal held_card_changed(card: CardData)
 
 ## How far from the eye the player can reach.
 @export var reach := 2.6
+## Toss: forward and upward speed (m/s) and tumble rate (flips per second).
+## A gentle lob, not a throw.
+@export var toss_forward_speed := 1.6
+@export var toss_up_speed := 1.0
+@export var toss_flips_per_second := Vector2(0.8, 1.8)
 
 var pile: PileWorld
 var held_card_id := -1
@@ -48,8 +53,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if id >= 0:
 			pile.pick_up(id)
 			_hold(id)
-	elif event.is_action_pressed("put_down") and held_card_id >= 0 and _aim_valid:
-		pile.drop(held_card_id, _aim_point, randf() * TAU)
+	elif event.is_action_pressed("toss") and held_card_id >= 0:
+		_toss()
 		_hold(-1)
 
 
@@ -65,16 +70,38 @@ func _update_aim() -> void:
 		_aim_point = hit.position
 
 
+func _toss() -> void:
+	var forward := -_camera.global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var card := TossedCard.new()
+	# The tossed card gets its own material so the next pick-up can change
+	# the hand without changing the card in flight.
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://shaders/held_card.gdshader")
+	_apply_card(material, held_card_id)
+	pile.add_child(card)
+	card.exclude = [(get_parent() as CollisionObject3D).get_rid()]
+	var velocity := forward * toss_forward_speed * randf_range(0.85, 1.15) + Vector3.UP * toss_up_speed
+	var flips := randf_range(toss_flips_per_second.x, toss_flips_per_second.y) * (1 if randf() < 0.5 else -1)
+	card.launch(held_card_id, pile, material, _held_view.global_transform, velocity, flips * TAU)
+
+
 func _hold(id: int) -> void:
 	held_card_id = id
 	_held_view.visible = id >= 0
 	if id < 0:
 		held_card_changed.emit(null)
 		return
+	_apply_card(_held_view.material_override, id)
+	held_card_changed.emit(CardDatabase.get_card(id))
+
+
+static func _apply_card(material: ShaderMaterial, id: int) -> void:
 	var card := CardDatabase.get_card(id)
-	var material: ShaderMaterial = _held_view.material_override
-	material.set_shader_parameter("accent", CardDatabase.get_set(card.set_code).accent_color)
-	material.set_shader_parameter("set_number", CardDatabase.sets_in_shelf_order().find(CardDatabase.get_set(card.set_code)) + 1)
+	var set_data := CardDatabase.get_set(card.set_code)
+	var accent := set_data.accent_color
+	material.set_shader_parameter("accent", Vector3(accent.r, accent.g, accent.b))
+	material.set_shader_parameter("set_number", CardDatabase.sets_in_shelf_order().find(set_data) + 1)
 	material.set_shader_parameter("collector_number", card.collector_number)
 	material.set_shader_parameter("rarity", card.rarity)
-	held_card_changed.emit(card)

@@ -59,7 +59,7 @@ static func _ensure_input_actions() -> void:
 	}
 	var mouse_bindings := {
 		"pick_up": MOUSE_BUTTON_LEFT,
-		"put_down": MOUSE_BUTTON_RIGHT,
+		"toss": MOUSE_BUTTON_RIGHT,
 	}
 	for action in mouse_bindings:
 		if InputMap.has_action(action):
