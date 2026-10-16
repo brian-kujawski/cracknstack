@@ -44,6 +44,7 @@ func _physics_process(delta: float) -> void:
 	# travel; it just drops from there.
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.exclude = exclude
+	query.collision_mask = 1 # the store itself, not binders or stacks
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if not hit.is_empty() and hit.normal.y < 0.7:
 		velocity.x = 0.0

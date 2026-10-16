@@ -1,5 +1,5 @@
 extends Node
-## Headless checks for the data layer. Run from the project root:
+## Headless checks for the data layer, the pile, binders and shelving. Run from the project root:
 ##   godot --headless res://tests/test_runner.tscn
 ## Exits with code 1 if any check fails.
 
@@ -16,6 +16,11 @@ func _ready() -> void:
 	_test_card_sort()
 	_test_shelf_layout()
 	_test_pile()
+	_test_binder_spreads()
+	_test_binder_contents()
+	_test_binder_pockets()
+	_test_shelving()
+	_test_unsorted_stack()
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
 
@@ -192,3 +197,153 @@ func _test_pile() -> void:
 	_check(pile.is_on_floor(top), "tossed card lands back on the floor (after %d steps)" % steps)
 	_check(landed.x > 5.3 and landed.x < 7.5 and absf(landed.z - 5.0) < 0.05, "toss is a gentle lob forward (landed at x=%.2f)" % landed.x)
 	pile.queue_free()
+
+
+func _test_binder_spreads() -> void:
+	var binder := BinderRange.new()
+	binder.first = 1
+	binder.last = 269 # Khans of Tarkir: 30 pages
+	_check(BinderLayout.spread_count(binder) == 16, "30 pages make 16 spreads (cover + 15)")
+	_check(BinderLayout.spread_pages(binder, 0) == Vector2i(-1, 0), "spread 0 is the inside cover and page 1")
+	_check(BinderLayout.spread_pages(binder, 1) == Vector2i(1, 2), "spread 1 is the back of sheet 1 and the front of sheet 2")
+	_check(BinderLayout.spread_pages(binder, 15) == Vector2i(29, -1), "the last spread ends on the back cover")
+	var all_found := true
+	for page in 30:
+		var pages := BinderLayout.spread_pages(binder, BinderLayout.spread_of_page(page))
+		all_found = all_found and (pages.x == page or pages.y == page)
+	_check(all_found, "spread_of_page finds every page")
+
+
+## The first binder of the first set, and its cards' ids in collector order.
+func _first_binder_cards() -> Array[int]:
+	var ids: Array[int] = []
+	var binder := CardDatabase.all_binders()[0]
+	for card in CardDatabase.cards_in_set(binder.set_code):
+		if binder.contains(card.collector_number):
+			ids.append(card.id)
+	return ids
+
+
+func _test_binder_contents() -> void:
+	var binder := CardDatabase.all_binders()[0]
+	var ids := _first_binder_cards()
+	var contents := BinderContents.new(binder)
+	_check(contents.capacity() == ids.size(), "a binder has one pocket per card in its range")
+	_check(contents.insert(0, ids[0]) == BinderContents.Result.LOCKED, "a card in its own pocket locks in")
+	_check(contents.take(0) == -1 and contents.card_at(0) == ids[0], "a locked card can't be taken out")
+	_check(contents.insert(0, ids[1]) == BinderContents.Result.OCCUPIED, "a full pocket refuses another card")
+	_check(contents.insert(2, ids[1]) == BinderContents.Result.MISPLACED, "a card in the wrong pocket stays unlocked")
+	_check(contents.insert(1, ids[2]) == BinderContents.Result.MISPLACED, "and blocks the rightful owner's neighbour")
+	var other_set := CardDatabase.cards_in_set(CardDatabase.sets_in_shelf_order()[1].code)[3]
+	_check(contents.insert(3, other_set.id) == BinderContents.Result.MISPLACED,
+		"a card from another set never locks, even at the same number")
+	_check(contents.take(2) == ids[1] and contents.card_at(2) == -1, "a misplaced card can be taken back out")
+	_check(contents.take(1) == ids[2] and contents.take(3) == other_set.id, "every misplaced card comes back out")
+	for i in range(1, 8):
+		contents.insert(i, ids[i])
+	_check(not contents.is_page_complete(0), "a page with an empty pocket isn't complete")
+	contents.insert(8, ids[8])
+	_check(contents.is_page_complete(0) and not contents.is_page_complete(1), "nine locked cards complete a page")
+	_check(not contents.is_complete(), "one page doesn't complete the binder")
+	for i in range(9, ids.size()):
+		contents.insert(i, ids[i])
+	_check(contents.is_complete() and contents.locked_count == ids.size(), "every card locked completes the binder")
+	var last_page := (ids.size() - 1) / BinderLayout.POCKETS_PER_PAGE
+	_check(contents.is_page_complete(last_page), "a short last page completes with only its numbered pockets")
+
+
+func _test_binder_pockets() -> void:
+	var range_data := CardDatabase.all_binders()[0]
+	var ids := _first_binder_cards()
+	var binder := Binder.new()
+	binder.setup(range_data, Color.RED, null)
+	add_child(binder)
+	binder.put_down(self, Vector3(4.0, 0.75, 2.0), 0.6, false)
+	_check(binder.pocket_at(binder.global_position) == -1, "a closed binder has no pockets to aim at")
+	binder.open()
+	_check(binder.is_open(), "a binder lying down opens")
+	_check(binder.pocket_at(binder.to_global(binder.pocket_position(0))) == 0, "spread 0 shows pocket 0 on the right page")
+	_check(binder.pocket_at(binder.to_global(Vector3(-Binder.COVER.x / 2, Binder.OPEN_HEIGHT, 0))) == -1,
+		"the inside cover has no pockets")
+	_check(not binder.flip(-1), "can't turn back past the front cover")
+	binder.flip(1)
+	# Spread 1: page 2 (pockets 9-17) on the left, page 3 (18-26) on the right.
+	var left_top_left := binder.to_global(Vector3(-Binder.COVER.x / 2 - Binder.CELL.x, Binder.OPEN_HEIGHT, -Binder.CELL.y))
+	var right_bottom_right := binder.to_global(Vector3(Binder.COVER.x / 2 + Binder.CELL.x, Binder.OPEN_HEIGHT, Binder.CELL.y))
+	_check(binder.pocket_at(left_top_left) == 9, "left page's top-left pocket is #10 (got %d)" % binder.pocket_at(left_top_left))
+	_check(binder.pocket_at(right_bottom_right) == 26, "right page's bottom-right pocket is #27 (got %d)" % binder.pocket_at(right_bottom_right))
+
+	_check(binder.insert(9, ids[10]) == BinderContents.Result.MISPLACED, "filing into the wrong pocket through the binder")
+	_check(binder.take(9) == ids[10], "taking the misplaced card back out")
+	for i in ids.size():
+		binder.show_pocket(i)
+		binder.insert(i, ids[i])
+	_check(binder.contents.is_complete(), "filing every card through the binder completes it")
+	binder.close()
+	_check(binder.state == Binder.State.CLOSED, "a complete binder closes")
+	binder.queue_free()
+
+
+func _test_shelving() -> void:
+	var ranges := CardDatabase.all_binders()
+	var unit := ShelfUnit.new()
+	unit.build(ShelfLayout.assign(ranges, ShelfLayout.units_needed(ranges.size()))[0], StandardMaterial3D.new())
+	add_child(unit)
+	unit.position = Vector3(3, 0, 1)
+	unit.rotation.y = PI / 2
+
+	var space_point := unit.to_global(unit.space_position(0, 1) + Vector3(0, 0.1, ShelfUnit.DEPTH / 2))
+	_check(unit.space_at(space_point) == 1, "aiming at the front of the top shelf's second space finds space 1")
+	var lower := unit.to_global(unit.space_position(2, 11) + Vector3(0, 0.2, ShelfUnit.DEPTH / 2))
+	_check(unit.space_at(lower) == 2 * ShelfLayout.SPACES_PER_SHELF + 11, "a lower shelf's last space")
+
+	var right := Binder.new()
+	right.setup(ranges[0], Color.RED, null)
+	var wrong := Binder.new()
+	wrong.setup(ranges[1], Color.BLUE, null)
+	add_child(right)
+	add_child(wrong)
+	_check(not unit.shelve(0, wrong), "a binder in another binder's space doesn't lock")
+	_check(wrong.state == Binder.State.SHELVED and unit.shelved[0] == wrong, "but it stands there anyway")
+	unit.unshelve(0)
+	_check(unit.shelve(0, right), "a binder in its own space locks in")
+	var spine := right.to_global(Vector3(-Binder.COVER.x / 2, Binder.THICKNESS / 2, 0))
+	var spine_local := unit.to_local(spine)
+	_check(spine_local.z > ShelfUnit.DEPTH / 2 and absf(spine_local.x - unit.space_position(0, 0).x) < 0.03,
+		"the binder stands spine out in its space")
+	_check(not unit.is_section_complete(0), "an incomplete binder doesn't light its shelf")
+
+	# Fill every binder on the top shelf, shelve them all: the shelf lights up.
+	var shelf_binders: Array[Binder] = [right]
+	for space in range(1, ShelfLayout.SPACES_PER_SHELF):
+		if unit.spaces[space] == null:
+			continue
+		var b := Binder.new()
+		b.setup(unit.spaces[space], Color.WHITE, null)
+		add_child(b)
+		unit.shelve(space, b)
+		shelf_binders.append(b)
+	for b in shelf_binders:
+		for card in CardDatabase.cards_in_set(b.binder.set_code):
+			if b.binder.contains(card.collector_number):
+				b.contents.insert(card.collector_number - b.binder.first, card.id)
+	_check(unit.refresh_section(0), "a shelf of complete binders in their own spaces lights up")
+	unit.unshelve(0)
+	_check(not unit.is_section_complete(0), "taking one down turns it off again")
+	unit.queue_free()
+	wrong.queue_free()
+	for b in shelf_binders:
+		if is_instance_valid(b):
+			b.queue_free()
+
+
+func _test_unsorted_stack() -> void:
+	var stack := UnsortedStack.new()
+	stack.setup(null)
+	add_child(stack)
+	stack.place(Vector3(1, 0.75, 1), 0.0, false)
+	stack.push(10)
+	stack.push(20)
+	_check(stack.size() == 2 and stack.top_card() == 20, "the last card stacked is on top")
+	_check(stack.pop() == 20 and stack.pop() == 10, "cards come off the top first")
+	_check(stack.is_queued_for_deletion(), "an empty stack goes away")

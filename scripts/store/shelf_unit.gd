@@ -4,7 +4,9 @@ extends StaticBody3D
 ## unit, and its open front faces local +Z.
 ##
 ## Labelled units show each binder's set code and number range on the shelf
-## lip under its space; the binders themselves arrive in M2/M3.
+## lip under its space. A binder stood in its own space locks in; in any other
+## labelled space it glows red. When every labelled space on a shelf holds its
+## own completed binder, the light under the shelf above comes on.
 
 const SPACE_WIDTH := 0.1
 const WIDTH := ShelfLayout.SPACES_PER_SHELF * SPACE_WIDTH
@@ -18,11 +20,16 @@ const SHELF_HEIGHTS := [1.75, 1.35, 0.95, 0.55, 0.15]
 ## Per space (shelf * SPACES_PER_SHELF + space): the binder that belongs
 ## there, or null. Empty for unlabelled units such as aisle gondolas.
 var spaces: Array = []
+## Per space: the Binder standing there now, or null.
+var shelved: Array = []
+
+var _section_lights: Array[MeshInstance3D] = []
 
 
 ## Builds the meshes, collision and labels. Call once before adding to the tree.
 func build(space_binders: Array, material: Material) -> void:
 	spaces = space_binders
+	shelved.resize(spaces.size())
 	_add_box(Vector3(SIDE_THICKNESS, HEIGHT, DEPTH), Vector3(-(WIDTH + SIDE_THICKNESS) / 2, HEIGHT / 2, 0), material)
 	_add_box(Vector3(SIDE_THICKNESS, HEIGHT, DEPTH), Vector3((WIDTH + SIDE_THICKNESS) / 2, HEIGHT / 2, 0), material)
 	_add_box(Vector3(WIDTH, HEIGHT, 0.02), Vector3(0, HEIGHT / 2, -DEPTH / 2 + 0.01), material)
@@ -55,10 +62,99 @@ func build(space_binders: Array, material: Material) -> void:
 		label.visibility_range_end = 6.0
 		add_child(label)
 
+	if not spaces.is_empty():
+		for shelf in ShelfLayout.SHELVES_PER_UNIT:
+			_section_lights.append(_build_section_light(shelf))
+
+
+## The labelled space at a world-space point on the unit's front, or -1.
+func space_at(global_point: Vector3) -> int:
+	if spaces.is_empty():
+		return -1
+	var local := to_local(global_point)
+	if absf(local.x) >= WIDTH / 2:
+		return -1
+	for shelf in SHELF_HEIGHTS.size():
+		# Heights run top shelf first, so the first board at or below the
+		# point is the one it's above.
+		if local.y >= SHELF_HEIGHTS[shelf] - 0.01:
+			var index := shelf * ShelfLayout.SPACES_PER_SHELF + int((local.x + WIDTH / 2) / SPACE_WIDTH)
+			return index if spaces[index] != null else -1
+	return -1
+
+
+## Stands a binder in a space. Returns true if it's the binder that belongs
+## there (it locks in), false if not (it glows red).
+func shelve(space: int, binder: Binder) -> bool:
+	var correct: bool = spaces[space] == binder.binder
+	shelved[space] = binder
+	binder.stand_on_shelf(self, space, binder_transform(space), correct)
+	refresh_section(space / ShelfLayout.SPACES_PER_SHELF)
+	return correct
+
+
+func unshelve(space: int) -> void:
+	shelved[space] = null
+	refresh_section(space / ShelfLayout.SPACES_PER_SHELF)
+
+
+## True when every labelled space on a shelf holds its own completed binder.
+func is_section_complete(shelf: int) -> bool:
+	var any := false
+	for space in ShelfLayout.SPACES_PER_SHELF:
+		var index := shelf * ShelfLayout.SPACES_PER_SHELF + space
+		if spaces[index] == null:
+			continue
+		any = true
+		var binder: Binder = shelved[index]
+		if binder == null or binder.binder != spaces[index] or not binder.contents.is_complete():
+			return false
+	return any
+
+
+## Turns the shelf's light on or off to match. Returns whether it's on.
+func refresh_section(shelf: int) -> bool:
+	var lit := is_section_complete(shelf)
+	var material: StandardMaterial3D = _section_lights[shelf].material_override
+	material.emission_energy_multiplier = 3.0 if lit else 0.0
+	material.albedo_color = Color(1.0, 0.9, 0.7) if lit else Color(0.25, 0.25, 0.25)
+	return lit
+
+
+## Where a binder stands in a space, spine out (in the unit's local space).
+## The spine sits a few millimetres proud of the unit's front so it's the
+## binder, not the shelf, under the crosshair.
+func binder_transform(space: int) -> Transform3D:
+	var floor_point := space_position(space / ShelfLayout.SPACES_PER_SHELF, space % ShelfLayout.SPACES_PER_SHELF)
+	# Binder axes: thickness (y) runs along the shelf, the spine (-x) faces
+	# out, and the binder's length (z) stands upright.
+	var basis := Basis(Vector3(0, 0, -1), Vector3(1, 0, 0), Vector3(0, -1, 0))
+	var origin := Vector3(floor_point.x - Binder.THICKNESS / 2, floor_point.y + Binder.COVER.y / 2 + 0.002,
+		DEPTH / 2 + 0.004 - Binder.COVER.x / 2)
+	return Transform3D(basis, origin)
+
 
 ## Local position of the centre of a space's floor (the top of its board).
 func space_position(shelf: int, space: int) -> Vector3:
 	return Vector3(-WIDTH / 2 + SPACE_WIDTH * (space + 0.5), SHELF_HEIGHTS[shelf], 0)
+
+
+## A strip light under the board above a shelf, dark until the shelf is done.
+func _build_section_light(shelf: int) -> MeshInstance3D:
+	var above: float = HEIGHT - BOARD_THICKNESS if shelf == 0 else SHELF_HEIGHTS[shelf - 1] - BOARD_THICKNESS
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(WIDTH - 0.02, 0.006, 0.015)
+	var material := StandardMaterial3D.new()
+	material.emission_enabled = true
+	material.emission = Color(1.0, 0.85, 0.55)
+	material.emission_energy_multiplier = 0.0
+	material.albedo_color = Color(0.25, 0.25, 0.25)
+	var strip := MeshInstance3D.new()
+	strip.mesh = mesh
+	strip.material_override = material
+	strip.position = Vector3(0, above - 0.003, DEPTH / 2 - 0.03)
+	add_child(strip)
+	return strip
 
 
 func _add_box(size: Vector3, center: Vector3, material: Material) -> void:

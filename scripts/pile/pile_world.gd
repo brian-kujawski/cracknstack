@@ -26,6 +26,8 @@ const OVERLAP_DISTANCE := 0.075
 enum State { ON_FLOOR, HELD }
 
 var bounds: Rect2
+## Every binder in the store, in shelf order (wherever each one is now).
+var binders: Array[Binder] = []
 
 var _positions := PackedVector3Array()
 var _rotations := PackedFloat32Array()
@@ -80,17 +82,16 @@ func build(floor_bounds: Rect2, obstacles: Array[Rect2], random_seed: int) -> vo
 		_rebuild_chunk(c)
 
 
-## Lays each binder volume somewhere on top of the pile.
+## Lays each binder volume closed somewhere on top of the pile.
 func spawn_binders(obstacles: Array[Rect2], random_seed: int) -> void:
-	var binders := CardDatabase.all_binders()
-	var placements := PileGenerator.scatter(binders.size(), bounds, obstacles, random_seed + 2)
-	for i in binders.size():
-		var binder := FloorBinder.new()
-		binder.setup(binders[i], CardDatabase.get_set(binders[i].set_code).accent_color)
+	var ranges := CardDatabase.all_binders()
+	var placements := PileGenerator.scatter(ranges.size(), bounds, obstacles, random_seed + 2)
+	for i in ranges.size():
+		var binder := Binder.new()
+		binder.setup(ranges[i], CardDatabase.get_set(ranges[i].set_code).accent_color, self)
 		var p := placements[i].position
-		binder.position = Vector3(p.x, height_at(p) + FloorBinder.THICKNESS / 2, p.y)
-		binder.rotation.y = placements[i].rotation
-		add_child(binder)
+		binder.put_down(self, Vector3(p.x, 0, p.y), placements[i].rotation, true)
+		binders.append(binder)
 
 
 func card_count_on_floor() -> int:
@@ -159,6 +160,19 @@ func set_highlight(id: int) -> void:
 ## Top of the stack at a floor point (used to rest binders and dropped cards).
 func height_at(p: Vector2) -> float:
 	return _heights[_height_index(p)]
+
+
+## Top of the pile anywhere under a rectangle (centre, half size, turned by
+## rotation_y), so a binder or stack laid there rests on the highest card.
+func height_under(center: Vector2, half_size: Vector2, rotation_y: float) -> float:
+	var steps := Vector2i(ceili(half_size.x * 2 / HEIGHT_CELL) + 1, ceili(half_size.y * 2 / HEIGHT_CELL) + 1)
+	var top := 0.0
+	for i in steps.x:
+		for j in steps.y:
+			var local := Vector2(lerpf(-half_size.x, half_size.x, float(i) / (steps.x - 1)),
+				lerpf(-half_size.y, half_size.y, float(j) / (steps.y - 1)))
+			top = maxf(top, _heights[_height_index(center + _rotated(local, rotation_y))])
+	return top
 
 
 func _process(delta: float) -> void:
@@ -273,12 +287,15 @@ func _footprint_points(p: Vector2, rotation_y: float) -> Array[Vector2]:
 	var half := CARD_SIZE / 2
 	for fx in [-1.0, 0.0, 1.0]:
 		for fz in [-1.0, 0.0, 1.0]:
-			# Same rotation convention as Basis(Vector3.UP, rotation_y).
-			var local := Vector2(fx * half.x, fz * half.y)
-			points.append(p + Vector2(
-				local.x * cos(rotation_y) + local.y * sin(rotation_y),
-				-local.x * sin(rotation_y) + local.y * cos(rotation_y)))
+			points.append(p + _rotated(Vector2(fx * half.x, fz * half.y), rotation_y))
 	return points
+
+
+## An x/z offset turned the same way as Basis(Vector3.UP, rotation_y).
+static func _rotated(local: Vector2, rotation_y: float) -> Vector2:
+	return Vector2(
+		local.x * cos(rotation_y) + local.y * sin(rotation_y),
+		-local.x * sin(rotation_y) + local.y * cos(rotation_y))
 
 
 func _covers(id: int, p: Vector2) -> bool:

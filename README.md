@@ -13,7 +13,20 @@ Pickup is free and always will be.
 1. Install [Godot 4.7](https://godotengine.org/download) (standard build, not .NET).
 2. Open `project.godot` in Godot and press **Play** (F5). You start just inside the store's front door.
 
-Controls: WASD to move, mouse to look, Ctrl or C to crouch, left-click to pick up the card under the crosshair (left-click again while holding it to bring it up close), right-click to toss it back onto the pile, Esc to free the mouse (click to capture it again).
+Controls:
+
+| Input | Does |
+|---|---|
+| WASD, mouse | Walk, look |
+| Ctrl or C | Crouch |
+| Left-click | Context sensitive. Empty-handed: pick up the card under the crosshair (from the floor, a stack, or a misplaced card in an open binder), or pick up a closed binder (from the floor, a table or a shelf). Holding a card: file it into the pocket you're looking at, add it to the stack you're looking at, or else bring it up close. Carrying a binder: set it down on the floor or a table, or stand it in the shelf space you're looking at. |
+| Right-click | Toss the held card back onto the pile |
+| E | Open or close the binder you're looking at |
+| Mouse wheel | Turn the pages of the open binder you're looking at |
+| F | Put the held card on an unsorted stack (starts a new one where you're looking) |
+| Esc | Free the mouse (click to capture it again) |
+
+A card in its own pocket locks in with a chime and a gold edge; anywhere else it glows red, makes no sound and can be taken back out. A binder in its own shelf space locks in with a chime; in another binder's space it glows red. A shelf lights up when every binder on it is in its own space and complete.
 
 ## Benchmark
 
@@ -49,11 +62,13 @@ Exits non-zero if any check fails. CI runs the same thing on every pull request.
 ```
 data/placeholder/   generated placeholder card data
 scenes/             main scene, player
+scripts/binders/    Binder (open, turn pages, file, carry, shelve), BinderContents, UnsortedStack
 scripts/data/       CardData, SetData, BinderRange, BinderLayout, CardSort, CardDatabase, CardFileLoader
-scripts/player/     first-person controller
+scripts/feedback/   placeholder sounds, synthesised in code
+scripts/player/     first-person controller and Hands (everything you do with a card or binder)
 scripts/pile/       the card pile: PileWorld (packed arrays + chunked MultiMeshes), scatter, picking, gap fill
 scripts/store/      graybox store builder, shelf units, shelf layout (which binder goes in which space)
-shaders/            card faces drawn procedurally (no textures until real data)
+shaders/            card faces and binder pages drawn procedurally (no textures until real data)
 tests/              headless checks for the data layer, shelving and pile
 tools/              data generators (and later the Scryfall importer)
 ```

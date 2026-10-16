@@ -1,14 +1,15 @@
 extends Node3D
-## Main scene: the graybox store, the whole collection dumped on its floor
-## (M2), and the player.
+## Main scene: the graybox store, the whole collection and every binder
+## dumped on its floor, and the player.
 
 const PILE_SEED := 1993
 
 @onready var _store: Node3D = $Store
 @onready var _pile: PileWorld = $Pile
-@onready var _picker: PilePicker = $Player/PilePicker
+@onready var _hands: Hands = $Player/Hands
 @onready var _status: Label = $HUD/Status
 @onready var _held: Label = $HUD/Held
+@onready var _hint: Label = $HUD/Hint
 
 var _stats_timer := 0.0
 
@@ -18,9 +19,10 @@ func _ready() -> void:
 	_pile.build(_store.floor_bounds(), _store.obstacles, PILE_SEED)
 	_pile.spawn_binders(_store.obstacles, PILE_SEED)
 	print("Pile built: %d cards in %d ms" % [CardDatabase.card_count(), Time.get_ticks_msec() - started])
-	_picker.pile = _pile
-	_picker.held_card_changed.connect(_on_held_card_changed)
-	_on_held_card_changed(null)
+	_hands.pile = _pile
+	_hands.held_changed.connect(_on_held_changed)
+	_hands.hint_changed.connect(func(text: String) -> void: _hint.text = text)
+	_on_held_changed(null, null)
 	_update_stats()
 
 
@@ -32,13 +34,16 @@ func _process(delta: float) -> void:
 
 
 func _update_stats() -> void:
-	_status.text = "%d fps · %d draw calls · %d cards on the floor\nWASD move · mouse look · Ctrl/C crouch · left-click pick up / look closer · right-click toss · Esc frees mouse" % [
+	_status.text = "%d fps · %d draw calls · %d cards on the floor\nWASD move · mouse look · Ctrl/C crouch · left-click pick up / file / look closer · right-click toss · E open binder · wheel turn pages · F unsorted stack · Esc frees mouse" % [
 		Engine.get_frames_per_second(),
 		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
 		_pile.card_count_on_floor()]
 
 
-func _on_held_card_changed(card: CardData) -> void:
+func _on_held_changed(card: CardData, binder: BinderRange) -> void:
+	if binder != null:
+		_held.text = "Carrying binder\n%s" % binder.label
+		return
 	if card == null:
 		_held.text = ""
 		return
