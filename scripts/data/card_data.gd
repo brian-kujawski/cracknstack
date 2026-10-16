@@ -1,0 +1,31 @@
+class_name CardData
+extends RefCounted
+## One card: the base printing of a card in a set. Game code gets these from
+## CardDatabase and never constructs them itself.
+
+enum Rarity { COMMON, UNCOMMON, RARE, MYTHIC }
+
+## Index into CardDatabase; stable for a given data file.
+var id: int
+var name: String
+var set_code: String
+## Plain whole number. Only base versions are included, so there are no
+## suffixed or starred numbers (see plan §3.3).
+var collector_number: int
+var rarity: Rarity
+var colors: PackedStringArray
+var type_line: String
+## Path to a large face image. Empty means "draw the placeholder face".
+var image_large: String = ""
+
+
+static func rarity_from_string(value: String) -> Rarity:
+	match value:
+		"uncommon":
+			return Rarity.UNCOMMON
+		"rare":
+			return Rarity.RARE
+		"mythic":
+			return Rarity.MYTHIC
+		_:
+			return Rarity.COMMON
