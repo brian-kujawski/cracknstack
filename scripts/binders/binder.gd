@@ -51,6 +51,9 @@ var _open_view: Node3D
 var _pages: Array[MeshInstance3D] = []
 var _pocket_views: Array[MeshInstance3D] = []
 var _hover: MeshInstance3D
+## Running pocket and page flashes. They're tied to a pocket view, not a
+## pocket, so they're stopped whenever the spread changes.
+var _flashes: Array[Tween] = []
 
 
 func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
@@ -143,6 +146,7 @@ func close() -> void:
 		return
 	state = State.CLOSED
 	set_hover(-1)
+	_stop_flashes()
 	_open_view.visible = false
 	_closed_view.visible = true
 	_set_collision_box(SIZE)
@@ -156,6 +160,7 @@ func flip(direction: int) -> bool:
 		return false
 	spread = next
 	set_hover(-1)
+	_stop_flashes()
 	_refresh_spread()
 	return true
 
@@ -164,6 +169,7 @@ func flip(direction: int) -> bool:
 ## later, by tools).
 func show_pocket(pocket: int) -> void:
 	spread = BinderLayout.spread_of_page(pocket / BinderLayout.POCKETS_PER_PAGE)
+	_stop_flashes()
 	if state == State.OPEN:
 		_refresh_spread()
 
@@ -306,6 +312,15 @@ func _flash(view: MeshInstance3D, peak: Color, settle: Color, seconds: float) ->
 	var material: ShaderMaterial = view.material_override
 	var tween := create_tween()
 	tween.tween_method(func(c: Color) -> void: material.set_shader_parameter("glow", c), peak, settle, seconds)
+	_flashes.append(tween)
+
+
+## Stops pocket and page flashes; the next _refresh_spread() sets the glows.
+func _stop_flashes() -> void:
+	for tween in _flashes:
+		if tween.is_valid():
+			tween.kill()
+	_flashes.clear()
 
 
 ## Builds the pages and pocket cards the first time the binder is opened;

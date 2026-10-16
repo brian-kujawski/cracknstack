@@ -45,6 +45,10 @@ var _slot_of := PackedInt32Array()
 var _grid_columns := 0
 var _grid_rows := 0
 var _grid: Array[PackedInt32Array] = []
+## Per card: the grid cell it's filed under, or -1. Kept so a card that slid
+## during gap fill is removed from the cell it was filed in, not the one it's
+## over now.
+var _grid_cell_of := PackedInt32Array()
 
 var _height_columns := 0
 var _heights := PackedFloat32Array()
@@ -132,6 +136,7 @@ func pick_up(id: int) -> void:
 	_states[id] = State.HELD
 	_grid_remove(id)
 	_chunk_remove(id)
+	_refresh_heights(_footprint_points(gap, _rotations[id]))
 	_start_gap_fill(gap)
 
 
@@ -188,9 +193,13 @@ func _process(delta: float) -> void:
 		if slide.t >= 1.0:
 			finished.append(id)
 	for id in finished:
+		var from: Vector3 = _slides[id].from
 		_slides.erase(id)
 		_grid_remove(id)
 		_grid_add(id)
+		var points := _footprint_points(Vector2(from.x, from.z), _rotations[id])
+		points.append_array(_footprint_points(Vector2(_positions[id].x, _positions[id].z), _rotations[id]))
+		_refresh_heights(points)
 
 
 func _start_gap_fill(gap: Vector2) -> void:
@@ -216,6 +225,8 @@ func _allocate(count: int) -> void:
 	_states.fill(State.ON_FLOOR)
 	_chunk_of.resize(count)
 	_slot_of.resize(count)
+	_grid_cell_of.resize(count)
+	_grid_cell_of.fill(-1)
 
 	_chunk_columns = ceili(bounds.size.x / CHUNK_SIZE)
 	var chunk_rows := ceili(bounds.size.y / CHUNK_SIZE)
@@ -280,6 +291,25 @@ func _put_on_floor(id: int, p: Vector2, rotation_y: float) -> void:
 	_slot_of[id] = cards.size()
 	cards.append(id)
 	_chunk_cards[chunk] = cards
+
+
+## Recomputes the height map cells under these points from the cards still
+## on the floor, so a cleared patch drops back down to the floor instead of
+## remembering the pile that used to be there.
+func _refresh_heights(points: Array[Vector2]) -> void:
+	var cells := {}
+	for q in points:
+		cells[_height_index(q)] = q
+	for cell in cells:
+		var top := 0.0
+		for id in _cards_near(cells[cell]):
+			if _states[id] != State.ON_FLOOR or _positions[id].y <= top:
+				continue
+			for q in _footprint_points(Vector2(_positions[id].x, _positions[id].z), _rotations[id]):
+				if _height_index(q) == cell:
+					top = _positions[id].y
+					break
+		_heights[cell] = top
 
 
 func _footprint_points(p: Vector2, rotation_y: float) -> Array[Vector2]:
@@ -374,11 +404,14 @@ func _grid_add(id: int) -> void:
 	var cards := _grid[index]
 	cards.append(id)
 	_grid[index] = cards
+	_grid_cell_of[id] = index
 
 
 func _grid_remove(id: int) -> void:
-	var cell := _grid_cell(Vector2(_positions[id].x, _positions[id].z))
-	var index := cell.y * _grid_columns + cell.x
+	var index := _grid_cell_of[id]
+	if index < 0:
+		return
+	_grid_cell_of[id] = -1
 	var cards := _grid[index]
 	var at := cards.find(id)
 	if at >= 0:

@@ -16,6 +16,7 @@ func _ready() -> void:
 	_test_card_sort()
 	_test_shelf_layout()
 	_test_pile()
+	_test_pile_clearing()
 	_test_binder_spreads()
 	_test_binder_contents()
 	_test_binder_pockets()
@@ -196,6 +197,41 @@ func _test_pile() -> void:
 	var landed := pile.card_position(top)
 	_check(pile.is_on_floor(top), "tossed card lands back on the floor (after %d steps)" % steps)
 	_check(landed.x > 5.3 and landed.x < 7.5 and absf(landed.z - 5.0) < 0.05, "toss is a gentle lob forward (landed at x=%.2f)" % landed.x)
+	pile.queue_free()
+
+
+func _test_pile_clearing() -> void:
+	var pile := PileWorld.new()
+	add_child(pile)
+	var no_obstacles: Array[Rect2] = []
+	pile.build(Rect2(0, 0, 28, 14), no_obstacles, 7)
+
+	# Clearing a spot lowers the pile there, so whatever is put down next
+	# lands on what's left, not on the cards that used to be there.
+	var spot := pile.card_position(4321)
+	var spot_2d := Vector2(spot.x, spot.z)
+	var height_before := pile.height_at(spot_2d)
+	var cleared := 0
+	var id := pile.top_card_at(spot)
+	while id >= 0 and cleared < 200:
+		pile.pick_up(id)
+		pile._process(1.0)
+		cleared += 1
+		id = pile.top_card_at(spot)
+	_check(pile.height_at(spot_2d) < height_before,
+		"a cleared spot drops (%.4f -> %.4f after %d pick-ups)" % [height_before, pile.height_at(spot_2d), cleared])
+
+	# Gap fill keeps the picking grid tidy: one entry per card on the floor.
+	for k in 400:
+		var top := pile.top_card_at(pile.card_position(k * 37))
+		if top >= 0:
+			pile.pick_up(top)
+			pile._process(1.0)
+	var grid_entries := 0
+	for cell in pile._grid:
+		grid_entries += cell.size()
+	_check(grid_entries == pile.card_count_on_floor(),
+		"picking grid has one entry per floor card (%d entries, %d cards)" % [grid_entries, pile.card_count_on_floor()])
 	pile.queue_free()
 
 
