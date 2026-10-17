@@ -213,7 +213,7 @@ func _carry(binder: Binder) -> void:
 
 func _set_binder_down() -> void:
 	var yaw := _yaw_facing_player(_aim_point)
-	carried_binder.put_down(pile, _clear_of_obstacles(_aim_point, Binder.OPEN_HALF_FOOTPRINT, yaw), yaw, _aim == Aim.FLOOR)
+	carried_binder.put_down(pile, _clear_of_obstacles(_aim_point, Binder.OPEN_HALF_FOOTPRINT, yaw), yaw)
 	carried_binder = null
 	held_changed.emit(null, null)
 
@@ -257,6 +257,9 @@ func _update_aim() -> void:
 	var to := from - _camera.global_transform.basis.z * reach
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.exclude = [(get_parent() as CollisionObject3D).get_rid()]
+	# The pile's surface collider is only for binders to rest on; aim at the
+	# cards through it.
+	query.collision_mask = ~PileWorld.SURFACE_LAYER
 	var hit := _camera.get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		return

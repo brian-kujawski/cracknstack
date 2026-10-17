@@ -356,7 +356,7 @@ func _test_binder_pockets() -> void:
 	var binder := Binder.new()
 	binder.setup(range_data, Color.RED, null)
 	add_child(binder)
-	binder.put_down(self, Vector3(4.0, 0.75, 2.0), 0.6, false)
+	binder.put_down(self, Vector3(4.0, 0.75, 2.0), 0.6)
 	_check(binder.pocket_at(binder.global_position) == -1, "a closed binder has no pockets to aim at")
 	binder.open()
 	_check(binder.is_open(), "a binder lying down opens")

@@ -26,6 +26,11 @@ const GAP_FILL_MAX_CARDS := 6
 const GAP_FILL_PULL := 0.35 # fraction of the way toward the gap
 const GAP_FILL_SECONDS := 0.18
 const OVERLAP_DISTANCE := 0.075
+## Collision layer of the pile's surface: a coarse height field that only
+## binders collide with, so they can rest on the cards.
+const SURFACE_LAYER := 8
+## Surface grid: one height per this many height map cells (the highest).
+const SURFACE_STRIDE := 3
 
 enum State { ON_FLOOR, HELD }
 
@@ -66,6 +71,13 @@ var _mesh: ArrayMesh
 ## card id -> {from: Vector3, to: Vector3, t: float}
 var _slides := {}
 
+var _surface: HeightMapShape3D
+var _surface_columns := 0
+var _surface_rows := 0
+var _surface_heights := PackedFloat32Array()
+## Surface cells whose height map cells changed since the last update.
+var _surface_dirty := {}
+
 
 ## Scatters every card in the database over `floor_bounds`, avoiding the
 ## footprints in `obstacles`. Binders are placed separately by spawn_binders().
@@ -91,18 +103,29 @@ func build(floor_bounds: Rect2, floor_obstacles: Array[Rect2], random_seed: int)
 		_put_on_floor(id, placement.position, placement.rotation)
 	for c in _chunks.size():
 		_rebuild_chunk(c)
+	_build_surface()
 
 
-## Lays each binder volume closed somewhere on top of the pile, with room to
-## open it where it lies.
+## Drops each binder volume closed somewhere on top of the pile, with room to
+## open it where it lies. Where binders land on each other they start a
+## little apart, one above the other, and physics settles them.
 func spawn_binders(random_seed: int) -> void:
 	var ranges := CardDatabase.all_binders()
 	var placements := PileGenerator.scatter(ranges.size(), bounds, obstacles, random_seed + 2, Binder.OPEN_HALF_FOOTPRINT)
+	var reach := Binder.COVER.length() # centres closer than this may overlap
 	for i in ranges.size():
 		var binder := Binder.new()
 		binder.setup(ranges[i], CardDatabase.get_set(ranges[i].set_code).accent_color, self)
 		var p := placements[i].position
-		binder.put_down(self, Vector3(p.x, 0, p.y), placements[i].rotation, true)
+		var y := height_under(p, Vector2(Binder.COVER.x, Binder.COVER.y) / 2, placements[i].rotation) + 0.01
+		for other in binders:
+			if Vector2(other.position.x, other.position.z).distance_to(p) < reach:
+				y = maxf(y, other.position.y + Binder.THICKNESS + 0.01)
+		add_child(binder)
+		binder.rotation = Vector3(0, placements[i].rotation, 0)
+		binder.position = Vector3(p.x, y, p.y)
+		binder.state = Binder.State.CLOSED
+		binder.freeze = false
 		binders.append(binder)
 
 
@@ -192,6 +215,11 @@ func height_under(center: Vector2, half_size: Vector2, rotation_y: float) -> flo
 				lerpf(-half_size.y, half_size.y, float(j) / (steps.y - 1)))
 			top = maxf(top, _heights[_height_index(center + _rotated(local, rotation_y))])
 	return top
+
+
+func _physics_process(_delta: float) -> void:
+	if not _surface_dirty.is_empty():
+		_update_surface()
 
 
 func _process(delta: float) -> void:
@@ -286,6 +314,75 @@ func _build_set_lookup() -> void:
 		_accents[id] = CardDatabase.get_set(card.set_code).accent_color
 
 
+## The coarse collision surface binders rest on: each surface cell holds
+## the highest of the SURFACE_STRIDE × SURFACE_STRIDE height map cells it
+## covers, so the surface never dips below a card.
+func _build_surface() -> void:
+	var rows := _heights.size() / _height_columns
+	_surface_columns = ceili(float(_height_columns) / SURFACE_STRIDE)
+	_surface_rows = ceili(float(rows) / SURFACE_STRIDE)
+	_surface_heights.resize(_surface_columns * _surface_rows)
+	_surface_heights.fill(0.0)
+	for cell in _heights.size():
+		var h := _heights[cell]
+		if h > 0.0:
+			var index := (cell / _height_columns / SURFACE_STRIDE) * _surface_columns + (cell % _height_columns) / SURFACE_STRIDE
+			_surface_heights[index] = maxf(_surface_heights[index], h)
+	_surface = HeightMapShape3D.new()
+	_surface.map_width = _surface_columns
+	_surface.map_depth = _surface_rows
+	_surface.map_data = _surface_heights
+	var spacing := SURFACE_STRIDE * HEIGHT_CELL
+	var shape := CollisionShape3D.new()
+	shape.shape = _surface
+	# Heights sit at surface cell centres; the shape is centred on its node
+	# and one unit per sample, so scale it down to the cell spacing.
+	shape.scale = Vector3(spacing, 1.0, spacing)
+	shape.position = Vector3(
+		bounds.position.x + spacing * _surface_columns / 2.0,
+		0.0,
+		bounds.position.y + spacing * _surface_rows / 2.0)
+	var body := StaticBody3D.new()
+	body.name = "Surface"
+	body.collision_layer = SURFACE_LAYER
+	body.collision_mask = 0
+	body.add_child(shape)
+	add_child(body)
+	_surface_dirty.clear()
+
+
+func _mark_surface_dirty(cell: int) -> void:
+	_surface_dirty[(cell / _height_columns / SURFACE_STRIDE) * _surface_columns + (cell % _height_columns) / SURFACE_STRIDE] = true
+
+
+## Recomputes the surface cells under changed cards and wakes any binder
+## resting there, so it settles onto the new surface.
+func _update_surface() -> void:
+	if _surface == null:
+		_surface_dirty.clear()
+		return
+	var rows := _heights.size() / _height_columns
+	var spacing := SURFACE_STRIDE * HEIGHT_CELL
+	var changed := Rect2()
+	for index in _surface_dirty:
+		var sx: int = index % _surface_columns
+		var sy: int = index / _surface_columns
+		var top := 0.0
+		for y in range(sy * SURFACE_STRIDE, mini((sy + 1) * SURFACE_STRIDE, rows)):
+			for x in range(sx * SURFACE_STRIDE, mini((sx + 1) * SURFACE_STRIDE, _height_columns)):
+				top = maxf(top, _heights[y * _height_columns + x])
+		_surface_heights[index] = top
+		var cell_rect := Rect2(bounds.position + Vector2(sx, sy) * spacing, Vector2(spacing, spacing))
+		changed = cell_rect if changed.size == Vector2.ZERO else changed.merge(cell_rect)
+	_surface_dirty.clear()
+	_surface.map_data = _surface_heights
+	var near := changed.grow(Binder.COVER.length() / 2)
+	for binder in binders:
+		if binder.state == Binder.State.CLOSED and binder.get_parent() == self \
+				and near.has_point(Vector2(binder.position.x, binder.position.z)):
+			binder.sleeping = false
+
+
 ## A card with thickness: the face on top (a PlaneMesh, so floor_card's UVs
 ## still apply) and four edges running down CARD_THICKNESS below it. Edge
 ## vertices get UV (-1, -1) so the shader can paint them as card edge.
@@ -331,6 +428,7 @@ func _put_on_floor(id: int, p: Vector2, rotation_y: float) -> void:
 	var y := top + CARD_THICKNESS
 	for cell in footprint:
 		_heights[cell] = y
+		_mark_surface_dirty(cell)
 	_positions[id] = Vector3(p.x, y, p.y)
 	_rotations[id] = rotation_y
 	_grid_add(id)
@@ -357,6 +455,7 @@ func _refresh_cells(cells: PackedInt32Array) -> void:
 			if _states[id] == State.ON_FLOOR and _positions[id].y > top and _covers(id, center):
 				top = _positions[id].y
 		_heights[cell] = top
+		_mark_surface_dirty(cell)
 
 
 ## The height map cells whose centres a card at p, turned by rotation_y,

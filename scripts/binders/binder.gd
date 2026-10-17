@@ -1,5 +1,5 @@
 class_name Binder
-extends StaticBody3D
+extends RigidBody3D
 ## One binder volume (plan §3.2). It starts closed on top of the pile; the
 ## player can carry it, set it down on the floor or a table, open it flat
 ## there to file cards into its pockets, and shelve it spine out.
@@ -7,13 +7,22 @@ extends StaticBody3D
 ## The origin is the middle of the binder's underside. Closed, it lies cover
 ## up with the spine along its -x edge. Open, the two pages lie side by side
 ## across the origin, reading from the +z side (where the player stands).
-## Binders are kinematic like the pile: no physics, they just snap to where
-## they're put. They sit on their own collision layer so the player walks
-## through them but can still aim at them.
+## Unlike cards, binders are physics bodies while they lie closed, so they
+## rest on each other, slide off each other and settle on the pile (through
+## PileWorld's surface collider) instead of passing through one another.
+## Open, carried or shelved they're frozen in place. They sit on their own
+## collision layer so the player walks through them but can still aim at
+## them.
 
 enum State { CLOSED, OPEN, CARRIED, SHELVED }
 
 const PHYSICS_LAYER := 2
+## What a loose binder collides with: the store, other binders and stacks,
+## and the pile's surface.
+const PHYSICS_MASK := 1 | PHYSICS_LAYER | PileWorld.SURFACE_LAYER
+## Set-down binders are lowered from this far above the point until they
+## touch something, then left to settle.
+const DROP_HEIGHT := 0.4
 const THICKNESS := 0.05
 const COVER := Vector2(0.26, 0.33) # x across the cover, y along the spine
 const SIZE := Vector3(COVER.x, THICKNESS, COVER.y)
@@ -38,8 +47,6 @@ var contents: BinderContents
 var state := State.CLOSED
 ## Which spread is showing when open (see BinderLayout.spread_pages).
 var spread := 0
-## Lying on the pile (as opposed to a table), so it rests on the cards.
-var on_floor := true
 var pile: PileWorld
 var shelf_unit: ShelfUnit
 var shelf_space := -1
@@ -65,7 +72,12 @@ func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
 	pile = world
 	_accent = accent
 	collision_layer = PHYSICS_LAYER
-	collision_mask = 0
+	collision_mask = PHYSICS_MASK
+	mass = 1.2
+	physics_material_override = PhysicsMaterial.new()
+	physics_material_override.friction = 0.9
+	physics_material_override.bounce = 0.0
+	freeze = true
 
 	_shape = BoxShape3D.new()
 	_collision = CollisionShape3D.new()
@@ -139,8 +151,11 @@ func open() -> void:
 	_build_open_view()
 	_closed_view.visible = false
 	_open_view.visible = true
+	# Lies flat and still while open, so pockets stay where you aim.
+	freeze = true
+	rotation = Vector3(0, rotation.y, 0)
 	_set_collision_box(Vector3(COVER.x * 2, OPEN_HEIGHT, COVER.y))
-	_rest_on_pile(Vector2(COVER.x, COVER.y / 2))
+	_lower_onto_what_is_below(position.y + DROP_HEIGHT)
 	_refresh_spread()
 
 
@@ -153,7 +168,8 @@ func close() -> void:
 	_open_view.visible = false
 	_closed_view.visible = true
 	_set_collision_box(SIZE)
-	_rest_on_pile(Vector2(COVER.x / 2, COVER.y / 2))
+	_lower_onto_what_is_below(position.y + DROP_HEIGHT)
+	_let_go()
 
 
 ## Turns pages: +1 forward, -1 back. Returns false at either end.
@@ -213,7 +229,9 @@ func set_hover(pocket: int) -> void:
 func carry(holder: Node, local_position: Vector3, local_rotation: Vector3) -> void:
 	close()
 	state = State.CARRIED
+	freeze = true
 	collision_layer = 0
+	collision_mask = 0
 	shelf_unit = null
 	shelf_space = -1
 	_set_status_glow(Color.BLACK)
@@ -223,24 +241,29 @@ func carry(holder: Node, local_position: Vector3, local_rotation: Vector3) -> vo
 	_refresh_complete_look()
 
 
-## Lays the binder down closed at a point, turned to face `yaw`.
-func put_down(parent: Node, point: Vector3, yaw: float, resting_on_floor: bool) -> void:
+## Lays the binder down closed at a point, turned to face `yaw`, on top of
+## whatever is there (cards, a table, another binder), then lets physics
+## settle it.
+func put_down(parent: Node, point: Vector3, yaw: float) -> void:
 	_move_to(parent)
 	state = State.CLOSED
 	collision_layer = PHYSICS_LAYER
-	on_floor = resting_on_floor
+	collision_mask = PHYSICS_MASK
 	rotation = Vector3(0, yaw, 0)
 	position = point
-	_rest_on_pile(Vector2(COVER.x / 2, COVER.y / 2))
+	_lower_onto_what_is_below(point.y + DROP_HEIGHT)
+	_let_go()
 
 
 ## Stands the binder in a shelf space. ShelfUnit decides where and whether
 ## it's the right space.
 func stand_on_shelf(unit: ShelfUnit, space: int, local_transform: Transform3D, correct: bool) -> void:
 	_move_to(unit)
+	freeze = true
 	transform = local_transform
 	state = State.SHELVED
 	collision_layer = PHYSICS_LAYER
+	collision_mask = 0
 	shelf_unit = unit
 	shelf_space = space
 	if correct:
@@ -273,10 +296,35 @@ func _flash_status(peak: Color) -> void:
 	tween.tween_method(_set_status_glow, peak, settle, 1.0)
 
 
-func _rest_on_pile(half_footprint: Vector2) -> void:
-	if not on_floor or pile == null or state == State.CARRIED or state == State.SHELVED:
+## Sweeps the collision box straight down from `from_height` (flat, at the
+## binder's x, z and yaw) and leaves the binder where it first touches
+## something. Outside the tree (tests) it rests on the pile's height map.
+func _lower_onto_what_is_below(from_height: float) -> void:
+	if not is_inside_tree():
+		if pile != null:
+			var half := Vector2(_shape.size.x, _shape.size.z) / 2
+			position.y = pile.height_under(Vector2(position.x, position.z), half, rotation.y)
 		return
-	position.y = pile.height_under(Vector2(position.x, position.z), half_footprint, rotation.y)
+	var params := PhysicsShapeQueryParameters3D.new()
+	params.shape = _shape
+	params.collision_mask = PHYSICS_MASK
+	params.exclude = [get_rid()]
+	var start := Transform3D(Basis(Vector3.UP, global_rotation.y),
+		Vector3(global_position.x, from_height + _shape.size.y / 2, global_position.z))
+	params.transform = start
+	params.motion = Vector3(0, -(from_height + 0.5), 0)
+	var safe: float = get_world_3d().direct_space_state.cast_motion(params)[0]
+	global_position.y = from_height + params.motion.y * safe + 0.002
+
+
+## Hands the binder back to physics, at rest.
+func _let_go() -> void:
+	if state != State.CLOSED:
+		return
+	freeze = false
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	sleeping = false
 
 
 func _move_to(parent: Node) -> void:
