@@ -34,7 +34,7 @@ func _process(delta: float) -> void:
 
 
 func _update_stats() -> void:
-	_status.text = "%d fps · %d draw calls · %d cards on the floor\nWASD move · mouse look · Ctrl/C crouch · left-click pick up / file / look closer · right-click toss · E open binder · wheel turn pages · F unsorted stack · Esc frees mouse" % [
+	_status.text = "%d fps · %d draw calls · %d cards on the floor" % [
 		Engine.get_frames_per_second(),
 		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
 		_pile.card_count_on_floor()]

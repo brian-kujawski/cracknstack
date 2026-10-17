@@ -315,6 +315,10 @@ func _update_hint() -> void:
 				text = "click: set the binder down"
 			elif held_card_id >= 0:
 				text = "F: start an unsorted stack here"
+			elif _aim == Aim.FLOOR and pile.top_card_at(_aim_point) >= 0:
+				text = "click: pick up"
+	if text.is_empty() and held_card_id >= 0:
+		text = "click: look closer · right-click: toss"
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
