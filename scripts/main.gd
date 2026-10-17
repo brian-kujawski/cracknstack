@@ -12,6 +12,7 @@ const PILE_SEED := 1993
 @onready var _hint: Label = $HUD/Hint
 
 var _stats_timer := 0.0
+var _credits: PanelContainer
 
 
 func _ready() -> void:
@@ -23,7 +24,13 @@ func _ready() -> void:
 	_hands.held_changed.connect(_on_held_changed)
 	_hands.hint_changed.connect(func(text: String) -> void: _hint.text = text)
 	_on_held_changed(null, null)
+	_build_credits()
 	_update_stats()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("credits"):
+		_credits.visible = not _credits.visible
 
 
 func _process(delta: float) -> void:
@@ -36,7 +43,9 @@ func _process(delta: float) -> void:
 ## Frame rate and draw calls are for us while testing: they show when running
 ## from the editor or a debug export, and are left out of release exports.
 func _update_stats() -> void:
-	var text := "%d cards on the floor" % _pile.card_count_on_floor()
+	var text := "%d cards on the floor · Tab: credits" % _pile.card_count_on_floor()
+	if not CardDatabase.is_real_data():
+		text += "\nPlaceholder cards: run tools/import_scryfall.py for Khans of Tarkir"
 	if OS.is_debug_build():
 		text = "%d fps · %d draw calls · %s" % [
 			Engine.get_frames_per_second(),
@@ -56,3 +65,26 @@ func _on_held_changed(card: CardData, binder: BinderRange) -> void:
 	_held.text = "%s\n%s · %s #%d · %s\n%s" % [
 		card.name, set_data.name, set_data.code, card.collector_number,
 		CardData.Rarity.keys()[card.rarity].capitalize(), card.type_line]
+
+
+## The credits (Tab): Fan Content disclaimer, data and art sources.
+func _build_credits() -> void:
+	_credits = PanelContainer.new()
+	_credits.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_credits.custom_minimum_size = Vector2(760, 0)
+	_credits.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_credits.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_credits.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.06, 0.05, 0.05, 0.88)
+	style.set_content_margin_all(24)
+	style.set_corner_radius_all(6)
+	_credits.add_theme_stylebox_override("panel", style)
+	var label := Label.new()
+	label.text = Credits.text()
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.custom_minimum_size = Vector2(712, 0)
+	_credits.add_child(label)
+	_credits.visible = false
+	_hint.get_parent().add_child(_credits)

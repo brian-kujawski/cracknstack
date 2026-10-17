@@ -46,6 +46,8 @@ var _face_up := PackedByteArray()
 var _states := PackedByteArray()
 var _set_numbers := PackedInt32Array()
 var _accents := PackedColorArray()
+## Per card: its slot in CardDatabase.face_atlas, or -1 for a placeholder face.
+var _faces := PackedFloat32Array()
 
 var _chunk_columns := 0
 var _chunks: Array[MultiMeshInstance3D] = []
@@ -276,6 +278,8 @@ func _allocate(count: int) -> void:
 	_mesh = _card_mesh()
 	_material = ShaderMaterial.new()
 	_material.shader = preload("res://shaders/floor_card.gdshader")
+	if CardDatabase.face_atlas != null:
+		CardDatabase.face_atlas.apply(_material)
 	for c in _chunk_columns * chunk_rows:
 		var multimesh := MultiMesh.new()
 		multimesh.transform_format = MultiMesh.TRANSFORM_3D
@@ -308,8 +312,10 @@ func _build_set_lookup() -> void:
 		set_numbers[sets[i].code] = i + 1
 	_set_numbers.resize(CardDatabase.card_count())
 	_accents.resize(CardDatabase.card_count())
+	_faces.resize(CardDatabase.card_count())
 	for id in CardDatabase.card_count():
 		var card := CardDatabase.get_card(id)
+		_faces[id] = card.face_index
 		_set_numbers[id] = set_numbers[card.set_code]
 		_accents[id] = CardDatabase.get_set(card.set_code).accent_color
 
@@ -534,7 +540,7 @@ func _rebuild_chunk(chunk: int) -> void:
 		buffer[i] = b.x.x; buffer[i + 1] = b.y.x; buffer[i + 2] = b.z.x; buffer[i + 3] = o.x
 		buffer[i + 4] = b.x.y; buffer[i + 5] = b.y.y; buffer[i + 6] = b.z.y; buffer[i + 7] = o.y
 		buffer[i + 8] = b.x.z; buffer[i + 9] = b.y.z; buffer[i + 10] = b.z.z; buffer[i + 11] = o.z
-		buffer[i + 12] = accent.r; buffer[i + 13] = accent.g; buffer[i + 14] = accent.b; buffer[i + 15] = 1.0
+		buffer[i + 12] = accent.r; buffer[i + 13] = accent.g; buffer[i + 14] = accent.b; buffer[i + 15] = _faces[id]
 		buffer[i + 16] = custom.r; buffer[i + 17] = custom.g; buffer[i + 18] = custom.b; buffer[i + 19] = custom.a
 		i += 20
 	multimesh.buffer = buffer

@@ -59,6 +59,7 @@ static func _ensure_input_actions() -> void:
 		"crouch": [KEY_CTRL, KEY_C],
 		"interact": [KEY_E],
 		"stack_card": [KEY_F],
+		"credits": [KEY_TAB],
 	}
 	var mouse_bindings := {
 		"use_hand": MOUSE_BUTTON_LEFT,

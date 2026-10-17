@@ -1,5 +1,6 @@
 // Placeholder card face, drawn entirely in the shader so ~30,000 distinct
-// cards need no textures (plan §4.3). Real card images replace this in M5.
+// cards need no textures (plan §4.3). With real data the shaders sample the
+// card's image instead and only use real_face() below.
 //
 // Layout (UV y runs top to bottom):
 //   set-tinted border · set number top-left · tinted art box ·
@@ -85,4 +86,13 @@ vec3 card_face(vec2 uv, vec3 accent, int set_number, int collector_number, int r
 		color = rarity_color(rarity);
 	}
 	return color;
+}
+
+// A real card image (sampled at uv) with its corners rounded off like a
+// real card's, so the scan's corner background doesn't show.
+const vec2 CORNER_RADIUS = vec2(0.048, 0.034); // ~3 mm on a 63 × 88 mm card
+
+vec3 real_face(vec3 sampled, vec2 uv) {
+	vec2 into_corner = max(abs(uv - 0.5) - (0.5 - CORNER_RADIUS), 0.0) / CORNER_RADIUS;
+	return length(into_corner) > 1.0 ? vec3(0.02) : sampled;
 }

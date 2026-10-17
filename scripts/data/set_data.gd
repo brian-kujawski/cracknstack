@@ -8,6 +8,8 @@ var name: String
 var release_date: String
 var card_count: int
 var accent_color: Color
+## Artists credited for this set's card images (real data only).
+var artists: PackedStringArray
 ## One entry per binder volume, in shelf order.
 var binder_ranges: Array[BinderRange] = []
 

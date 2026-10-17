@@ -1,6 +1,15 @@
 class_name CardView
 extends RefCounted
 ## Fills in a single-card material (held_card, binder_card) for a card id.
+## With real data that's the card's large image; otherwise the placeholder
+## face drawn by the shader.
+
+## Large faces kept in memory, most recently used last. An open binder shows
+## 18 cards, so this covers a few spreads plus the hand and the stacks.
+const LARGE_CACHE_SIZE := 64
+
+static var _large_cache := {} # card id -> Texture2D
+static var _large_order: Array[int] = []
 
 
 static func apply(material: ShaderMaterial, id: int) -> void:
@@ -11,3 +20,32 @@ static func apply(material: ShaderMaterial, id: int) -> void:
 	material.set_shader_parameter("set_number", CardDatabase.sets_in_shelf_order().find(set_data) + 1)
 	material.set_shader_parameter("collector_number", card.collector_number)
 	material.set_shader_parameter("rarity", card.rarity)
+	var face := large_face(card)
+	material.set_shader_parameter("has_face", face != null)
+	material.set_shader_parameter("face_texture", face)
+
+
+## The card's large image as a texture, or null if it has none.
+static func large_face(card: CardData) -> Texture2D:
+	if card.image_large.is_empty():
+		return null
+	if _large_cache.has(card.id):
+		_large_order.erase(card.id)
+		_large_order.append(card.id)
+		return _large_cache[card.id]
+	var image := FaceAtlas.load_image(card.image_large)
+	if image == null:
+		return null
+	image.generate_mipmaps()
+	var texture := ImageTexture.create_from_image(image)
+	_large_cache[card.id] = texture
+	_large_order.append(card.id)
+	if _large_order.size() > LARGE_CACHE_SIZE:
+		_large_cache.erase(_large_order.pop_front())
+	return texture
+
+
+## Forgets cached faces (after CardDatabase loads a different file).
+static func clear_cache() -> void:
+	_large_cache.clear()
+	_large_order.clear()

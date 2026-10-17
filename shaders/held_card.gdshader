@@ -9,9 +9,12 @@ uniform vec3 accent = vec3(0.5);
 uniform int set_number = 0;
 uniform int collector_number = 0;
 uniform int rarity = 0;
+// The card's large image, when real data is loaded.
+uniform bool has_face = false;
+uniform sampler2D face_texture : source_color, filter_linear_mipmap, repeat_disable;
 
 void fragment() {
 	ALBEDO = FRONT_FACING
-		? card_face(UV, accent, set_number, collector_number, rarity)
+		? (has_face ? real_face(texture(face_texture, UV).rgb, UV) : card_face(UV, accent, set_number, collector_number, rarity))
 		: card_back(UV);
 }

@@ -11,3 +11,6 @@ data/real/
 .DS_Store
 Thumbs.db
 *.tmp
+
+# Python
+__pycache__/

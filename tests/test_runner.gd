@@ -8,6 +8,9 @@ var _checks := 0
 
 
 func _ready() -> void:
+	# The checks below are written against the placeholder collection, even
+	# when real data has been imported locally.
+	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_test_database_loaded()
 	_test_collector_numbers_are_contiguous()
 	_test_shelf_order()
@@ -24,6 +27,9 @@ func _ready() -> void:
 	_test_binder_pockets()
 	_test_shelving()
 	_test_unsorted_stack()
+	_test_real_data_format()
+	_test_credits()
+	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
 
@@ -445,3 +451,97 @@ func _test_unsorted_stack() -> void:
 	_check(stack.size() == 2 and stack.top_card() == 20, "the last card stacked is on top")
 	_check(stack.pop() == 20 and stack.pop() == 10, "cards come off the top first")
 	_check(stack.is_queued_for_deletion(), "an empty stack goes away")
+
+
+const FIXTURE_DIR := "user://test_real_data"
+## A tiny atlas: 4 × 2 slots of 16 × 22 px on 64 px pages, so 10 cards need two pages.
+const FIXTURE_FACES := {"pages": ["faces/page_0.png", "faces/page_1.png"], "page_size": 64,
+	"slot_size": [16, 22], "columns": 4, "rows": 2}
+const FIXTURE_CARDS := 10
+
+
+## Writes a small data file shaped like tools/import_scryfall.py's output,
+## with made-up cards: each face is a flat colour whose red channel is
+## (card id + 1) × 20.
+func _write_fixture(with_pages := true) -> String:
+	DirAccess.make_dir_recursive_absolute(FIXTURE_DIR + "/faces")
+	DirAccess.make_dir_recursive_absolute(FIXTURE_DIR + "/images/tst")
+	var rows := []
+	for id in FIXTURE_CARDS:
+		var face := Image.create(48, 66, false, Image.FORMAT_RGB8)
+		face.fill(Color8((id + 1) * 20, 100, 50))
+		face.save_png("%s/images/tst/%d.png" % [FIXTURE_DIR, id + 1])
+		rows.append(["TST", id + 1, "Test Card %d" % (id + 1), "rare", ["G"], "Creature — Bear", "images/tst/%d.png" % (id + 1)])
+	for p in 2:
+		var page := Image.create(64, 64, false, Image.FORMAT_RGB8)
+		for slot in 8:
+			var id := p * 8 + slot
+			if id < FIXTURE_CARDS:
+				page.fill_rect(Rect2i((slot % 4) * 16, (slot / 4) * 22, 16, 22), Color8((id + 1) * 20, 100, 50))
+		var page_path := "%s/faces/page_%d.png" % [FIXTURE_DIR, p]
+		if with_pages:
+			page.save_png(page_path)
+		elif FileAccess.file_exists(page_path):
+			DirAccess.remove_absolute(page_path)
+	var data := {"format": 1, "source": "test fixture", "faces": FIXTURE_FACES, "cards": rows,
+		"sets": [{"code": "TST", "name": "Test Set", "release_date": "2014-09-26", "accent_color": "#a8783c",
+			"artists": ["Amy Artist", "Zed Painter"]}]}
+	var path := FIXTURE_DIR + "/cards.json"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	file.store_string(JSON.stringify(data))
+	file.close()
+	return path
+
+
+func _test_real_data_format() -> void:
+	var path := _write_fixture()
+	_check(CardDatabase.load_file(path) == OK, "real-data file loads")
+	_check(CardDatabase.is_real_data() and CardDatabase.card_count() == FIXTURE_CARDS, "real data replaces the placeholders")
+	var atlas := CardDatabase.face_atlas
+	_check(atlas != null and atlas.texture.get_layers() == 2, "the face atlas loads both pages")
+	if atlas == null:
+		return
+	_check(atlas.slots_per_page() == 8 and atlas.slot_uv.is_equal_approx(Vector2(0.25, 22.0 / 64.0)), "atlas layout comes from the file")
+	var card := CardDatabase.get_card(9)
+	_check(card.face_index == 9 and card.image_large == FIXTURE_DIR + "/images/tst/10.png", "cards know their atlas slot and large image")
+	_check(atlas.texture.get_width() == 64 and atlas.texture.get_height() == 64, "atlas pages keep their size")
+	var large := CardView.large_face(card)
+	_check(large != null and large.get_size() == Vector2(48, 66), "the large face loads for the held card")
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://shaders/held_card.gdshader")
+	CardView.apply(material, 9)
+	_check(material.get_shader_parameter("has_face") == true, "single-card materials switch to the real face")
+
+	# One set, one binder: one labelled shelf space, the rest blank.
+	var units := ShelfLayout.assign(CardDatabase.all_binders(), [54, 79, 54] as Array[int])
+	var labelled := 0
+	for unit in units:
+		labelled += unit.filter(func(b): return b != null).size()
+	_check(labelled == 1 and units[0][0] == CardDatabase.all_binders()[0], "one set gets one labelled shelf space")
+
+	# The pile hands each card's atlas slot to the floor shader (in the
+	# instance colour's alpha; the headless renderer keeps no buffers to check).
+	var pile := PileWorld.new()
+	add_child(pile)
+	var no_obstacles: Array[Rect2] = []
+	pile.build(Rect2(0, 0, 4, 4), no_obstacles, 3)
+	_check(pile.card_count_on_floor() == FIXTURE_CARDS, "the whole real set is on the floor")
+	var faces_ok := true
+	for id in FIXTURE_CARDS:
+		faces_ok = faces_ok and pile._faces[id] == id
+	_check(faces_ok, "floor cards carry their face atlas slot")
+	pile.free()
+
+	# A missing page falls back to placeholder faces rather than failing.
+	path = _write_fixture(false)
+	_check(CardDatabase.load_file(path) == OK and CardDatabase.face_atlas == null, "missing atlas pages fall back to placeholder faces")
+	_check(CardDatabase.get_card(0).face_index == -1, "and cards stop pointing into the atlas")
+	_write_fixture()
+
+
+func _test_credits() -> void:
+	var text := Credits.text()
+	_check(Credits.DISCLAIMER in text, "credits carry the Fan Content disclaimer")
+	_check("Scryfall" in text and "Test Set art by Amy Artist, Zed Painter." in text, "real-data credits name Scryfall and the artists")
+	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
+	_check(Credits.DISCLAIMER in Credits.text() and not "Scryfall" in Credits.text(), "placeholder credits still carry the disclaimer")

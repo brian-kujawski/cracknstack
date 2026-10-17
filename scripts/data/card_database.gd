@@ -1,8 +1,17 @@
 extends Node
-## Autoload. The ONLY way game code gets card data (plan §2). Today it reads
-## the placeholder file; the real-data milestone swaps the path, not the API.
+## Autoload. The ONLY way game code gets card data (plan §2). Loads the real
+## cards written by tools/import_scryfall.py (Khans of Tarkir for now) if
+## they're there, else the placeholder collection. Run with
+## `-- --placeholder` to force the placeholders (e.g. for the full-scale
+## benchmark).
 
+const REAL_PATH := "res://data/real/cards.json"
 const PLACEHOLDER_PATH := "res://data/placeholder/cards.json"
+
+## Where the loaded data came from ("" for placeholders).
+var source := ""
+## Small faces for the floor, or null to draw placeholder faces.
+var face_atlas: FaceAtlas
 
 var _cards: Array[CardData] = []
 var _sets: Dictionary = {} # code -> SetData
@@ -11,9 +20,12 @@ var _cards_by_set: Dictionary = {} # code -> Array[CardData], by collector numbe
 
 
 func _ready() -> void:
-	var error := load_file(PLACEHOLDER_PATH)
+	var path := PLACEHOLDER_PATH
+	if FileAccess.file_exists(REAL_PATH) and not "--placeholder" in OS.get_cmdline_user_args():
+		path = REAL_PATH
+	var error := load_file(path)
 	if error != OK:
-		push_error("CardDatabase: could not load %s (%s)" % [PLACEHOLDER_PATH, error_string(error)])
+		push_error("CardDatabase: could not load %s (%s)" % [path, error_string(error)])
 
 
 ## Replaces all loaded data with the contents of a card data file.
@@ -22,6 +34,12 @@ func load_file(path: String) -> Error:
 	if result.error != OK:
 		return result.error
 	_cards = result.cards
+	source = result.source
+	face_atlas = FaceAtlas.load_pages(result.faces) if not result.faces.is_empty() else null
+	if face_atlas == null:
+		for card in _cards:
+			card.face_index = -1
+	CardView.clear_cache()
 	_sets.clear()
 	_cards_by_set.clear()
 	for set_data in result.sets:
@@ -36,6 +54,11 @@ func load_file(path: String) -> Error:
 	_sets_in_shelf_order.assign(_sets.values())
 	_sets_in_shelf_order.sort_custom(CardSort.compare_sets)
 	return OK
+
+
+## True when real cards are loaded rather than the placeholders.
+func is_real_data() -> bool:
+	return not source.is_empty()
 
 
 func card_count() -> int:
