@@ -4,8 +4,6 @@ extends StaticBody3D
 ## hasn't turned up yet (plan §3.2). Face up; only the top card can be taken.
 ## Like binders it's kinematic and on the binder collision layer.
 
-const CARD_THICKNESS := 0.0004
-
 var pile: PileWorld
 
 var _cards: Array[int] = []
@@ -75,7 +73,7 @@ func pop() -> int:
 
 
 func _refresh() -> void:
-	var height := maxf(_cards.size() * CARD_THICKNESS, 0.001)
+	var height := maxf(_cards.size() * PileWorld.CARD_THICKNESS, 0.001)
 	(_side.mesh as BoxMesh).size = Vector3(PileWorld.CARD_SIZE.x, height, PileWorld.CARD_SIZE.y)
 	_side.position.y = height / 2
 	_top.position.y = height + 0.0005

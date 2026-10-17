@@ -195,7 +195,8 @@ func _stack_held_card() -> void:
 		var stack := UnsortedStack.new()
 		stack.setup(pile)
 		pile.add_child(stack)
-		stack.place(_aim_point, _yaw_facing_player(_aim_point), _aim == Aim.FLOOR)
+		var yaw := _yaw_facing_player(_aim_point)
+		stack.place(_clear_of_obstacles(_aim_point, PileWorld.CARD_SIZE / 2, yaw), yaw, _aim == Aim.FLOOR)
 		stack.push(held_card_id)
 	else:
 		return
@@ -211,7 +212,8 @@ func _carry(binder: Binder) -> void:
 
 
 func _set_binder_down() -> void:
-	carried_binder.put_down(pile, _aim_point, _yaw_facing_player(_aim_point), _aim == Aim.FLOOR)
+	var yaw := _yaw_facing_player(_aim_point)
+	carried_binder.put_down(pile, _clear_of_obstacles(_aim_point, Binder.OPEN_HALF_FOOTPRINT, yaw), yaw)
 	carried_binder = null
 	held_changed.emit(null, null)
 
@@ -224,9 +226,18 @@ func _shelve_carried_binder() -> void:
 	var correct := _aim_shelf.shelve(_aim_space, binder)
 	held_changed.emit(null, null)
 	if correct:
-		var lit := _aim_shelf.is_section_complete(_aim_space / ShelfLayout.SPACES_PER_SHELF)
+		var lit := _aim_shelf.is_section_complete(_aim_shelf.shelf_of(_aim_space))
 		FeedbackSounds.play(pile, binder.global_position,
 			FeedbackSounds.Kind.SECTION_COMPLETE if lit else FeedbackSounds.Kind.BINDER_SHELVED)
+
+
+## On the floor, nudges a footprint at `point` clear of walls, shelves and
+## table legs. Table tops are left as aimed.
+func _clear_of_obstacles(point: Vector3, half_size: Vector2, yaw: float) -> Vector3:
+	if _aim != Aim.FLOOR:
+		return point
+	var p := pile.clear_point(Vector2(point.x, point.z), half_size, yaw)
+	return Vector3(p.x, point.y, p.y)
 
 
 ## Turned so its bottom edge (local +z) faces the player.
@@ -246,6 +257,9 @@ func _update_aim() -> void:
 	var to := from - _camera.global_transform.basis.z * reach
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.exclude = [(get_parent() as CollisionObject3D).get_rid()]
+	# The pile's surface collider is only for binders to rest on; aim at the
+	# cards through it.
+	query.collision_mask = ~PileWorld.SURFACE_LAYER
 	var hit := _camera.get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		return
@@ -304,6 +318,10 @@ func _update_hint() -> void:
 				text = "click: set the binder down"
 			elif held_card_id >= 0:
 				text = "F: start an unsorted stack here"
+			elif _aim == Aim.FLOOR and pile.top_card_at(_aim_point) >= 0:
+				text = "click: pick up"
+	if text.is_empty() and held_card_id >= 0:
+		text = "click: look closer · right-click: toss"
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)

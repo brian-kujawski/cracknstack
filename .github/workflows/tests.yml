@@ -8,6 +8,8 @@ on:
 jobs:
   godot-headless:
     runs-on: ubuntu-latest
+    # A script parse error leaves the test scene running forever; fail fast instead.
+    timeout-minutes: 10
     env:
       GODOT_VERSION: 4.7.2
     steps:

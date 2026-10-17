@@ -17,7 +17,7 @@ var _stats_timer := 0.0
 func _ready() -> void:
 	var started := Time.get_ticks_msec()
 	_pile.build(_store.floor_bounds(), _store.obstacles, PILE_SEED)
-	_pile.spawn_binders(_store.obstacles, PILE_SEED)
+	_pile.spawn_binders(PILE_SEED)
 	print("Pile built: %d cards in %d ms" % [CardDatabase.card_count(), Time.get_ticks_msec() - started])
 	_hands.pile = _pile
 	_hands.held_changed.connect(_on_held_changed)
@@ -33,11 +33,16 @@ func _process(delta: float) -> void:
 		_update_stats()
 
 
+## Frame rate and draw calls are for us while testing: they show when running
+## from the editor or a debug export, and are left out of release exports.
 func _update_stats() -> void:
-	_status.text = "%d fps · %d draw calls · %d cards on the floor\nWASD move · mouse look · Ctrl/C crouch · left-click pick up / file / look closer · right-click toss · E open binder · wheel turn pages · F unsorted stack · Esc frees mouse" % [
-		Engine.get_frames_per_second(),
-		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
-		_pile.card_count_on_floor()]
+	var text := "%d cards on the floor" % _pile.card_count_on_floor()
+	if OS.is_debug_build():
+		text = "%d fps · %d draw calls · %s" % [
+			Engine.get_frames_per_second(),
+			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
+			text]
+	_status.text = text
 
 
 func _on_held_changed(card: CardData, binder: BinderRange) -> void:

@@ -1,7 +1,7 @@
 class_name ShelfUnit
 extends StaticBody3D
-## One graybox shelving unit. Its origin is on the floor, centred under the
-## unit, and its open front faces local +Z.
+## One graybox shelving unit, any number of spaces wide. Its origin is on
+## the floor, centred under the unit, and its open front faces local +Z.
 ##
 ## Labelled units show each binder's set code and number range on the shelf
 ## lip under its space. A binder stood in its own space locks in; in any other
@@ -9,7 +9,6 @@ extends StaticBody3D
 ## own completed binder, the light under the shelf above comes on.
 
 const SPACE_WIDTH := 0.1
-const WIDTH := ShelfLayout.SPACES_PER_SHELF * SPACE_WIDTH
 const DEPTH := 0.35
 const HEIGHT := 2.2
 const BOARD_THICKNESS := 0.04
@@ -17,8 +16,12 @@ const SIDE_THICKNESS := 0.03
 ## Height of each shelf board's top surface, top shelf first.
 const SHELF_HEIGHTS := [1.75, 1.35, 0.95, 0.55, 0.15]
 
-## Per space (shelf * SPACES_PER_SHELF + space): the binder that belongs
-## there, or null. Empty for unlabelled units such as aisle gondolas.
+## Spaces along each shelf.
+var spaces_per_shelf := ShelfLayout.SPACES_PER_SHELF
+## Inside width, between the side panels.
+var width := 0.0
+## Per space (shelf * spaces_per_shelf + space): the binder that belongs
+## there, or null. Empty for unlabelled units.
 var spaces: Array = []
 ## Per space: the Binder standing there now, or null.
 var shelved: Array = []
@@ -26,20 +29,29 @@ var shelved: Array = []
 var _section_lights: Array[MeshInstance3D] = []
 
 
-## Builds the meshes, collision and labels. Call once before adding to the tree.
-func build(space_binders: Array, material: Material) -> void:
+## Outside width of a unit with this many spaces per shelf.
+static func outer_width(per_shelf: int) -> float:
+	return per_shelf * SPACE_WIDTH + 2 * SIDE_THICKNESS
+
+
+## Builds the meshes, collision and labels. Call once before adding to the
+## tree. A labelled unit gets SHELVES_PER_UNIT * per_shelf spaces from
+## ShelfLayout.assign(); an unlabelled one gets [].
+func build(space_binders: Array, material: Material, per_shelf := ShelfLayout.SPACES_PER_SHELF) -> void:
 	spaces = space_binders
+	spaces_per_shelf = per_shelf
+	width = per_shelf * SPACE_WIDTH
 	shelved.resize(spaces.size())
-	_add_box(Vector3(SIDE_THICKNESS, HEIGHT, DEPTH), Vector3(-(WIDTH + SIDE_THICKNESS) / 2, HEIGHT / 2, 0), material)
-	_add_box(Vector3(SIDE_THICKNESS, HEIGHT, DEPTH), Vector3((WIDTH + SIDE_THICKNESS) / 2, HEIGHT / 2, 0), material)
-	_add_box(Vector3(WIDTH, HEIGHT, 0.02), Vector3(0, HEIGHT / 2, -DEPTH / 2 + 0.01), material)
-	_add_box(Vector3(WIDTH, BOARD_THICKNESS, DEPTH), Vector3(0, HEIGHT - BOARD_THICKNESS / 2, 0), material)
+	_add_box(Vector3(SIDE_THICKNESS, HEIGHT, DEPTH), Vector3(-(width + SIDE_THICKNESS) / 2, HEIGHT / 2, 0), material)
+	_add_box(Vector3(SIDE_THICKNESS, HEIGHT, DEPTH), Vector3((width + SIDE_THICKNESS) / 2, HEIGHT / 2, 0), material)
+	_add_box(Vector3(width, HEIGHT, 0.02), Vector3(0, HEIGHT / 2, -DEPTH / 2 + 0.01), material)
+	_add_box(Vector3(width, BOARD_THICKNESS, DEPTH), Vector3(0, HEIGHT - BOARD_THICKNESS / 2, 0), material)
 	for top in SHELF_HEIGHTS:
-		_add_box(Vector3(WIDTH, BOARD_THICKNESS, DEPTH), Vector3(0, top - BOARD_THICKNESS / 2, 0), material)
+		_add_box(Vector3(width, BOARD_THICKNESS, DEPTH), Vector3(0, top - BOARD_THICKNESS / 2, 0), material)
 
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(WIDTH + 2 * SIDE_THICKNESS, HEIGHT, DEPTH)
+	box.size = Vector3(width + 2 * SIDE_THICKNESS, HEIGHT, DEPTH)
 	shape.shape = box
 	shape.position.y = HEIGHT / 2
 	add_child(shape)
@@ -55,7 +67,7 @@ func build(space_binders: Array, material: Material) -> void:
 		label.modulate = Color(0.15, 0.15, 0.15)
 		label.outline_size = 0
 		label.double_sided = false
-		label.position = space_position(i / ShelfLayout.SPACES_PER_SHELF, i % ShelfLayout.SPACES_PER_SHELF)
+		label.position = space_position(shelf_of(i), i % spaces_per_shelf)
 		label.position.y -= BOARD_THICKNESS / 2
 		label.position.z = DEPTH / 2 + 0.002
 		label.set_meta("binder_label", binder.label)
@@ -72,13 +84,13 @@ func space_at(global_point: Vector3) -> int:
 	if spaces.is_empty():
 		return -1
 	var local := to_local(global_point)
-	if absf(local.x) >= WIDTH / 2:
+	if absf(local.x) >= width / 2:
 		return -1
 	for shelf in SHELF_HEIGHTS.size():
 		# Heights run top shelf first, so the first board at or below the
 		# point is the one it's above.
 		if local.y >= SHELF_HEIGHTS[shelf] - 0.01:
-			var index := shelf * ShelfLayout.SPACES_PER_SHELF + int((local.x + WIDTH / 2) / SPACE_WIDTH)
+			var index := shelf * spaces_per_shelf + int((local.x + width / 2) / SPACE_WIDTH)
 			return index if spaces[index] != null else -1
 	return -1
 
@@ -89,20 +101,20 @@ func shelve(space: int, binder: Binder) -> bool:
 	var correct: bool = spaces[space] == binder.binder
 	shelved[space] = binder
 	binder.stand_on_shelf(self, space, binder_transform(space), correct)
-	refresh_section(space / ShelfLayout.SPACES_PER_SHELF)
+	refresh_section(shelf_of(space))
 	return correct
 
 
 func unshelve(space: int) -> void:
 	shelved[space] = null
-	refresh_section(space / ShelfLayout.SPACES_PER_SHELF)
+	refresh_section(shelf_of(space))
 
 
 ## True when every labelled space on a shelf holds its own completed binder.
 func is_section_complete(shelf: int) -> bool:
 	var any := false
-	for space in ShelfLayout.SPACES_PER_SHELF:
-		var index := shelf * ShelfLayout.SPACES_PER_SHELF + space
+	for space in spaces_per_shelf:
+		var index := shelf * spaces_per_shelf + space
 		if spaces[index] == null:
 			continue
 		any = true
@@ -125,7 +137,7 @@ func refresh_section(shelf: int) -> bool:
 ## The spine sits a few millimetres proud of the unit's front so it's the
 ## binder, not the shelf, under the crosshair.
 func binder_transform(space: int) -> Transform3D:
-	var floor_point := space_position(space / ShelfLayout.SPACES_PER_SHELF, space % ShelfLayout.SPACES_PER_SHELF)
+	var floor_point := space_position(shelf_of(space), space % spaces_per_shelf)
 	# Binder axes: thickness (y) runs along the shelf, the spine (-x) faces
 	# out, and the binder's length (z) stands upright.
 	var basis := Basis(Vector3(0, 0, -1), Vector3(1, 0, 0), Vector3(0, -1, 0))
@@ -134,16 +146,21 @@ func binder_transform(space: int) -> Transform3D:
 	return Transform3D(basis, origin)
 
 
+## Which shelf (0 = top) a space is on.
+func shelf_of(space: int) -> int:
+	return space / spaces_per_shelf
+
+
 ## Local position of the centre of a space's floor (the top of its board).
 func space_position(shelf: int, space: int) -> Vector3:
-	return Vector3(-WIDTH / 2 + SPACE_WIDTH * (space + 0.5), SHELF_HEIGHTS[shelf], 0)
+	return Vector3(-width / 2 + SPACE_WIDTH * (space + 0.5), SHELF_HEIGHTS[shelf], 0)
 
 
 ## A strip light under the board above a shelf, dark until the shelf is done.
 func _build_section_light(shelf: int) -> MeshInstance3D:
 	var above: float = HEIGHT - BOARD_THICKNESS if shelf == 0 else SHELF_HEIGHTS[shelf - 1] - BOARD_THICKNESS
 	var mesh := BoxMesh.new()
-	mesh.size = Vector3(WIDTH - 0.02, 0.006, 0.015)
+	mesh.size = Vector3(width - 0.02, 0.006, 0.015)
 	var material := StandardMaterial3D.new()
 	material.emission_enabled = true
 	material.emission = Color(1.0, 0.85, 0.55)

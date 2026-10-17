@@ -10,22 +10,33 @@ extends Node3D
 ## nothing else reacts. No physics, no chains.
 
 const CARD_SIZE := Vector2(0.063, 0.088) # metres, real card size
-const CARD_THICKNESS := 0.0006
+## Three times a real card (about 0.3 mm): real thickness is too thin for a
+## pile to read as a pile.
+const CARD_THICKNESS := 0.0018
 const CHUNK_SIZE := 2.0
 ## Picking grid: each card is filed under the cell holding its centre. Cells
 ## are wider than half a card's diagonal, so a 3×3 query finds every card
 ## that could cover a point.
 const GRID_CELL := 0.1
-## Height map resolution used to stack cards on top of each other.
-const HEIGHT_CELL := 0.05
+## Height map resolution used to stack cards on top of each other. Fine
+## enough that a card only rests on cards that are really under it, rather
+## than on anything nearby.
+const HEIGHT_CELL := 0.015
 const GAP_FILL_MAX_CARDS := 6
 const GAP_FILL_PULL := 0.35 # fraction of the way toward the gap
 const GAP_FILL_SECONDS := 0.18
 const OVERLAP_DISTANCE := 0.075
+## Collision layer of the pile's surface: a coarse height field that only
+## binders collide with, so they can rest on the cards.
+const SURFACE_LAYER := 8
+## Surface grid: one height per this many height map cells (the highest).
+const SURFACE_STRIDE := 3
 
 enum State { ON_FLOOR, HELD }
 
 var bounds: Rect2
+## Floor footprints nothing may overlap (walls are the edge of `bounds`).
+var obstacles: Array[Rect2] = []
 ## Every binder in the store, in shelf order (wherever each one is now).
 var binders: Array[Binder] = []
 
@@ -45,22 +56,34 @@ var _slot_of := PackedInt32Array()
 var _grid_columns := 0
 var _grid_rows := 0
 var _grid: Array[PackedInt32Array] = []
+## Per card: the grid cell it's filed under, or -1. Kept so a card that slid
+## during gap fill is removed from the cell it was filed in, not the one it's
+## over now.
+var _grid_cell_of := PackedInt32Array()
 
 var _height_columns := 0
 var _heights := PackedFloat32Array()
 
 var _highlighted := -1
 var _material: ShaderMaterial
-var _mesh: PlaneMesh
+var _mesh: ArrayMesh
 
 ## card id -> {from: Vector3, to: Vector3, t: float}
 var _slides := {}
 
+var _surface: HeightMapShape3D
+var _surface_columns := 0
+var _surface_rows := 0
+var _surface_heights := PackedFloat32Array()
+## Surface cells whose height map cells changed since the last update.
+var _surface_dirty := {}
+
 
 ## Scatters every card in the database over `floor_bounds`, avoiding the
 ## footprints in `obstacles`. Binders are placed separately by spawn_binders().
-func build(floor_bounds: Rect2, obstacles: Array[Rect2], random_seed: int) -> void:
+func build(floor_bounds: Rect2, floor_obstacles: Array[Rect2], random_seed: int) -> void:
 	bounds = floor_bounds
+	obstacles = floor_obstacles
 	var count := CardDatabase.card_count()
 	_allocate(count)
 	_build_set_lookup()
@@ -80,17 +103,29 @@ func build(floor_bounds: Rect2, obstacles: Array[Rect2], random_seed: int) -> vo
 		_put_on_floor(id, placement.position, placement.rotation)
 	for c in _chunks.size():
 		_rebuild_chunk(c)
+	_build_surface()
 
 
-## Lays each binder volume closed somewhere on top of the pile.
-func spawn_binders(obstacles: Array[Rect2], random_seed: int) -> void:
+## Drops each binder volume closed somewhere on top of the pile, with room to
+## open it where it lies. Where binders land on each other they start a
+## little apart, one above the other, and physics settles them.
+func spawn_binders(random_seed: int) -> void:
 	var ranges := CardDatabase.all_binders()
-	var placements := PileGenerator.scatter(ranges.size(), bounds, obstacles, random_seed + 2)
+	var placements := PileGenerator.scatter(ranges.size(), bounds, obstacles, random_seed + 2, Binder.OPEN_HALF_FOOTPRINT)
+	var reach := Binder.COVER.length() # centres closer than this may overlap
 	for i in ranges.size():
 		var binder := Binder.new()
 		binder.setup(ranges[i], CardDatabase.get_set(ranges[i].set_code).accent_color, self)
 		var p := placements[i].position
-		binder.put_down(self, Vector3(p.x, 0, p.y), placements[i].rotation, true)
+		var y := height_under(p, Vector2(Binder.COVER.x, Binder.COVER.y) / 2, placements[i].rotation) + 0.01
+		for other in binders:
+			if Vector2(other.position.x, other.position.z).distance_to(p) < reach:
+				y = maxf(y, other.position.y + Binder.THICKNESS + 0.01)
+		add_child(binder)
+		binder.rotation = Vector3(0, placements[i].rotation, 0)
+		binder.position = Vector3(p.x, y, p.y)
+		binder.state = Binder.State.CLOSED
+		binder.freeze = false
 		binders.append(binder)
 
 
@@ -132,6 +167,7 @@ func pick_up(id: int) -> void:
 	_states[id] = State.HELD
 	_grid_remove(id)
 	_chunk_remove(id)
+	_refresh_cells(_footprint_cells(gap, _rotations[id]))
 	_start_gap_fill(gap)
 
 
@@ -140,7 +176,7 @@ func drop(id: int, point: Vector3, rotation_y: float, face_up := true) -> void:
 	if _states[id] != State.HELD:
 		return
 	_states[id] = State.ON_FLOOR
-	var p := Vector2(clampf(point.x, bounds.position.x, bounds.end.x), clampf(point.z, bounds.position.y, bounds.end.y))
+	var p := clear_point(Vector2(point.x, point.z), CARD_SIZE / 2, rotation_y)
 	_face_up[id] = 1 if face_up else 0
 	_put_on_floor(id, p, rotation_y)
 	_rebuild_chunk(_chunk_of[id])
@@ -155,6 +191,12 @@ func set_highlight(id: int) -> void:
 		_update_instance_custom(previous)
 	if id >= 0:
 		_update_instance_custom(id)
+
+
+## The nearest floor point to p where a footprint (half size, turned by
+## rotation_y) is inside the walls and clear of every obstacle.
+func clear_point(p: Vector2, half_size: Vector2, rotation_y: float) -> Vector2:
+	return PileGenerator.nearest_clear(p, half_size, rotation_y, bounds, obstacles)
 
 
 ## Top of the stack at a floor point (used to rest binders and dropped cards).
@@ -175,6 +217,11 @@ func height_under(center: Vector2, half_size: Vector2, rotation_y: float) -> flo
 	return top
 
 
+func _physics_process(_delta: float) -> void:
+	if not _surface_dirty.is_empty():
+		_update_surface()
+
+
 func _process(delta: float) -> void:
 	if _slides.is_empty():
 		return
@@ -188,9 +235,13 @@ func _process(delta: float) -> void:
 		if slide.t >= 1.0:
 			finished.append(id)
 	for id in finished:
+		var from: Vector3 = _slides[id].from
 		_slides.erase(id)
 		_grid_remove(id)
 		_grid_add(id)
+		var cells := _footprint_cells(Vector2(from.x, from.z), _rotations[id])
+		cells.append_array(_footprint_cells(Vector2(_positions[id].x, _positions[id].z), _rotations[id]))
+		_refresh_cells(cells)
 
 
 func _start_gap_fill(gap: Vector2) -> void:
@@ -205,7 +256,8 @@ func _start_gap_fill(gap: Vector2) -> void:
 	for id in neighbours.slice(0, GAP_FILL_MAX_CARDS):
 		var from := _positions[id]
 		var to := from.lerp(Vector3(gap.x, from.y, gap.y), GAP_FILL_PULL)
-		_slides[id] = {"from": from, "to": to, "t": 0.0}
+		if PileGenerator.footprint_clear(Vector2(to.x, to.z), CARD_SIZE / 2, _rotations[id], bounds, obstacles):
+			_slides[id] = {"from": from, "to": to, "t": 0.0}
 
 
 func _allocate(count: int) -> void:
@@ -216,11 +268,12 @@ func _allocate(count: int) -> void:
 	_states.fill(State.ON_FLOOR)
 	_chunk_of.resize(count)
 	_slot_of.resize(count)
+	_grid_cell_of.resize(count)
+	_grid_cell_of.fill(-1)
 
 	_chunk_columns = ceili(bounds.size.x / CHUNK_SIZE)
 	var chunk_rows := ceili(bounds.size.y / CHUNK_SIZE)
-	_mesh = PlaneMesh.new()
-	_mesh.size = CARD_SIZE
+	_mesh = _card_mesh()
 	_material = ShaderMaterial.new()
 	_material.shader = preload("res://shaders/floor_card.gdshader")
 	for c in _chunk_columns * chunk_rows:
@@ -261,16 +314,121 @@ func _build_set_lookup() -> void:
 		_accents[id] = CardDatabase.get_set(card.set_code).accent_color
 
 
+## The coarse collision surface binders rest on: each surface cell holds
+## the highest of the SURFACE_STRIDE × SURFACE_STRIDE height map cells it
+## covers, so the surface never dips below a card.
+func _build_surface() -> void:
+	var rows := _heights.size() / _height_columns
+	_surface_columns = ceili(float(_height_columns) / SURFACE_STRIDE)
+	_surface_rows = ceili(float(rows) / SURFACE_STRIDE)
+	_surface_heights.resize(_surface_columns * _surface_rows)
+	_surface_heights.fill(0.0)
+	for cell in _heights.size():
+		var h := _heights[cell]
+		if h > 0.0:
+			var index := (cell / _height_columns / SURFACE_STRIDE) * _surface_columns + (cell % _height_columns) / SURFACE_STRIDE
+			_surface_heights[index] = maxf(_surface_heights[index], h)
+	_surface = HeightMapShape3D.new()
+	_surface.map_width = _surface_columns
+	_surface.map_depth = _surface_rows
+	_surface.map_data = _surface_heights
+	var spacing := SURFACE_STRIDE * HEIGHT_CELL
+	var shape := CollisionShape3D.new()
+	shape.shape = _surface
+	# Heights sit at surface cell centres; the shape is centred on its node
+	# and one unit per sample, so scale it down to the cell spacing.
+	shape.scale = Vector3(spacing, 1.0, spacing)
+	shape.position = Vector3(
+		bounds.position.x + spacing * _surface_columns / 2.0,
+		0.0,
+		bounds.position.y + spacing * _surface_rows / 2.0)
+	var body := StaticBody3D.new()
+	body.name = "Surface"
+	body.collision_layer = SURFACE_LAYER
+	body.collision_mask = 0
+	body.add_child(shape)
+	add_child(body)
+	_surface_dirty.clear()
+
+
+func _mark_surface_dirty(cell: int) -> void:
+	_surface_dirty[(cell / _height_columns / SURFACE_STRIDE) * _surface_columns + (cell % _height_columns) / SURFACE_STRIDE] = true
+
+
+## Recomputes the surface cells under changed cards and wakes any binder
+## resting there, so it settles onto the new surface.
+func _update_surface() -> void:
+	if _surface == null:
+		_surface_dirty.clear()
+		return
+	var rows := _heights.size() / _height_columns
+	var spacing := SURFACE_STRIDE * HEIGHT_CELL
+	var changed := Rect2()
+	for index in _surface_dirty:
+		var sx: int = index % _surface_columns
+		var sy: int = index / _surface_columns
+		var top := 0.0
+		for y in range(sy * SURFACE_STRIDE, mini((sy + 1) * SURFACE_STRIDE, rows)):
+			for x in range(sx * SURFACE_STRIDE, mini((sx + 1) * SURFACE_STRIDE, _height_columns)):
+				top = maxf(top, _heights[y * _height_columns + x])
+		_surface_heights[index] = top
+		var cell_rect := Rect2(bounds.position + Vector2(sx, sy) * spacing, Vector2(spacing, spacing))
+		changed = cell_rect if changed.size == Vector2.ZERO else changed.merge(cell_rect)
+	_surface_dirty.clear()
+	_surface.map_data = _surface_heights
+	var near := changed.grow(Binder.COVER.length() / 2)
+	for binder in binders:
+		if binder.state == Binder.State.CLOSED and binder.get_parent() == self \
+				and near.has_point(Vector2(binder.position.x, binder.position.z)):
+			binder.sleeping = false
+
+
+## A card with thickness: the face on top (a PlaneMesh, so floor_card's UVs
+## still apply) and four edges running down CARD_THICKNESS below it. Edge
+## vertices get UV (-1, -1) so the shader can paint them as card edge.
+static func _card_mesh() -> ArrayMesh:
+	var plane := PlaneMesh.new()
+	plane.size = CARD_SIZE
+	var arrays := plane.get_mesh_arrays()
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var half := CARD_SIZE / 2
+	var corners := [Vector3(-half.x, 0, -half.y), Vector3(half.x, 0, -half.y), Vector3(half.x, 0, half.y), Vector3(-half.x, 0, half.y)]
+	var down := Vector3(0, -CARD_THICKNESS, 0)
+	for i in 4:
+		var a: Vector3 = corners[i]
+		var b: Vector3 = corners[(i + 1) % 4]
+		var normal := Vector3(a.x + b.x, 0, a.z + b.z).normalized()
+		var first := vertices.size()
+		for v in [a, b, b + down, a + down]:
+			vertices.append(v)
+			normals.append(normal)
+			uvs.append(Vector2(-1, -1))
+		indices.append_array([first, first + 1, first + 2, first, first + 2, first + 3])
+	var surface := []
+	surface.resize(Mesh.ARRAY_MAX)
+	surface[Mesh.ARRAY_VERTEX] = vertices
+	surface[Mesh.ARRAY_NORMAL] = normals
+	surface[Mesh.ARRAY_TEX_UV] = uvs
+	surface[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface)
+	return mesh
+
+
 ## Places a card on top of the stack at p and files it in grid and chunk.
 ## The caller rebuilds the chunk's buffer.
 func _put_on_floor(id: int, p: Vector2, rotation_y: float) -> void:
-	var footprint := _footprint_points(p, rotation_y)
+	var footprint := _footprint_cells(p, rotation_y)
 	var top := 0.0
-	for q in footprint:
-		top = maxf(top, _heights[_height_index(q)])
+	for cell in footprint:
+		top = maxf(top, _heights[cell])
 	var y := top + CARD_THICKNESS
-	for q in footprint:
-		_heights[_height_index(q)] = y
+	for cell in footprint:
+		_heights[cell] = y
+		_mark_surface_dirty(cell)
 	_positions[id] = Vector3(p.x, y, p.y)
 	_rotations[id] = rotation_y
 	_grid_add(id)
@@ -282,13 +440,51 @@ func _put_on_floor(id: int, p: Vector2, rotation_y: float) -> void:
 	_chunk_cards[chunk] = cards
 
 
-func _footprint_points(p: Vector2, rotation_y: float) -> Array[Vector2]:
-	var points: Array[Vector2] = []
+## Recomputes height map cells from the cards still on the floor, so a
+## cleared patch drops back down instead of remembering the pile that used to
+## be there.
+func _refresh_cells(cells: PackedInt32Array) -> void:
+	var done := {}
+	for cell in cells:
+		if done.has(cell):
+			continue
+		done[cell] = true
+		var center := _height_cell_center(cell)
+		var top := 0.0
+		for id in _cards_near(center):
+			if _states[id] == State.ON_FLOOR and _positions[id].y > top and _covers(id, center):
+				top = _positions[id].y
+		_heights[cell] = top
+		_mark_surface_dirty(cell)
+
+
+## The height map cells whose centres a card at p, turned by rotation_y,
+## covers (at least the one under its centre).
+func _footprint_cells(p: Vector2, rotation_y: float) -> PackedInt32Array:
+	var cells := PackedInt32Array()
 	var half := CARD_SIZE / 2
-	for fx in [-1.0, 0.0, 1.0]:
-		for fz in [-1.0, 0.0, 1.0]:
-			points.append(p + _rotated(Vector2(fx * half.x, fz * half.y), rotation_y))
-	return points
+	var reach := Vector2(
+		absf(cos(rotation_y)) * half.x + absf(sin(rotation_y)) * half.y,
+		absf(sin(rotation_y)) * half.x + absf(cos(rotation_y)) * half.y)
+	var columns := _height_columns
+	var rows := _heights.size() / columns
+	var lo := ((p - reach - bounds.position) / HEIGHT_CELL).floor()
+	var hi := ((p + reach - bounds.position) / HEIGHT_CELL).floor()
+	var c := cos(rotation_y)
+	var s := sin(rotation_y)
+	for row in range(maxi(0, int(lo.y)), mini(rows - 1, int(hi.y)) + 1):
+		for column in range(maxi(0, int(lo.x)), mini(columns - 1, int(hi.x)) + 1):
+			var d := bounds.position + Vector2(column + 0.5, row + 0.5) * HEIGHT_CELL - p
+			# Inverse of _rotated(), as in _covers().
+			if absf(d.x * c - d.y * s) <= half.x and absf(d.x * s + d.y * c) <= half.y:
+				cells.append(row * columns + column)
+	if cells.is_empty():
+		cells.append(_height_index(p))
+	return cells
+
+
+func _height_cell_center(cell: int) -> Vector2:
+	return bounds.position + Vector2(cell % _height_columns + 0.5, cell / _height_columns + 0.5) * HEIGHT_CELL
 
 
 ## An x/z offset turned the same way as Basis(Vector3.UP, rotation_y).
@@ -374,11 +570,14 @@ func _grid_add(id: int) -> void:
 	var cards := _grid[index]
 	cards.append(id)
 	_grid[index] = cards
+	_grid_cell_of[id] = index
 
 
 func _grid_remove(id: int) -> void:
-	var cell := _grid_cell(Vector2(_positions[id].x, _positions[id].z))
-	var index := cell.y * _grid_columns + cell.x
+	var index := _grid_cell_of[id]
+	if index < 0:
+		return
+	_grid_cell_of[id] = -1
 	var cards := _grid[index]
 	var at := cards.find(id)
 	if at >= 0:
