@@ -7,6 +7,7 @@ Writes, for the chosen sets (Khans of Tarkir only, by default):
                                  file, plus face atlas, image paths and credits
   data/real/faces/page_N.png     small faces packed into atlas pages
   data/real/images/<set>/N.jpg   large faces for the inspect view
+  data/real/back.jpg             the card back, one image for every card
 
 Only the base version of each card is kept: one printing per collector
 number, plain whole numbers from 1 to the set's printed size, no promos,
@@ -51,6 +52,11 @@ SLOT_SIZE = (128, 179)
 COLUMNS = PAGE_SIZE // SLOT_SIZE[0]
 ROWS = PAGE_SIZE // SLOT_SIZE[1]
 
+# The standard Magic card back (Scryfall's card_back_id for every normal
+# card), at the same "normal" size as the faces.
+BACK_URL = "https://backs.scryfall.io/normal/0/a/0aeebaf5-8c7d-4636-9e82-8c27447861f7.jpg"
+BACK_PATH = "back.jpg"
+
 # Binder cover colour per set. Anything not listed gets a colour derived
 # from its code.
 SET_ACCENTS = {
@@ -87,6 +93,7 @@ def main(argv=None):
     if not args.no_images:
         download_images(client, cards, args.out)
         data["faces"] = pack_atlas(cards, args.out)
+        data["back"] = download_back(client, args.out)
         for row, card in zip(data["cards"], cards):
             row.append(image_path(card))
     write_card_file(data, args.out / "cards.json")
@@ -254,6 +261,14 @@ def download_images(client, cards, out):
         fetched += 1
         print(f"\rimages: {i + 1}/{len(cards)}", end="", flush=True)
     print(f"\rimages: {fetched} downloaded, {len(cards) - fetched} already cached")
+
+
+def download_back(client, out):
+    """The card back, fetched once; returns its path in the card file."""
+    path = out / BACK_PATH
+    if not (path.exists() and path.stat().st_size > 0):
+        path.write_bytes(client.get(BACK_URL))
+    return BACK_PATH
 
 
 def pack_atlas(cards, out):

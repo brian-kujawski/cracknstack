@@ -52,7 +52,7 @@ python3 -m pip install pillow           # once, for packing the face atlas
 python3 tools/import_scryfall.py        # Khans of Tarkir (about 270 requests, under a minute)
 ```
 
-That writes `data/real/cards.json`, the small faces packed into atlas pages (`data/real/faces/`), and a large image per card for the hand and the binders (`data/real/images/ktk/`, about 20 MB). It keeps only each card's base printing, numbered 1 to the set's printed size, and stops if any number is missing. Re-running only downloads images that aren't there yet. Other sets work the same way (`python3 tools/import_scryfall.py ktk frf`); for many sets, pass Scryfall's Default Cards bulk file with `--bulk`.
+That writes `data/real/cards.json`, the small faces packed into atlas pages (`data/real/faces/`), and a large image per card for the hand and the binders (`data/real/images/ktk/`, about 40 MB), and the card back (`data/real/back.jpg`). It keeps only each card's base printing, numbered 1 to the set's printed size, and stops if any number is missing. Re-running only downloads images that aren't there yet. Other sets work the same way (`python3 tools/import_scryfall.py ktk frf`); for many sets, pass Scryfall's Default Cards bulk file with `--bulk`.
 
 To play with the placeholders again, delete `data/real/` or run with `-- --placeholder`.
 

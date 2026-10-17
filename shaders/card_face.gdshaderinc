@@ -1,6 +1,6 @@
 // Placeholder card face, drawn entirely in the shader so ~30,000 distinct
 // cards need no textures (plan §4.3). With real data the shaders sample the
-// card's image instead and only use real_face() below.
+// card's image instead and only use real_face() and back_of_card() below.
 //
 // Layout (UV y runs top to bottom):
 //   set-tinted border · set number top-left · tinted art box ·
@@ -95,4 +95,13 @@ const vec2 CORNER_RADIUS = vec2(0.048, 0.034); // ~3 mm on a 63 × 88 mm card
 vec3 real_face(vec3 sampled, vec2 uv) {
 	vec2 into_corner = max(abs(uv - 0.5) - (0.5 - CORNER_RADIUS), 0.0) / CORNER_RADIUS;
 	return length(into_corner) > 1.0 ? vec3(0.02) : sampled;
+}
+
+// The real card back, one image for every card, when real data is loaded.
+uniform bool has_back = false;
+uniform sampler2D back_texture : source_color, filter_linear_mipmap, repeat_disable;
+
+// The back of a card, with uv reading the right way round as you look at it.
+vec3 back_of_card(vec2 uv) {
+	return has_back ? real_face(texture(back_texture, uv).rgb, uv) : card_back(uv);
 }

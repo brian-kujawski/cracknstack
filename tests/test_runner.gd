@@ -483,7 +483,10 @@ func _write_fixture(with_pages := true) -> String:
 			page.save_png(page_path)
 		elif FileAccess.file_exists(page_path):
 			DirAccess.remove_absolute(page_path)
-	var data := {"format": 1, "source": "test fixture", "faces": FIXTURE_FACES, "cards": rows,
+	var back := Image.create(48, 66, false, Image.FORMAT_RGB8)
+	back.fill(Color8(90, 60, 30))
+	back.save_png(FIXTURE_DIR + "/back.png")
+	var data := {"format": 1, "source": "test fixture", "faces": FIXTURE_FACES, "back": "back.png", "cards": rows,
 		"sets": [{"code": "TST", "name": "Test Set", "release_date": "2014-09-26", "accent_color": "#a8783c",
 			"artists": ["Amy Artist", "Zed Painter"]}]}
 	var path := FIXTURE_DIR + "/cards.json"
@@ -511,6 +514,8 @@ func _test_real_data_format() -> void:
 	material.shader = preload("res://shaders/held_card.gdshader")
 	CardView.apply(material, 9)
 	_check(material.get_shader_parameter("has_face") == true, "single-card materials switch to the real face")
+	_check(CardDatabase.card_back != null and CardDatabase.card_back.get_size() == Vector2(48, 66), "the card back loads")
+	_check(material.get_shader_parameter("has_back") == true, "single-card materials get the real card back")
 
 	# One set, one binder: one labelled shelf space, the rest blank.
 	var units := ShelfLayout.assign(CardDatabase.all_binders(), [54, 79, 54] as Array[int])
@@ -530,6 +535,7 @@ func _test_real_data_format() -> void:
 	for id in FIXTURE_CARDS:
 		faces_ok = faces_ok and pile._faces[id] == id
 	_check(faces_ok, "floor cards carry their face atlas slot")
+	_check(pile._material.get_shader_parameter("has_back") == true, "face-down floor cards show the real card back")
 	pile.free()
 
 	# A missing page falls back to placeholder faces rather than failing.

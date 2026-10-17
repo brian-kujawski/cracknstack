@@ -111,5 +111,23 @@ class Atlas(unittest.TestCase):
                 self.assertAlmostEqual(page.getpixel((importer.SLOT_SIZE[0] + 5, 5))[0], (per_page + 1) * 7 % 256, delta=3)
 
 
+class CardBack(unittest.TestCase):
+    def test_back_is_fetched_once(self):
+        class Client:
+            urls = []
+
+            def get(self, url):
+                self.urls.append(url)
+                return b"jpeg bytes"
+
+        client = Client()
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            self.assertEqual(importer.download_back(client, out), "back.jpg")
+            self.assertEqual(importer.download_back(client, out), "back.jpg")
+            self.assertEqual((out / "back.jpg").read_bytes(), b"jpeg bytes")
+        self.assertEqual(client.urls, [importer.BACK_URL])
+
+
 if __name__ == "__main__":
     unittest.main()

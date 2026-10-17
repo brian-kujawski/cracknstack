@@ -8,12 +8,13 @@ extends RefCounted
 ##   "source": "...",                                       (real data only)
 ##   "sets":  [{"code", "name", "release_date", "accent_color", "artists"}],
 ##   "faces": {"pages", "page_size", "slot_size", "columns", "rows"},  (real data only)
+##   "back": "back.jpg",                                     (real data only)
 ##   "cards": [[set_code, collector_number, name, rarity, colors, type_line, image], ...]
 ## }
 ##
 ## Cards are compact arrays because the full game has ~30,000 of them. The
 ## seventh column (a large face image) and "faces" (the small-face atlas,
-## card i in slot i) only come with real data. Their paths are relative to
+## card i in slot i) and "back" (the card back image) only come with real data. Their paths are relative to
 ## the data file.
 
 const FORMAT_VERSION := 1
@@ -26,6 +27,8 @@ class Result:
 	var cards: Array[CardData] = []
 	## "faces" from the file with its page paths made absolute; empty if none.
 	var faces: Dictionary = {}
+	## The card back image, or "" to draw the placeholder back.
+	var back := ""
 
 
 static func load_file(path: String) -> Result:
@@ -42,6 +45,8 @@ static func load_file(path: String) -> Result:
 		return result
 	var folder := path.get_base_dir()
 	result.source = json.get("source", "")
+	if not str(json.get("back", "")).is_empty():
+		result.back = folder.path_join(json["back"])
 
 	var counts := {}
 	for entry in json["sets"]:

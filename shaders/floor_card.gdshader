@@ -47,7 +47,7 @@ void fragment() {
 		vec3 front = face_index > -0.5
 			? real_face(atlas_face, uv)
 			: card_face(uv, accent, int(card.y + 0.5), int(card.x + 0.5), rarity);
-		ALBEDO = card.w > 0.5 ? front : card_back(uv);
+		ALBEDO = card.w > 0.5 ? front : back_of_card(uv);
 		ROUGHNESS = 0.6;
 	}
 	if (highlighted) {

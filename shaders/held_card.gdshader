@@ -16,5 +16,5 @@ uniform sampler2D face_texture : source_color, filter_linear_mipmap, repeat_disa
 void fragment() {
 	ALBEDO = FRONT_FACING
 		? (has_face ? real_face(texture(face_texture, UV).rgb, UV) : card_face(UV, accent, set_number, collector_number, rarity))
-		: card_back(UV);
+		: back_of_card(vec2(1.0 - UV.x, UV.y)); // Seen from behind, so u runs the other way.
 }

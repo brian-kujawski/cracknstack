@@ -12,6 +12,8 @@ const PLACEHOLDER_PATH := "res://data/placeholder/cards.json"
 var source := ""
 ## Small faces for the floor, or null to draw placeholder faces.
 var face_atlas: FaceAtlas
+## The real card back, or null to draw the placeholder back.
+var card_back: Texture2D
 
 var _cards: Array[CardData] = []
 var _sets: Dictionary = {} # code -> SetData
@@ -39,6 +41,7 @@ func load_file(path: String) -> Error:
 	if face_atlas == null:
 		for card in _cards:
 			card.face_index = -1
+	card_back = _load_back(result.back)
 	CardView.clear_cache()
 	_sets.clear()
 	_cards_by_set.clear()
@@ -54,6 +57,23 @@ func load_file(path: String) -> Error:
 	_sets_in_shelf_order.assign(_sets.values())
 	_sets_in_shelf_order.sort_custom(CardSort.compare_sets)
 	return OK
+
+
+static func _load_back(path: String) -> Texture2D:
+	if path.is_empty():
+		return null
+	var image := FaceAtlas.load_image(path)
+	if image == null:
+		push_warning("CardDatabase: missing card back %s; drawing the placeholder back" % path)
+		return null
+	image.generate_mipmaps()
+	return ImageTexture.create_from_image(image)
+
+
+## Hands the card back to a shader that includes card_face.gdshaderinc.
+func apply_back(material: ShaderMaterial) -> void:
+	material.set_shader_parameter("has_back", card_back != null)
+	material.set_shader_parameter("back_texture", card_back)
 
 
 ## True when real cards are loaded rather than the placeholders.

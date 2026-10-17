@@ -23,6 +23,7 @@ static func apply(material: ShaderMaterial, id: int) -> void:
 	var face := large_face(card)
 	material.set_shader_parameter("has_face", face != null)
 	material.set_shader_parameter("face_texture", face)
+	CardDatabase.apply_back(material)
 
 
 ## The card's large image as a texture, or null if it has none.

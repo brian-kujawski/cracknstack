@@ -280,6 +280,7 @@ func _allocate(count: int) -> void:
 	_material.shader = preload("res://shaders/floor_card.gdshader")
 	if CardDatabase.face_atlas != null:
 		CardDatabase.face_atlas.apply(_material)
+	CardDatabase.apply_back(_material)
 	for c in _chunk_columns * chunk_rows:
 		var multimesh := MultiMesh.new()
 		multimesh.transform_format = MultiMesh.TRANSFORM_3D
