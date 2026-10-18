@@ -14,6 +14,9 @@ extends Node
 ## Right-click tosses a held card back onto the pile. E opens or closes the
 ## binder you're looking at, the mouse wheel turns its pages, and F puts the
 ## held card on an unsorted stack (starting one where you're looking).
+##
+## While a card is up close, the view holds still and the mouse tilts the card
+## instead, directly and within a narrow range, like turning it in your hand.
 
 signal held_changed(card: CardData, binder: BinderRange)
 ## What the thing under the crosshair is and what you can do with it.
@@ -38,6 +41,9 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, STACK, SHELF }
 @export var toss_roll_per_second_max := 0.25
 @export var toss_spin_per_second_max := 0.35
 @export var zoom_seconds := 0.18
+## How far a card up close can tilt each way (degrees), on both axes. Kept
+## narrow so the card never turns far enough to show it's a flat quad.
+@export var inspect_tilt_degrees := 15.0
 
 ## Where the held card sits relative to the camera: low and to the right,
 ## or close up and square to your face.
@@ -57,6 +63,11 @@ var carried_binder: Binder
 var _held_view: MeshInstance3D
 var _zoomed := false
 var _zoom_tween: Tween
+## 0 = held low, 1 = up close; tweened, and the held card's pose follows it.
+var _zoom_amount := 0.0
+## Up-close tilt in radians: x tips the top toward or away from you, y turns
+## the face left or right.
+var _tilt := Vector2.ZERO
 
 var _aim := Aim.NONE
 var _aim_point := Vector3.ZERO
@@ -77,10 +88,9 @@ func _ready() -> void:
 	var material := ShaderMaterial.new()
 	material.shader = preload("res://shaders/held_card.gdshader")
 	_held_view.material_override = material
-	_held_view.position = HELD_POSITION
-	_held_view.rotation = HELD_ROTATION
 	_held_view.visible = false
 	_camera.add_child(_held_view)
+	_pose_held_card()
 
 
 func _physics_process(_delta: float) -> void:
@@ -95,6 +105,14 @@ func _physics_process(_delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if pile == null or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		return
+	if event is InputEventMouseMotion:
+		if _zoomed:
+			# Hands sees input before the player, so marking it handled keeps
+			# the view still while the card tilts.
+			_tilt = inspect_tilt(_tilt, event.relative, get_parent().mouse_sensitivity, deg_to_rad(inspect_tilt_degrees))
+			_pose_held_card()
+			get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("use_hand"):
 		_use_hand()
@@ -321,7 +339,7 @@ func _update_hint() -> void:
 			elif _aim == Aim.FLOOR and pile.top_card_at(_aim_point) >= 0:
 				text = "click: pick up"
 	if text.is_empty() and held_card_id >= 0:
-		text = "click: look closer · right-click: toss"
+		text = "click: lower it · move the mouse: tilt it" if _zoomed else "click: look closer · right-click: toss"
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
@@ -385,21 +403,46 @@ func _toss() -> void:
 	card.launch(held_card_id, pile, material, _held_view.global_transform, velocity, Vector3(flips, roll, spin) * TAU)
 
 
+## Adds a mouse movement to the up-close tilt, one to one with mouse look's
+## sensitivity, and clamps it to `limit` radians each way. Moving the mouse
+## right turns the face to the right; moving it up tips the top away.
+static func inspect_tilt(tilt: Vector2, mouse_relative: Vector2, sensitivity: float, limit: float) -> Vector2:
+	return Vector2(
+		clampf(tilt.x + mouse_relative.y * sensitivity, -limit, limit),
+		clampf(tilt.y + mouse_relative.x * sensitivity, -limit, limit))
+
+
 func _set_zoomed(zoomed: bool) -> void:
 	_zoomed = zoomed
 	if _zoom_tween:
 		_zoom_tween.kill()
-	_zoom_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_zoom_tween.tween_property(_held_view, "position", ZOOMED_POSITION if zoomed else HELD_POSITION, zoom_seconds)
-	_zoom_tween.tween_property(_held_view, "rotation", ZOOMED_ROTATION if zoomed else HELD_ROTATION, zoom_seconds)
+	_zoom_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_zoom_tween.tween_method(_set_zoom_amount, _zoom_amount, 1.0 if zoomed else 0.0, zoom_seconds)
+	if not zoomed:
+		# The tilt eases out with the lowering, so the card settles flat.
+		_zoom_tween.parallel().tween_property(self, "_tilt", Vector2.ZERO, zoom_seconds)
+
+
+func _set_zoom_amount(amount: float) -> void:
+	_zoom_amount = amount
+	_pose_held_card()
+
+
+## Places the held card between its low and up-close poses, with the tilt on
+## top. Tilt only shows up close, so it's scaled by how far up the card is.
+func _pose_held_card() -> void:
+	_held_view.position = HELD_POSITION.lerp(ZOOMED_POSITION, _zoom_amount)
+	_held_view.rotation = HELD_ROTATION.lerp(ZOOMED_ROTATION, _zoom_amount) \
+			+ Vector3(_tilt.x, _tilt.y, 0.0) * _zoom_amount
 
 
 func _hold(id: int) -> void:
 	if _zoom_tween:
 		_zoom_tween.kill()
 	_zoomed = false
-	_held_view.position = HELD_POSITION
-	_held_view.rotation = HELD_ROTATION
+	_zoom_amount = 0.0
+	_tilt = Vector2.ZERO
+	_pose_held_card()
 	held_card_id = id
 	_held_view.visible = id >= 0
 	if id < 0:

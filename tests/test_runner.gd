@@ -29,6 +29,7 @@ func _ready() -> void:
 	_test_unsorted_stack()
 	_test_real_data_format()
 	_test_credits()
+	_test_inspect_tilt()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -551,3 +552,13 @@ func _test_credits() -> void:
 	_check("Scryfall" in text and "Test Set art by Amy Artist, Zed Painter." in text, "real-data credits name Scryfall and the artists")
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_check(Credits.DISCLAIMER in Credits.text() and not "Scryfall" in Credits.text(), "placeholder credits still carry the disclaimer")
+
+
+func _test_inspect_tilt() -> void:
+	var limit := deg_to_rad(15.0)
+	var tilt := Hands.inspect_tilt(Vector2.ZERO, Vector2(40, -20), 0.0025, limit)
+	_check(is_equal_approx(tilt.y, 0.1) and is_equal_approx(tilt.x, -0.05), "tilt should follow the mouse 1:1: %s" % tilt)
+	tilt = Hands.inspect_tilt(tilt, Vector2(10000, 10000), 0.0025, limit)
+	_check(is_equal_approx(tilt.x, limit) and is_equal_approx(tilt.y, limit), "tilt should clamp to the limit: %s" % tilt)
+	tilt = Hands.inspect_tilt(tilt, Vector2(-40, 0), 0.0025, limit)
+	_check(is_equal_approx(tilt.y, limit - 0.1), "moving back from the limit should tilt back at once: %s" % tilt)
