@@ -143,6 +143,11 @@ func is_on_floor(id: int) -> bool:
 	return _states[id] == State.ON_FLOOR
 
 
+## Where a floor card lies, as a global pose for a card quad (see Glide).
+func card_pose(id: int) -> Transform3D:
+	return Glide.flat_card(to_global(_positions[id]), global_basis * Basis(Vector3.UP, _rotations[id]), _face_up[id] == 1)
+
+
 ## The highest card on the floor covering this floor point, or -1.
 func top_card_at(point: Vector3) -> int:
 	var p := Vector2(point.x, point.z)

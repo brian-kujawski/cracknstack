@@ -136,6 +136,12 @@ func pocket_at(global_point: Vector3) -> int:
 	return pocket if pocket < contents.capacity() else -1
 
 
+## Where a card in this pocket lies, as a global pose for a card quad (see
+## Glide).
+func pocket_pose(pocket: int) -> Transform3D:
+	return Glide.flat_card(to_global(pocket_position(pocket)), global_basis)
+
+
 ## Local position of a pocket's centre on the current spread (pages up).
 func pocket_position(pocket: int) -> Vector3:
 	var page := pocket / BinderLayout.POCKETS_PER_PAGE
@@ -169,7 +175,7 @@ func close() -> void:
 	_closed_view.visible = true
 	_set_collision_box(SIZE)
 	_lower_onto_what_is_below(position.y + DROP_HEIGHT)
-	_let_go()
+	let_go()
 
 
 ## Turns pages: +1 forward, -1 back. Returns false at either end.
@@ -252,7 +258,7 @@ func put_down(parent: Node, point: Vector3, yaw: float) -> void:
 	rotation = Vector3(0, yaw, 0)
 	position = point
 	_lower_onto_what_is_below(point.y + DROP_HEIGHT)
-	_let_go()
+	let_go()
 
 
 ## Stands the binder in a shelf space. ShelfUnit decides where and whether
@@ -317,8 +323,8 @@ func _lower_onto_what_is_below(from_height: float) -> void:
 	global_position.y = from_height + params.motion.y * safe + 0.002
 
 
-## Hands the binder back to physics, at rest.
-func _let_go() -> void:
+## Hands the binder back to physics, at rest (if it's lying closed).
+func let_go() -> void:
 	if state != State.CLOSED:
 		return
 	freeze = false

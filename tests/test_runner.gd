@@ -30,6 +30,7 @@ func _ready() -> void:
 	_test_real_data_format()
 	_test_credits()
 	_test_inspect_tilt()
+	_test_glide()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -562,3 +563,16 @@ func _test_inspect_tilt() -> void:
 	_check(is_equal_approx(tilt.x, limit) and is_equal_approx(tilt.y, limit), "tilt should clamp to the limit: %s" % tilt)
 	tilt = Hands.inspect_tilt(tilt, Vector2(-40, 0), 0.0025, limit)
 	_check(is_equal_approx(tilt.y, limit - 0.1), "moving back from the limit should tilt back at once: %s" % tilt)
+
+
+func _test_glide() -> void:
+	var up := Glide.flat_card(Vector3.ZERO, Basis.IDENTITY)
+	_check(up.basis.z.is_equal_approx(Vector3.UP), "a face-up card's face should point up: %s" % up.basis.z)
+	_check(up.basis.y.is_equal_approx(Vector3.FORWARD), "a flat card's top edge should point along -z: %s" % up.basis.y)
+	var down := Glide.flat_card(Vector3.ZERO, Basis.IDENTITY, false)
+	_check(down.basis.z.is_equal_approx(Vector3.DOWN), "a face-down card's face should point down: %s" % down.basis.z)
+	_check(down.basis.y.is_equal_approx(Vector3.FORWARD), "a face-down card's top edge should still point along -z: %s" % down.basis.y)
+	var from := Transform3D(Basis.IDENTITY, Vector3.ZERO)
+	var to := Transform3D(Basis.IDENTITY, Vector3(1, 0, 0))
+	_check(Glide.pose(from, to, 0.5, 0.1).origin.is_equal_approx(Vector3(0.5, 0.1, 0)), "a put-down should arc up by its lift at the midpoint")
+	_check(Glide.pose(from, to, 1.0, 0.1).origin.is_equal_approx(to.origin), "a glide should end exactly at its target")

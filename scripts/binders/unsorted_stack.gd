@@ -55,6 +55,17 @@ func top_card() -> int:
 	return _cards[-1] if not _cards.is_empty() else -1
 
 
+## Where the next card pushed will lie, as a global pose for a card quad
+## (see Glide).
+func next_card_pose() -> Transform3D:
+	return Glide.flat_card(to_global(Vector3(0, (_cards.size() + 1) * PileWorld.CARD_THICKNESS, 0)), global_basis)
+
+
+## Where the top card lies, as a global pose for a card quad.
+func top_card_pose() -> Transform3D:
+	return Glide.flat_card(_top.global_position, global_basis)
+
+
 func push(card_id: int) -> void:
 	_cards.append(card_id)
 	_refresh()

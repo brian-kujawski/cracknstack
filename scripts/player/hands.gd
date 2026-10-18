@@ -15,6 +15,9 @@ extends Node
 ## binder you're looking at, the mouse wheel turns its pages, and F puts the
 ## held card on an unsorted stack (starting one where you're looking).
 ##
+## Cards and binders glide between the world and the hand rather than jumping;
+## while one is on its way, the hands take no new orders.
+##
 ## While a card is up close, the view holds still and the mouse tilts the card
 ## instead, directly and within a narrow range, like turning it in your hand.
 
@@ -41,6 +44,11 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, STACK, SHELF }
 @export var toss_roll_per_second_max := 0.25
 @export var toss_spin_per_second_max := 0.35
 @export var zoom_seconds := 0.18
+## How long a card or binder takes to come to hand or go where it's put, and
+## how high a put-down arcs at its midpoint (metres).
+@export var card_glide_seconds := 0.16
+@export var binder_glide_seconds := 0.24
+@export var put_down_lift := 0.04
 ## How far a card up close can tilt each way (degrees), on both axes. Kept
 ## narrow so the card never turns far enough to show it's a flat quad.
 @export var inspect_tilt_degrees := 15.0
@@ -68,6 +76,8 @@ var _zoom_amount := 0.0
 ## Up-close tilt in radians: x tips the top toward or away from you, y turns
 ## the face left or right.
 var _tilt := Vector2.ZERO
+## The glide in progress, if any: something coming to hand or being put down.
+var _glide: Tween
 
 var _aim := Aim.NONE
 var _aim_point := Vector3.ZERO
@@ -114,6 +124,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pose_held_card()
 			get_viewport().set_input_as_handled()
 		return
+	if _gliding():
+		return
 	if event.is_action_pressed("use_hand"):
 		_use_hand()
 	elif event.is_action_pressed("toss") and held_card_id >= 0:
@@ -133,6 +145,10 @@ func _hands_empty() -> bool:
 	return held_card_id < 0 and carried_binder == null
 
 
+func _gliding() -> bool:
+	return _glide != null and _glide.is_running()
+
+
 func _use_hand() -> void:
 	if carried_binder != null:
 		match _aim:
@@ -145,8 +161,7 @@ func _use_hand() -> void:
 		if _try_file_held_card():
 			return
 		if _aim == Aim.STACK:
-			_aim_stack.push(held_card_id)
-			_hold(-1)
+			_put_on_stack(_aim_stack)
 		else:
 			_set_zoomed(not _zoomed)
 		return
@@ -154,15 +169,20 @@ func _use_hand() -> void:
 		Aim.FLOOR:
 			var id := pile.top_card_at(_aim_point)
 			if id >= 0:
+				var from := pile.card_pose(id)
 				pile.pick_up(id)
-				_hold(id)
+				_hold(id, from)
 		Aim.STACK:
-			_hold(_aim_stack.pop())
+			var from := _aim_stack.top_card_pose()
+			_hold(_aim_stack.pop(), from)
 		Aim.BINDER:
 			if _aim_binder.is_open():
+				if _aim_pocket < 0:
+					return
+				var from := _aim_binder.pocket_pose(_aim_pocket)
 				var id := _aim_binder.take(_aim_pocket)
 				if id >= 0:
-					_hold(id)
+					_hold(id, from)
 			else:
 				_carry(_aim_binder)
 
@@ -173,21 +193,26 @@ func _try_file_held_card() -> bool:
 	if _aim != Aim.BINDER or not _aim_binder.is_open() or _aim_pocket < 0:
 		return false
 	var binder := _aim_binder
-	var result := binder.insert(_aim_pocket, held_card_id)
-	if result == BinderContents.Result.OCCUPIED:
+	var pocket := _aim_pocket
+	if binder.contents.card_at(pocket) >= 0:
 		return true # The pocket's taken; the card stays in hand.
-	var at := binder.to_global(binder.pocket_position(_aim_pocket))
-	if result == BinderContents.Result.LOCKED:
-		var page := _aim_pocket / BinderLayout.POCKETS_PER_PAGE
-		var sound := FeedbackSounds.Kind.CARD_LOCKED
-		if binder.contents.is_complete():
-			sound = FeedbackSounds.Kind.BINDER_COMPLETE
-		elif binder.contents.is_page_complete(page):
-			sound = FeedbackSounds.Kind.PAGE_COMPLETE
-		FeedbackSounds.play(pile, at, sound)
-	# Misplaced: it stays in the pocket glowing red, and makes no sound.
-	_hold(-1)
+	var id := held_card_id
+	_put_down_card(binder.pocket_pose(pocket), func() -> void: _file(binder, pocket, id))
 	return true
+
+
+## The held card has arrived in its pocket.
+func _file(binder: Binder, pocket: int, id: int) -> void:
+	var result := binder.insert(pocket, id)
+	if result != BinderContents.Result.LOCKED:
+		return # Misplaced: it stays in the pocket glowing red, and makes no sound.
+	var page := pocket / BinderLayout.POCKETS_PER_PAGE
+	var sound := FeedbackSounds.Kind.CARD_LOCKED
+	if binder.contents.is_complete():
+		sound = FeedbackSounds.Kind.BINDER_COMPLETE
+	elif binder.contents.is_page_complete(page):
+		sound = FeedbackSounds.Kind.PAGE_COMPLETE
+	FeedbackSounds.play(pile, binder.to_global(binder.pocket_position(pocket)), sound)
 
 
 func _toggle_binder() -> void:
@@ -208,32 +233,73 @@ func _stack_held_card() -> void:
 	if held_card_id < 0:
 		return
 	if _aim == Aim.STACK:
-		_aim_stack.push(held_card_id)
+		_put_on_stack(_aim_stack)
 	elif _aim == Aim.FLOOR or _aim == Aim.SURFACE:
+		# The stack is made where the card lands, so it's never seen empty.
 		var stack := UnsortedStack.new()
 		stack.setup(pile)
-		pile.add_child(stack)
 		var yaw := _yaw_facing_player(_aim_point)
 		stack.place(_clear_of_obstacles(_aim_point, PileWorld.CARD_SIZE / 2, yaw), yaw, _aim == Aim.FLOOR)
-		stack.push(held_card_id)
-	else:
-		return
+		var id := held_card_id
+		var to := Glide.flat_card(pile.to_global(stack.position + Vector3(0, PileWorld.CARD_THICKNESS, 0)),
+			pile.global_basis * stack.basis)
+		_put_down_card(to, func() -> void:
+			pile.add_child(stack)
+			stack.push(id))
+
+
+func _put_on_stack(stack: UnsortedStack) -> void:
+	var id := held_card_id
+	_put_down_card(stack.next_card_pose(), func() -> void:
+		if is_instance_valid(stack):
+			stack.push(id))
+
+
+## Glides the held card to `to` (a global card pose) and calls `land` when it
+## gets there. The hand is free at once; the card in flight is a copy.
+func _put_down_card(to: Transform3D, land: Callable) -> void:
+	var card := MeshInstance3D.new()
+	card.mesh = _held_view.mesh
+	# Its own material, so the next pick-up can change the hand without
+	# changing the card in flight.
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://shaders/held_card.gdshader")
+	CardView.apply(material, held_card_id)
+	card.material_override = material
+	card.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pile.add_child(card)
+	var from := _held_view.global_transform
 	_hold(-1)
+	_glide = Glide.start(card, from, func() -> Transform3D: return to, card_glide_seconds, put_down_lift)
+	_glide.tween_callback(func() -> void:
+		land.call()
+		card.queue_free())
 
 
 func _carry(binder: Binder) -> void:
 	if binder.state == Binder.State.SHELVED:
 		binder.shelf_unit.unshelve(binder.shelf_space)
+	var from := binder.global_transform
 	binder.carry(_camera, CARRIED_POSITION, CARRIED_ROTATION)
 	carried_binder = binder
 	held_changed.emit(null, binder.binder)
+	var carried := binder.transform
+	_glide = Glide.start(binder, from, func() -> Transform3D: return _camera.global_transform * carried, binder_glide_seconds)
 
 
 func _set_binder_down() -> void:
 	var yaw := _yaw_facing_player(_aim_point)
-	carried_binder.put_down(pile, _clear_of_obstacles(_aim_point, Binder.OPEN_HALF_FOOTPRINT, yaw), yaw)
+	var binder := carried_binder
+	var from := binder.global_transform
+	binder.put_down(pile, _clear_of_obstacles(_aim_point, Binder.OPEN_HALF_FOOTPRINT, yaw), yaw)
 	carried_binder = null
 	held_changed.emit(null, null)
+	# put_down() found where it rests; hold it still on the way there, then
+	# hand it to physics.
+	binder.freeze = true
+	var to := binder.global_transform
+	_glide = Glide.start(binder, from, func() -> Transform3D: return to, binder_glide_seconds, put_down_lift)
+	_glide.tween_callback(binder.let_go)
 
 
 func _shelve_carried_binder() -> void:
@@ -241,12 +307,17 @@ func _shelve_carried_binder() -> void:
 		return
 	var binder := carried_binder
 	carried_binder = null
-	var correct := _aim_shelf.shelve(_aim_space, binder)
+	var shelf := _aim_shelf
+	var from := binder.global_transform
+	var correct := shelf.shelve(_aim_space, binder)
 	held_changed.emit(null, null)
+	var to := binder.global_transform
+	_glide = Glide.start(binder, from, func() -> Transform3D: return to, binder_glide_seconds)
 	if correct:
-		var lit := _aim_shelf.is_section_complete(_aim_shelf.shelf_of(_aim_space))
-		FeedbackSounds.play(pile, binder.global_position,
-			FeedbackSounds.Kind.SECTION_COMPLETE if lit else FeedbackSounds.Kind.BINDER_SHELVED)
+		var lit := shelf.is_section_complete(shelf.shelf_of(_aim_space))
+		_glide.tween_callback(func() -> void:
+			FeedbackSounds.play(pile, binder.global_position,
+				FeedbackSounds.Kind.SECTION_COMPLETE if lit else FeedbackSounds.Kind.BINDER_SHELVED))
 
 
 ## On the floor, nudges a footprint at `point` clear of walls, shelves and
@@ -431,19 +502,27 @@ func _set_zoom_amount(amount: float) -> void:
 ## Places the held card between its low and up-close poses, with the tilt on
 ## top. Tilt only shows up close, so it's scaled by how far up the card is.
 func _pose_held_card() -> void:
+	if _gliding() and held_card_id >= 0:
+		return # Still on its way to the hand.
 	_held_view.position = HELD_POSITION.lerp(ZOOMED_POSITION, _zoom_amount)
 	_held_view.rotation = HELD_ROTATION.lerp(ZOOMED_ROTATION, _zoom_amount) \
 			+ Vector3(_tilt.x, _tilt.y, 0.0) * _zoom_amount
 
 
-func _hold(id: int) -> void:
+## Puts card `id` in the hand (-1 empties it). Given `from`, a global card
+## pose, the card glides up to the hand from there.
+func _hold(id: int, from = null) -> void:
 	if _zoom_tween:
 		_zoom_tween.kill()
 	_zoomed = false
 	_zoom_amount = 0.0
 	_tilt = Vector2.ZERO
+	held_card_id = -1
 	_pose_held_card()
 	held_card_id = id
+	if id >= 0 and from is Transform3D:
+		var held := _held_view.transform
+		_glide = Glide.start(_held_view, from, func() -> Transform3D: return _camera.global_transform * held, card_glide_seconds)
 	_held_view.visible = id >= 0
 	if id < 0:
 		held_changed.emit(null, null)
