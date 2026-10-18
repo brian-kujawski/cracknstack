@@ -19,7 +19,7 @@ Controls:
 |---|---|
 | WASD, mouse | Walk, look |
 | Ctrl or C | Crouch |
-| Left-click | Context sensitive. Empty-handed: pick up the card under the crosshair (from the floor, a stack, or a misplaced card in an open binder), or pick up a closed binder (from the floor, a table or a shelf). Holding a card: file it into the pocket you're looking at, add it to the stack you're looking at, or else bring it up close. Carrying a binder: set it down on the floor or a table, or stand it in the shelf space you're looking at. |
+| Left-click | Context sensitive. Empty-handed: pick up the card under the crosshair (from the floor, a stack, or a misplaced card in an open binder), or pick up a closed binder (from the floor, a table or a shelf). Holding a card: file it into the pocket you're looking at, add it to the stack you're looking at, or else bring it up close (the view holds still and the mouse tilts the card; click again to lower it). Carrying a binder: set it down on the floor or a table, or stand it in the shelf space you're looking at. |
 | Right-click | Toss the held card back onto the pile |
 | E | Open or close the binder you're looking at |
 | Mouse wheel | Turn the pages of the open binder you're looking at |
