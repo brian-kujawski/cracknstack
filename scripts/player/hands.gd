@@ -25,7 +25,10 @@ extends Node
 ## instead, directly and within a narrow range, like turning it in your hand.
 
 signal held_changed(card: CardData, binder: BinderRange)
-## What the thing under the crosshair is and what you can do with it.
+## The card whose details to show: the one in hand, or else a card lying on a
+## table that you've held before (null for none).
+signal shown_card_changed(card: CardData)
+## What the binder under the crosshair holds and what you can do with it.
 signal hint_changed(text: String)
 
 enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF }
@@ -74,6 +77,9 @@ const CARRIED_ROTATION := Vector3(0.7, -0.5, 0.0)
 var pile: PileWorld
 var held_card_id := -1
 var carried_binder: Binder
+## Every card you've held at least once, by id. A card lying on a table is a
+## mystery until you've picked it up; from then on you know what it is.
+var seen_cards := {}
 
 @onready var _camera: Camera3D = get_parent().get_node("Camera3D")
 var _held_view: MeshInstance3D
@@ -101,6 +107,7 @@ var _aim_shelf: ShelfUnit
 var _aim_space := -1
 var _hovered_binder: Binder
 var _hint := ""
+var _shown_card: CardData
 
 
 func _ready() -> void:
@@ -468,33 +475,18 @@ func _update_hover() -> void:
 
 
 func _update_hint() -> void:
-	var text := ""
-	match _aim:
-		Aim.BINDER:
-			text = _binder_hint(_aim_binder)
-		Aim.LOOSE_CARD:
-			if _hands_empty():
-				var card := CardDatabase.get_card(_aim_loose_card.card_id)
-				text = "%s · %s #%d\n%s: pick up" % [card.name, card.set_code, card.collector_number, _key(Controls.USE_HAND)]
-			elif held_card_id >= 0:
-				text = _put_down_hint()
-		Aim.SHELF:
-			var space: BinderRange = _aim_shelf.spaces[_aim_space]
-			text = "Shelf space for %s" % space.label
-			if carried_binder != null:
-				text += "\n%s: shelve this binder" % _key(Controls.USE_HAND)
-		Aim.FLOOR, Aim.SURFACE:
-			if not _hands_empty():
-				text = _put_down_hint()
-			elif _aim == Aim.FLOOR and pile.top_card_at(_aim_point) >= 0:
-				text = "%s: pick up" % _key(Controls.USE_HAND)
-	if held_card_id >= 0:
-		var card_keys := "%s: lower it · move the mouse: tilt it" % _key(Controls.INSPECT) if _zoomed \
-			else "%s: inspect · %s: toss" % [_key(Controls.INSPECT), _key(Controls.TOSS)]
-		text = card_keys if text.is_empty() else text + "\n" + card_keys
+	var text := _binder_hint(_aim_binder) if _aim == Aim.BINDER else ""
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
+	var shown: CardData = null
+	if held_card_id >= 0:
+		shown = CardDatabase.get_card(held_card_id)
+	elif _aim == Aim.LOOSE_CARD and _hands_empty() and seen_cards.has(_aim_loose_card.card_id):
+		shown = CardDatabase.get_card(_aim_loose_card.card_id)
+	if shown != _shown_card:
+		_shown_card = shown
+		shown_card_changed.emit(shown)
 
 
 ## How a hint shows an action's key or button (see Controls).
@@ -502,46 +494,36 @@ func _key(action: StringName) -> String:
 	return Controls.label(action)
 
 
-func _put_down_hint() -> String:
-	if _placing >= 0.0:
-		return "release: put it here"
-	return "%s: put it here · hold: place carefully" % _key(Controls.USE_HAND)
-
-
 func _binder_hint(binder: Binder) -> String:
 	var contents := binder.contents
-	var text := "%s · %d of %d filed" % [binder.binder.label, contents.locked_count, contents.capacity()]
+	var lines := PackedStringArray(["Cards Filled: %d/%d (%d%%)" % [
+		contents.locked_count, contents.capacity(), floori(100.0 * contents.locked_count / contents.capacity())]])
 	match binder.state:
-		Binder.State.SHELVED:
-			var correct: bool = binder.shelf_unit.spaces[binder.shelf_space] == binder.binder
-			text += "\n%s · %s: take it down" % ["On its shelf" if correct else "Wrong shelf space", _key(Controls.USE_HAND)]
 		Binder.State.CLOSED:
 			if carried_binder == null:
-				text += "\n%s: open · %s: pick up" % [_key(Controls.INTERACT), _key(Controls.USE_HAND)]
+				lines.append("%s: Open Binder" % _key(Controls.INTERACT))
 		Binder.State.OPEN:
 			var pages := BinderLayout.spread_pages(binder.binder, binder.spread)
 			var shown := []
 			for page in [pages.x, pages.y]:
 				if page >= 0:
 					shown.append(str(page + 1))
-			text += "\npage %s of %d · %s: turn pages · %s: close" % [
-				"–".join(shown) if not shown.is_empty() else "cover", BinderLayout.page_count(binder.binder),
-				Controls.pair_label(Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS), _key(Controls.INTERACT)]
+			lines.append("%s %s of %d" % ["Pages" if shown.size() > 1 else "Page", "–".join(shown),
+				BinderLayout.page_count(binder.binder)])
+			lines.append("%s: Close Binder" % _key(Controls.INTERACT))
 			if _aim_pocket >= 0:
-				text += "\n" + _pocket_hint(binder, _aim_pocket)
-	return text
+				lines.append(_pocket_hint(binder, _aim_pocket))
+	return "\n".join(lines)
 
 
+## A pocket shows its number, and the card's name once its own card is locked
+## in. Until then (empty, or holding the wrong card) the card is a mystery.
 func _pocket_hint(binder: Binder, pocket: int) -> String:
-	var number := binder.binder.first + pocket
-	var id := binder.contents.card_at(pocket)
-	if id < 0:
-		return "#%d · empty%s" % [number, " · %s: file this card" % _key(Controls.USE_HAND) if held_card_id >= 0 else ""]
-	var card := CardDatabase.get_card(id)
-	if binder.contents.is_locked(pocket):
-		return "#%d · %s" % [number, card.name]
-	return "#%d · %s %s #%d doesn't belong here%s" % [number, card.name, card.set_code, card.collector_number,
-		" · %s: take it out" % _key(Controls.USE_HAND) if _hands_empty() else ""]
+	var set_data := CardDatabase.get_set(binder.binder.set_code)
+	var number := "%s #%s" % [set_data.code, set_data.number_text(binder.binder.first + pocket)]
+	if not binder.contents.is_locked(pocket):
+		return number + ": ???"
+	return "%s\n%s" % [number, CardDatabase.get_card(binder.contents.card_at(pocket)).name]
 
 
 func _toss() -> void:
@@ -620,5 +602,6 @@ func _hold(id: int, from = null) -> void:
 	if id < 0:
 		held_changed.emit(null, null)
 		return
+	seen_cards[id] = true
 	CardView.apply(_held_view.material_override, id)
 	held_changed.emit(CardDatabase.get_card(id), null)

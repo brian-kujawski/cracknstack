@@ -61,7 +61,7 @@ func build(space_binders: Array, material: Material, per_shelf := ShelfLayout.SP
 		if binder == null:
 			continue
 		var label := Label3D.new()
-		label.text = "%s\n%d–%d" % [binder.set_code, binder.first, binder.last]
+		label.text = binder.set_code
 		label.font_size = 32
 		label.pixel_size = 0.0007
 		label.modulate = Color(0.15, 0.15, 0.15)

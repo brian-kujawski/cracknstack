@@ -32,6 +32,7 @@ func _ready() -> void:
 	_test_inspect_tilt()
 	_test_glide()
 	_test_controls()
+	_test_onscreen_text()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -615,3 +616,60 @@ func _test_controls() -> void:
 	Controls.reset(Controls.INTERACT)
 	_check(Controls.label(Controls.INTERACT) == "E", "reset puts one action back")
 	DirAccess.remove_absolute(path)
+
+
+func _test_onscreen_text() -> void:
+	var khans := SetData.new()
+	khans.code = "KTK"
+	khans.card_count = 269
+	_check(khans.number_text(4) == "004" and khans.number_text(269) == "269", "collector numbers are zero-padded to three digits")
+	khans.card_count = 1200
+	_check(khans.number_text(4) == "0004", "a set past 999 pads to four digits")
+
+	var range_data := CardDatabase.all_binders()[0]
+	var set_data := CardDatabase.get_set(range_data.set_code)
+	_check(range_data.numbers_text() == "%s #001-%s" % [set_data.code, set_data.number_text(range_data.last)],
+		"binder numbers read like KTK #001-269, got " + range_data.numbers_text())
+
+	var main := preload("res://scripts/main.gd")
+	var ids := _first_binder_cards()
+	var card := CardDatabase.get_card(ids[3])
+	_check(main.card_details(card) == "%s\n%s\n%s #004/%s\n%s" % [card.name, set_data.name, set_data.code,
+		set_data.number_text(set_data.card_count), CardData.Rarity.keys()[card.rarity].capitalize()],
+		"held card details: name, set, padded number of total, rarity; got " + main.card_details(card))
+
+	var binder := Binder.new()
+	binder.setup(range_data, Color.RED, null)
+	var other := Binder.new()
+	other.setup(CardDatabase.all_binders()[1], Color.BLUE, null)
+	binder.contents.insert(0, ids[0])
+	binder.contents.insert(1, ids[2]) # The wrong card: doesn't count.
+	other.contents.insert(0, _card_for(CardDatabase.all_binders()[1], 0))
+	var binders: Array[Binder] = [binder, other]
+	_check(main.cards_organized(binders) == 2, "Cards Organized counts locked cards across every binder")
+
+	var hands := Hands.new()
+	var capacity := binder.contents.capacity()
+	var filled := "Cards Filled: 1/%d (%d%%)" % [capacity, floori(100.0 / capacity)]
+	_check(hands._binder_hint(binder) == filled + "\nE: Open Binder", "closed binder hint, got " + hands._binder_hint(binder))
+	binder.state = Binder.State.OPEN
+	binder.spread = 1
+	var pages := BinderLayout.page_count(range_data)
+	_check(hands._binder_hint(binder) == "%s\nPages 2–3 of %d\nE: Close Binder" % [filled, pages],
+		"open binder hint, got " + hands._binder_hint(binder))
+	binder.spread = 0
+	_check(hands._binder_hint(binder).contains("\nPage 1 of %d\n" % pages), "the first spread shows one page")
+	_check(hands._pocket_hint(binder, 0) == "%s #001\n%s" % [set_data.code, CardDatabase.get_card(ids[0]).name],
+		"a locked pocket names its card")
+	_check(hands._pocket_hint(binder, 1) == set_data.code + " #002: ???", "a pocket with the wrong card stays a mystery")
+	_check(hands._pocket_hint(binder, 2) == set_data.code + " #003: ???", "an empty pocket is a mystery")
+	hands.free()
+	binder.free()
+	other.free()
+
+
+func _card_for(range_data: BinderRange, pocket: int) -> int:
+	for card in CardDatabase.cards_in_set(range_data.set_code):
+		if card.collector_number == range_data.first + pocket:
+			return card.id
+	return -1

@@ -16,3 +16,9 @@ func card_capacity() -> int:
 
 func contains(collector_number: int) -> bool:
 	return collector_number >= first and collector_number <= last
+
+
+## The set code and number range as printed on the binder, e.g. "KTK #001-269".
+func numbers_text() -> String:
+	var set_data := CardDatabase.get_set(set_code)
+	return "%s #%s-%s" % [set_code, set_data.number_text(first), set_data.number_text(last)]

@@ -103,12 +103,15 @@ func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
 	body.position.y = THICKNESS / 2
 	_closed_view.add_child(body)
 
-	var cover := _make_label("%s\n%d–%d" % [binder.set_code, binder.first, binder.last], 64, 0.0009)
+	var cover := _make_label("%s\n%s" % [CardDatabase.get_set(binder.set_code).name, binder.numbers_text()], 44, 0.0009)
+	# Long set names wrap to fit the cover.
+	cover.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cover.width = (COVER.x - 0.03) / cover.pixel_size
 	cover.rotation.x = -PI / 2
 	cover.position.y = THICKNESS + 0.001
 	_closed_view.add_child(cover)
 	# Spine label on the -x face, reading top to bottom like a real spine.
-	var spine := _make_label("%s  %d–%d" % [binder.set_code, binder.first, binder.last], 40, 0.0007)
+	var spine := _make_label(binder.numbers_text(), 40, 0.0007)
 	spine.rotation.y = -PI / 2
 	spine.position = Vector3(-COVER.x / 2 - 0.001, THICKNESS / 2, 0)
 	_closed_view.add_child(spine)

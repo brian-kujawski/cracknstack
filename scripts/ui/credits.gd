@@ -2,6 +2,8 @@ class_name Credits
 extends RefCounted
 ## The credits text: the Fan Content disclaimer (plan §2) and, with real
 ## data, where the card data and images come from and who painted the art.
+## Nothing shows it yet: it goes in the in-game menu's credits (M4b), and the
+## game doesn't ship until it does.
 
 const DISCLAIMER := "Pickup is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC."
 

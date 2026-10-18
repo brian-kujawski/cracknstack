@@ -22,7 +22,6 @@ const INSPECT := &"inspect"
 const INTERACT := &"interact"
 const FLIP_NEXT := &"flip_next"
 const FLIP_PREVIOUS := &"flip_previous"
-const CREDITS := &"credits"
 const FREE_MOUSE := &"free_mouse"
 
 ## Every bindable action in menu order: [action, what it's called in the menu].
@@ -38,7 +37,6 @@ const ACTIONS := [
 	[INTERACT, "Open or close a binder"],
 	[FLIP_NEXT, "Next page"],
 	[FLIP_PREVIOUS, "Previous page"],
-	[CREDITS, "Show credits"],
 	[FREE_MOUSE, "Free the mouse"],
 ]
 
@@ -52,7 +50,6 @@ const DEFAULT_KEYS := {
 	CROUCH: [KEY_CTRL, KEY_C],
 	INSPECT: [KEY_F],
 	INTERACT: [KEY_E],
-	CREDITS: [KEY_TAB],
 	FREE_MOUSE: [KEY_ESCAPE],
 }
 const DEFAULT_BUTTONS := {
