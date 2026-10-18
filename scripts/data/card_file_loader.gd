@@ -1,23 +1,34 @@
 class_name CardFileLoader
 extends RefCounted
-## Reads a card data file. Placeholder data and (later) the Scryfall importer
-## both write this format:
+## Reads a card data file. Placeholder data and the Scryfall importer
+## (tools/import_scryfall.py) both write this format:
 ##
 ## {
 ##   "format": 1,
-##   "sets":  [{"code", "name", "release_date", "accent_color"}],
-##   "cards": [[set_code, collector_number, name, rarity, colors, type_line], ...]
+##   "source": "...",                                       (real data only)
+##   "sets":  [{"code", "name", "release_date", "accent_color", "artists"}],
+##   "faces": {"pages", "page_size", "slot_size", "columns", "rows"},  (real data only)
+##   "back": "back.jpg",                                     (real data only)
+##   "cards": [[set_code, collector_number, name, rarity, colors, type_line, image], ...]
 ## }
 ##
-## Cards are compact arrays because the full game has ~30,000 of them.
+## Cards are compact arrays because the full game has ~30,000 of them. The
+## seventh column (a large face image) and "faces" (the small-face atlas,
+## card i in slot i) and "back" (the card back image) only come with real data. Their paths are relative to
+## the data file.
 
 const FORMAT_VERSION := 1
 
 
 class Result:
 	var error: Error = OK
+	var source := ""
 	var sets: Array[SetData] = []
 	var cards: Array[CardData] = []
+	## "faces" from the file with its page paths made absolute; empty if none.
+	var faces: Dictionary = {}
+	## The card back image, or "" to draw the placeholder back.
+	var back := ""
 
 
 static func load_file(path: String) -> Result:
@@ -32,6 +43,10 @@ static func load_file(path: String) -> Result:
 	if typeof(json) != TYPE_DICTIONARY or int(json.get("format", 0)) != FORMAT_VERSION:
 		result.error = ERR_PARSE_ERROR
 		return result
+	var folder := path.get_base_dir()
+	result.source = json.get("source", "")
+	if not str(json.get("back", "")).is_empty():
+		result.back = folder.path_join(json["back"])
 
 	var counts := {}
 	for entry in json["sets"]:
@@ -40,8 +55,17 @@ static func load_file(path: String) -> Result:
 		set_data.name = entry["name"]
 		set_data.release_date = entry["release_date"]
 		set_data.accent_color = Color.html(entry.get("accent_color", "#808080"))
+		set_data.artists = PackedStringArray(entry.get("artists", []))
 		result.sets.append(set_data)
 		counts[set_data.code] = 0
+
+	var has_faces: bool = json.has("faces")
+	if has_faces:
+		result.faces = json["faces"].duplicate()
+		var pages := PackedStringArray()
+		for page in json["faces"]["pages"]:
+			pages.append(folder.path_join(page))
+		result.faces["pages"] = pages
 
 	for row in json["cards"]:
 		var card := CardData.new()
@@ -52,6 +76,10 @@ static func load_file(path: String) -> Result:
 		card.rarity = CardData.rarity_from_string(row[3])
 		card.colors = PackedStringArray(row[4])
 		card.type_line = row[5]
+		if row.size() > 6 and not str(row[6]).is_empty():
+			card.image_large = folder.path_join(row[6])
+		if has_faces:
+			card.face_index = card.id
 		if not counts.has(card.set_code):
 			push_error("CardFileLoader: card %s references unknown set %s" % [card.name, card.set_code])
 			result.error = ERR_INVALID_DATA

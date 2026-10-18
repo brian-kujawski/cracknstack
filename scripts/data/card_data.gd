@@ -15,6 +15,8 @@ var collector_number: int
 var rarity: Rarity
 var colors: PackedStringArray
 var type_line: String
+## Slot in the face atlas (FaceAtlas), or -1 to draw the placeholder face.
+var face_index: int = -1
 ## Path to a large face image. Empty means "draw the placeholder face".
 var image_large: String = ""
 

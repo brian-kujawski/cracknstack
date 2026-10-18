@@ -9,13 +9,16 @@ uniform vec3 accent = vec3(0.5);
 uniform int set_number = 0;
 uniform int collector_number = 0;
 uniform int rarity = 0;
+// The card's large image, when real data is loaded.
+uniform bool has_face = false;
+uniform sampler2D face_texture : source_color, filter_linear_mipmap, repeat_disable;
 // rgb colour, a strength (0 = no glow).
 uniform vec4 glow = vec4(0.0);
 
 void fragment() {
 	vec3 color = FRONT_FACING
-		? card_face(UV, accent, set_number, collector_number, rarity)
-		: card_back(UV);
+		? (has_face ? real_face(texture(face_texture, UV).rgb, UV) : card_face(UV, accent, set_number, collector_number, rarity))
+		: back_of_card(vec2(1.0 - UV.x, UV.y)); // Seen from behind, so u runs the other way.
 	float edge = min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y) * 0.72);
 	float band = 1.0 - smoothstep(0.0, 0.1, edge);
 	// Paint the edge in the glow colour too, so it reads even without bloom.
