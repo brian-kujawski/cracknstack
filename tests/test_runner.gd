@@ -26,7 +26,7 @@ func _ready() -> void:
 	_test_binder_contents()
 	_test_binder_pockets()
 	_test_shelving()
-	_test_unsorted_stack()
+	_test_loose_card()
 	_test_real_data_format()
 	_test_credits()
 	_test_inspect_tilt()
@@ -302,6 +302,15 @@ func _test_pile_grid() -> void:
 		grid_entries += cell.size()
 	_check(grid_entries == pile.card_count_on_floor(),
 		"picking grid has one entry per floor card (%d entries, %d cards)" % [grid_entries, pile.card_count_on_floor()])
+
+	# A card put down lands exactly where its ghost showed it would.
+	var id := pile.top_card_at(pile.card_position(5))
+	var aim := pile.card_position(id)
+	pile.pick_up(id)
+	var shown := pile.drop_pose(aim, 0.4)
+	pile.drop(id, aim, 0.4)
+	_check(pile.card_position(id).is_equal_approx(shown.origin),
+		"a dropped card lands at its drop pose (%s vs %s)" % [pile.card_position(id), shown.origin])
 	pile.queue_free()
 
 
@@ -443,16 +452,15 @@ func _test_shelving() -> void:
 			b.queue_free()
 
 
-func _test_unsorted_stack() -> void:
-	var stack := UnsortedStack.new()
-	stack.setup(null)
-	add_child(stack)
-	stack.place(Vector3(1, 0.75, 1), 0.0, false)
-	stack.push(10)
-	stack.push(20)
-	_check(stack.size() == 2 and stack.top_card() == 20, "the last card stacked is on top")
-	_check(stack.pop() == 20 and stack.pop() == 10, "cards come off the top first")
-	_check(stack.is_queued_for_deletion(), "an empty stack goes away")
+func _test_loose_card() -> void:
+	var card := LooseCard.new()
+	add_child(card)
+	card.setup(10, Vector3(1, 0.75, 1), 0.5)
+	_check(card.card_id == 10, "a loose card keeps its card")
+	_check(card.card_pose().origin.is_equal_approx(LooseCard.pose_at(Vector3(1, 0.75, 1), 0.5).origin),
+		"a loose card lies where its ghost showed it would")
+	_check(card.collision_layer == Binder.PHYSICS_LAYER, "loose cards can be aimed at and rested on like binders")
+	card.queue_free()
 
 
 const FIXTURE_DIR := "user://test_real_data"

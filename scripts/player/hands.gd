@@ -3,17 +3,19 @@ extends Node
 ## The player's hands. One thing at a time: a card or a binder.
 ##
 ## Left-click is context sensitive:
-## - empty-handed: pick up the card under the crosshair (from the floor, an
-##   unsorted stack, or an unlocked card in an open binder), or pick up a
-##   closed binder (off the floor, a table or a shelf);
-## - holding a card: file it into the binder pocket you're looking at, put it
-##   on the stack you're looking at, or else bring it up close to your face
-##   (click again to lower it);
-## - carrying a binder: set it down on the floor or a table, or stand it in
-##   the shelf space you're looking at.
-## Right-click tosses a held card back onto the pile. E opens or closes the
-## binder you're looking at, the mouse wheel turns its pages, and F puts the
-## held card on an unsorted stack (starting one where you're looking).
+## - empty-handed: pick up the card under the crosshair (from the floor, a
+##   table, or an unlocked card in an open binder), or pick up a closed
+##   binder (off the floor, a table or a shelf);
+## - holding a card: file it into the binder pocket you're looking at, or put
+##   it down where you're looking (on the floor it rejoins the pile);
+## - carrying a binder: set it down where you're looking, or stand it in the
+##   shelf space you're looking at.
+## Putting something down happens when the button comes back up. Hold the
+## button and a ghost shows where it will go, following your aim, so you can
+## place it carefully; a quick click just puts it where you're looking.
+## Right-click tosses a held card back onto the pile. F brings the held card
+## up close to inspect it (F again lowers it). E opens or closes the binder
+## you're looking at, and the mouse wheel turns its pages.
 ##
 ## Cards and binders glide between the world and the hand rather than jumping;
 ## while one is on its way, the hands take no new orders.
@@ -25,7 +27,7 @@ signal held_changed(card: CardData, binder: BinderRange)
 ## What the thing under the crosshair is and what you can do with it.
 signal hint_changed(text: String)
 
-enum Aim { NONE, FLOOR, SURFACE, BINDER, STACK, SHELF }
+enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF }
 
 ## How far from the eye the player can reach.
 @export var reach := 2.6
@@ -52,6 +54,8 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, STACK, SHELF }
 ## Filing: after gliding to just above its pocket, the card slides down into
 ## it, a little slower.
 @export var pocket_slide_seconds := 0.22
+## Holding the button this long before letting go shows the ghost.
+@export var ghost_after_seconds := 0.12
 ## How far a card up close can tilt each way (degrees), on both axes. Kept
 ## narrow so the card never turns far enough to show it's a flat quad.
 @export var inspect_tilt_degrees := 15.0
@@ -81,12 +85,17 @@ var _zoom_amount := 0.0
 var _tilt := Vector2.ZERO
 ## The glide in progress, if any: something coming to hand or being put down.
 var _glide: Tween
+## While the button is held to put something down: how long it's been held.
+## -1 when not placing.
+var _placing := -1.0
+var _ghost_card: MeshInstance3D
+var _ghost_binder: MeshInstance3D
 
 var _aim := Aim.NONE
 var _aim_point := Vector3.ZERO
 var _aim_binder: Binder
 var _aim_pocket := -1
-var _aim_stack: UnsortedStack
+var _aim_loose_card: LooseCard
 var _aim_shelf: ShelfUnit
 var _aim_space := -1
 var _hovered_binder: Binder
@@ -105,14 +114,33 @@ func _ready() -> void:
 	_camera.add_child(_held_view)
 	_pose_held_card()
 
+	var ghost_material := StandardMaterial3D.new()
+	ghost_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ghost_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ghost_material.albedo_color = Color(1, 1, 1, 0.35)
+	ghost_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_ghost_card = MeshInstance3D.new()
+	_ghost_card.mesh = quad
+	_ghost_binder = MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Binder.SIZE
+	_ghost_binder.mesh = box
+	for ghost in [_ghost_card, _ghost_binder]:
+		ghost.material_override = ghost_material
+		ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		ghost.top_level = true
+		ghost.visible = false
+		add_child(ghost)
 
-func _physics_process(_delta: float) -> void:
+
+func _physics_process(delta: float) -> void:
 	if pile == null:
 		return
 	_update_aim()
 	var target := pile.top_card_at(_aim_point) if _aim == Aim.FLOOR and _hands_empty() else -1
 	pile.set_highlight(target)
 	_update_hover()
+	_update_ghost(delta)
 	_update_hint()
 
 
@@ -129,15 +157,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _gliding():
 		return
-	if event.is_action_pressed("use_hand"):
+	if event.is_action_released("use_hand"):
+		if _placing >= 0.0:
+			_placing = -1.0
+			_put_down_where_aimed()
+	elif _placing >= 0.0:
+		return # One thing at a time while putting something down.
+	elif event.is_action_pressed("use_hand"):
 		_use_hand()
 	elif event.is_action_pressed("toss") and held_card_id >= 0:
 		_toss()
 		_hold(-1)
 	elif event.is_action_pressed("interact"):
 		_toggle_binder()
-	elif event.is_action_pressed("stack_card"):
-		_stack_held_card()
+	elif event.is_action_pressed("inspect") and held_card_id >= 0:
+		_set_zoomed(not _zoomed)
 	elif event.is_action_pressed("flip_next"):
 		_flip(1)
 	elif event.is_action_pressed("flip_previous"):
@@ -154,19 +188,14 @@ func _gliding() -> bool:
 
 func _use_hand() -> void:
 	if carried_binder != null:
-		match _aim:
-			Aim.SHELF:
-				_shelve_carried_binder()
-			Aim.FLOOR, Aim.SURFACE:
-				_set_binder_down()
+		if _aim == Aim.SHELF:
+			_shelve_carried_binder()
+		elif _can_put_down():
+			_placing = 0.0
 		return
 	if held_card_id >= 0:
-		if _try_file_held_card():
-			return
-		if _aim == Aim.STACK:
-			_put_on_stack(_aim_stack)
-		else:
-			_set_zoomed(not _zoomed)
+		if not _try_file_held_card() and _can_put_down():
+			_placing = 0.0
 		return
 	match _aim:
 		Aim.FLOOR:
@@ -175,9 +204,11 @@ func _use_hand() -> void:
 				var from := pile.card_pose(id)
 				pile.pick_up(id)
 				_hold(id, from)
-		Aim.STACK:
-			var from := _aim_stack.top_card_pose()
-			_hold(_aim_stack.pop(), from)
+		Aim.LOOSE_CARD:
+			var card := _aim_loose_card
+			var from := card.card_pose()
+			card.queue_free()
+			_hold(card.card_id, from)
 		Aim.BINDER:
 			if _aim_binder.is_open():
 				if _aim_pocket < 0:
@@ -233,30 +264,70 @@ func _flip(direction: int) -> void:
 		_aim_binder.flip(direction)
 
 
-func _stack_held_card() -> void:
-	if held_card_id < 0:
+## Whether what's in hand can be put down where you're aiming: the floor, a
+## table, or (for a card) on top of a card lying on a table.
+func _can_put_down() -> bool:
+	return _aim == Aim.FLOOR or _aim == Aim.SURFACE or (_aim == Aim.LOOSE_CARD and held_card_id >= 0)
+
+
+## Where what's in hand would go if put down now: a global pose (a card quad
+## for a card, the binder's own pose for a binder), or null if there's
+## nowhere to put it.
+func _put_down_pose():
+	if not _can_put_down():
+		return null
+	var yaw := _yaw_facing_player(_aim_point)
+	if held_card_id >= 0:
+		if _aim == Aim.FLOOR:
+			return pile.drop_pose(_aim_point, yaw)
+		return LooseCard.pose_at(_aim_point, yaw)
+	var point := _clear_of_obstacles(_aim_point, Binder.OPEN_HALF_FOOTPRINT, yaw)
+	var y := carried_binder.rest_height(Vector2(point.x, point.z), yaw, point.y + Binder.DROP_HEIGHT)
+	return Transform3D(Basis(Vector3.UP, yaw), Vector3(point.x, y, point.z))
+
+
+## Shows the ghost of what's in hand where it would go, once the button has
+## been held a moment.
+func _update_ghost(delta: float) -> void:
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		_placing = -1.0 # The release won't reach us; let it go.
+	var pose = null
+	if _placing >= 0.0:
+		_placing += delta
+		if _placing >= ghost_after_seconds:
+			pose = _put_down_pose()
+	var ghost := _ghost_card if held_card_id >= 0 else _ghost_binder
+	_ghost_card.visible = pose != null and ghost == _ghost_card
+	_ghost_binder.visible = pose != null and ghost == _ghost_binder
+	if pose == null:
 		return
-	if _aim == Aim.STACK:
-		_put_on_stack(_aim_stack)
-	elif _aim == Aim.FLOOR or _aim == Aim.SURFACE:
-		# The stack is made where the card lands, so it's never seen empty.
-		var stack := UnsortedStack.new()
-		stack.setup(pile)
-		var yaw := _yaw_facing_player(_aim_point)
-		stack.place(_clear_of_obstacles(_aim_point, PileWorld.CARD_SIZE / 2, yaw), yaw, _aim == Aim.FLOOR)
-		var id := held_card_id
-		var to := Glide.flat_card(pile.to_global(stack.position + Vector3(0, PileWorld.CARD_THICKNESS, 0)),
-			pile.global_basis * stack.basis)
-		_put_down_card(to, func() -> void:
-			pile.add_child(stack)
-			stack.push(id))
+	if ghost == _ghost_binder:
+		# The box mesh is centred; a binder's origin is its underside.
+		pose = pose.translated_local(Vector3(0, Binder.THICKNESS / 2, 0))
+	ghost.global_transform = pose
 
 
-func _put_on_stack(stack: UnsortedStack) -> void:
+## The button came up: put what's in hand down where you're aiming now, if
+## that's somewhere it can go.
+func _put_down_where_aimed() -> void:
+	_ghost_card.visible = false
+	_ghost_binder.visible = false
+	if not _can_put_down():
+		return
+	if carried_binder != null:
+		_set_binder_down()
+		return
 	var id := held_card_id
-	_put_down_card(stack.next_card_pose(), func() -> void:
-		if is_instance_valid(stack):
-			stack.push(id))
+	var yaw := _yaw_facing_player(_aim_point)
+	if _aim == Aim.FLOOR:
+		var point := _aim_point
+		_put_down_card(pile.drop_pose(point, yaw), func() -> void: pile.drop(id, point, yaw))
+	else:
+		var point := _aim_point
+		_put_down_card(LooseCard.pose_at(point, yaw), func() -> void:
+			var card := LooseCard.new()
+			pile.add_child(card)
+			card.setup(id, point, yaw))
 
 
 ## Glides the held card to `to` (a global card pose) and calls `land` when it
@@ -348,7 +419,7 @@ func _update_aim() -> void:
 	_aim = Aim.NONE
 	_aim_binder = null
 	_aim_pocket = -1
-	_aim_stack = null
+	_aim_loose_card = null
 	_aim_shelf = null
 	_aim_space = -1
 	var from := _camera.global_position
@@ -367,9 +438,9 @@ func _update_aim() -> void:
 		_aim = Aim.BINDER
 		_aim_binder = collider
 		_aim_pocket = _aim_binder.pocket_at(hit.position)
-	elif collider is UnsortedStack:
-		_aim = Aim.STACK
-		_aim_stack = collider
+	elif collider is LooseCard:
+		_aim = Aim.LOOSE_CARD
+		_aim_loose_card = collider
 	elif collider is ShelfUnit:
 		var space: int = collider.space_at(hit.position)
 		if space < 0:
@@ -400,29 +471,34 @@ func _update_hint() -> void:
 	match _aim:
 		Aim.BINDER:
 			text = _binder_hint(_aim_binder)
-		Aim.STACK:
-			text = "Unsorted stack · %d card%s" % [_aim_stack.size(), "" if _aim_stack.size() == 1 else "s"]
+		Aim.LOOSE_CARD:
 			if _hands_empty():
-				text += "\nclick: take the top card"
+				var card := CardDatabase.get_card(_aim_loose_card.card_id)
+				text = "%s · %s #%d\nclick: pick up" % [card.name, card.set_code, card.collector_number]
 			elif held_card_id >= 0:
-				text += "\nclick or F: add this card"
+				text = _put_down_hint()
 		Aim.SHELF:
 			var space: BinderRange = _aim_shelf.spaces[_aim_space]
 			text = "Shelf space for %s" % space.label
 			if carried_binder != null:
 				text += "\nclick: shelve this binder"
 		Aim.FLOOR, Aim.SURFACE:
-			if carried_binder != null:
-				text = "click: set the binder down"
-			elif held_card_id >= 0:
-				text = "F: start an unsorted stack here"
+			if not _hands_empty():
+				text = _put_down_hint()
 			elif _aim == Aim.FLOOR and pile.top_card_at(_aim_point) >= 0:
 				text = "click: pick up"
-	if text.is_empty() and held_card_id >= 0:
-		text = "click: lower it · move the mouse: tilt it" if _zoomed else "click: look closer · right-click: toss"
+	if held_card_id >= 0:
+		var card_keys := "F: lower it · move the mouse: tilt it" if _zoomed else "F: inspect · right-click: toss"
+		text = card_keys if text.is_empty() else text + "\n" + card_keys
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
+
+
+func _put_down_hint() -> String:
+	if _placing >= 0.0:
+		return "release: put it here"
+	return "click: put it here · hold: place carefully"
 
 
 func _binder_hint(binder: Binder) -> String:

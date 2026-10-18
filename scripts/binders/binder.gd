@@ -320,16 +320,20 @@ func _lower_onto_what_is_below(from_height: float) -> void:
 			var half := Vector2(_shape.size.x, _shape.size.z) / 2
 			position.y = pile.height_under(Vector2(position.x, position.z), half, rotation.y)
 		return
+	global_position.y = rest_height(Vector2(global_position.x, global_position.z), global_rotation.y, from_height)
+
+
+## How high the binder would come to rest if lowered flat (closed or open, as
+## it is now) from `from_height` at a global x, z, turned to `yaw`.
+func rest_height(at: Vector2, yaw: float, from_height: float) -> float:
 	var params := PhysicsShapeQueryParameters3D.new()
 	params.shape = _shape
 	params.collision_mask = PHYSICS_MASK
 	params.exclude = [get_rid()]
-	var start := Transform3D(Basis(Vector3.UP, global_rotation.y),
-		Vector3(global_position.x, from_height + _shape.size.y / 2, global_position.z))
-	params.transform = start
+	params.transform = Transform3D(Basis(Vector3.UP, yaw), Vector3(at.x, from_height + _shape.size.y / 2, at.y))
 	params.motion = Vector3(0, -(from_height + 0.5), 0)
 	var safe: float = get_world_3d().direct_space_state.cast_motion(params)[0]
-	global_position.y = from_height + params.motion.y * safe + 0.002
+	return from_height + params.motion.y * safe + 0.002
 
 
 ## Hands the binder back to physics, at rest (if it's lying closed).

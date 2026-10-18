@@ -189,6 +189,17 @@ func drop(id: int, point: Vector3, rotation_y: float, face_up := true) -> void:
 	_rebuild_chunk(_chunk_of[id])
 
 
+## Where drop() would lay a card aimed at `point`, as a global pose for a
+## card quad (see Glide).
+func drop_pose(point: Vector3, rotation_y: float) -> Transform3D:
+	var p := clear_point(Vector2(point.x, point.z), CARD_SIZE / 2, rotation_y)
+	var top := 0.0
+	for cell in _footprint_cells(p, rotation_y):
+		top = maxf(top, _heights[cell])
+	return Glide.flat_card(to_global(Vector3(p.x, top + CARD_THICKNESS, p.y)),
+		global_basis * Basis(Vector3.UP, rotation_y))
+
+
 func set_highlight(id: int) -> void:
 	if id == _highlighted:
 		return
