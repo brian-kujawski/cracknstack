@@ -22,7 +22,7 @@ const INSPECT := &"inspect"
 const INTERACT := &"interact"
 const FLIP_NEXT := &"flip_next"
 const FLIP_PREVIOUS := &"flip_previous"
-const FREE_MOUSE := &"free_mouse"
+const PAUSE := &"pause"
 
 ## Every bindable action in menu order: [action, what it's called in the menu].
 const ACTIONS := [
@@ -37,7 +37,7 @@ const ACTIONS := [
 	[INTERACT, "Open or close a binder"],
 	[FLIP_NEXT, "Next page"],
 	[FLIP_PREVIOUS, "Previous page"],
-	[FREE_MOUSE, "Free the mouse"],
+	[PAUSE, "Pause"],
 ]
 
 ## Defaults per action: keys by physical keycode (so WASD stays put on
@@ -50,7 +50,7 @@ const DEFAULT_KEYS := {
 	CROUCH: [KEY_CTRL, KEY_C],
 	INSPECT: [KEY_F],
 	INTERACT: [KEY_E],
-	FREE_MOUSE: [KEY_ESCAPE],
+	PAUSE: [KEY_ESCAPE],
 }
 const DEFAULT_BUTTONS := {
 	USE_HAND: [MOUSE_BUTTON_LEFT],
