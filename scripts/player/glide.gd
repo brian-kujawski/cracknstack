@@ -18,6 +18,15 @@ static func start(node: Node3D, from: Transform3D, to: Callable, seconds: float,
 	return tween
 
 
+## Adds a second leg to a glide: after what `tween` already does, `node`
+## slides from `from` to `to`, easing to a stop.
+static func then(tween: Tween, node: Node3D, from: Transform3D, to: Transform3D, seconds: float) -> Tween:
+	tween.tween_method(func(t: float) -> void:
+		node.global_transform = from.interpolate_with(to, t), 0.0, 1.0, seconds) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	return tween
+
+
 ## The pose a fraction `t` of the way from `from` to `to`, raised by up to
 ## `lift` metres at the midpoint.
 static func pose(from: Transform3D, to: Transform3D, t: float, lift := 0.0) -> Transform3D:

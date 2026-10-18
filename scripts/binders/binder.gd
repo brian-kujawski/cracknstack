@@ -34,6 +34,9 @@ const CELL := Vector2(0.074, 0.099)
 const OPEN_HALF_FOOTPRINT := Vector2(COVER.x, COVER.y / 2)
 ## Height of the page surface when the binder lies open.
 const OPEN_HEIGHT := 0.012
+## A card being filed first stops this far from its pocket (most of a card's
+## length up the page, and a little above it), then slides down into it.
+const POCKET_ENTRY := Vector3(0, 0.006, -0.06)
 const CLOSE_AFTER_COMPLETE := 1.2
 
 const LOCKED_GLOW := Color(1.0, 0.78, 0.3, 0.3)
@@ -140,6 +143,12 @@ func pocket_at(global_point: Vector3) -> int:
 ## Glide).
 func pocket_pose(pocket: int) -> Transform3D:
 	return Glide.flat_card(to_global(pocket_position(pocket)), global_basis)
+
+
+## Where a card waits before sliding into this pocket: just above the page
+## and up past the pocket's open top edge (toward -z), as a global pose.
+func pocket_entry_pose(pocket: int) -> Transform3D:
+	return Glide.flat_card(to_global(pocket_position(pocket) + POCKET_ENTRY), global_basis)
 
 
 ## Local position of a pocket's centre on the current spread (pages up).

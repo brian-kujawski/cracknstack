@@ -49,6 +49,9 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, STACK, SHELF }
 @export var card_glide_seconds := 0.16
 @export var binder_glide_seconds := 0.24
 @export var put_down_lift := 0.04
+## Filing: after gliding to just above its pocket, the card slides down into
+## it, a little slower.
+@export var pocket_slide_seconds := 0.22
 ## How far a card up close can tilt each way (degrees), on both axes. Kept
 ## narrow so the card never turns far enough to show it's a flat quad.
 @export var inspect_tilt_degrees := 15.0
@@ -197,7 +200,8 @@ func _try_file_held_card() -> bool:
 	if binder.contents.card_at(pocket) >= 0:
 		return true # The pocket's taken; the card stays in hand.
 	var id := held_card_id
-	_put_down_card(binder.pocket_pose(pocket), func() -> void: _file(binder, pocket, id))
+	_put_down_card(binder.pocket_pose(pocket), func() -> void: _file(binder, pocket, id),
+		binder.pocket_entry_pose(pocket))
 	return true
 
 
@@ -256,8 +260,9 @@ func _put_on_stack(stack: UnsortedStack) -> void:
 
 
 ## Glides the held card to `to` (a global card pose) and calls `land` when it
-## gets there. The hand is free at once; the card in flight is a copy.
-func _put_down_card(to: Transform3D, land: Callable) -> void:
+## gets there. Given `via`, it glides there first and then slides on to `to`.
+## The hand is free at once; the card in flight is a copy.
+func _put_down_card(to: Transform3D, land: Callable, via = null) -> void:
 	var card := MeshInstance3D.new()
 	card.mesh = _held_view.mesh
 	# Its own material, so the next pick-up can change the hand without
@@ -270,7 +275,11 @@ func _put_down_card(to: Transform3D, land: Callable) -> void:
 	pile.add_child(card)
 	var from := _held_view.global_transform
 	_hold(-1)
-	_glide = Glide.start(card, from, func() -> Transform3D: return to, card_glide_seconds, put_down_lift)
+	if via is Transform3D:
+		_glide = Glide.start(card, from, func() -> Transform3D: return via, card_glide_seconds, put_down_lift)
+		Glide.then(_glide, card, via, to, pocket_slide_seconds)
+	else:
+		_glide = Glide.start(card, from, func() -> Transform3D: return to, card_glide_seconds, put_down_lift)
 	_glide.tween_callback(func() -> void:
 		land.call()
 		card.queue_free())
