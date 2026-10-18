@@ -16,7 +16,6 @@ var _pitch := 0.0
 
 
 func _ready() -> void:
-	_ensure_input_actions()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_camera.position.y = stand_eye_height
 
@@ -26,59 +25,24 @@ func _unhandled_input(event: InputEvent) -> void:
 		rotate_y(-event.relative.x * mouse_sensitivity)
 		_pitch = clampf(_pitch - event.relative.y * mouse_sensitivity, -PI / 2 + 0.01, PI / 2 - 0.01)
 		_camera.rotation.x = _pitch
-	elif event.is_action_pressed("ui_cancel"):
+	elif event.is_action_pressed(Controls.FREE_MOUSE):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _physics_process(delta: float) -> void:
-	var crouching := Input.is_action_pressed("crouch")
+	var crouching := Input.is_action_pressed(Controls.CROUCH)
 	var target_eye := crouch_eye_height if crouching else stand_eye_height
 	_camera.position.y = lerpf(_camera.position.y, target_eye, minf(1.0, crouch_lerp_speed * delta))
 
 	if not is_on_floor():
 		velocity += get_gravity() * delta
 
-	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var input := Input.get_vector(Controls.MOVE_LEFT, Controls.MOVE_RIGHT, Controls.MOVE_FORWARD, Controls.MOVE_BACK)
 	var direction := (transform.basis * Vector3(input.x, 0, input.y)).normalized()
 	var speed := crouch_speed if crouching else walk_speed
 	velocity.x = direction.x * speed
 	velocity.z = direction.z * speed
 	move_and_slide()
 
-
-## Registers the keys and mouse buttons in code so the project file stays readable. Rebinding
-## in Project Settings still works: existing actions are left alone.
-static func _ensure_input_actions() -> void:
-	var bindings := {
-		"move_forward": [KEY_W, KEY_UP],
-		"move_back": [KEY_S, KEY_DOWN],
-		"move_left": [KEY_A, KEY_LEFT],
-		"move_right": [KEY_D, KEY_RIGHT],
-		"crouch": [KEY_CTRL, KEY_C],
-		"interact": [KEY_E],
-		"inspect": [KEY_F],
-		"credits": [KEY_TAB],
-	}
-	var mouse_bindings := {
-		"use_hand": MOUSE_BUTTON_LEFT,
-		"toss": MOUSE_BUTTON_RIGHT,
-		"flip_next": MOUSE_BUTTON_WHEEL_DOWN,
-		"flip_previous": MOUSE_BUTTON_WHEEL_UP,
-	}
-	for action in mouse_bindings:
-		if InputMap.has_action(action):
-			continue
-		InputMap.add_action(action)
-		var button := InputEventMouseButton.new()
-		button.button_index = mouse_bindings[action]
-		InputMap.action_add_event(action, button)
-	for action in bindings:
-		if InputMap.has_action(action):
-			continue
-		InputMap.add_action(action)
-		for keycode in bindings[action]:
-			var key := InputEventKey.new()
-			key.physical_keycode = keycode
-			InputMap.action_add_event(action, key)

@@ -2,7 +2,8 @@ class_name Hands
 extends Node
 ## The player's hands. One thing at a time: a card or a binder.
 ##
-## Left-click is context sensitive:
+## Keys and buttons are named here by their Controls actions (shown in
+## comments as the default bindings). Left-click is context sensitive:
 ## - empty-handed: pick up the card under the crosshair (from the floor, a
 ##   table, or an unlocked card in an open binder), or pick up a closed
 ##   binder (off the floor, a table or a shelf);
@@ -157,24 +158,24 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _gliding():
 		return
-	if event.is_action_released("use_hand"):
+	if event.is_action_released(Controls.USE_HAND):
 		if _placing >= 0.0:
 			_placing = -1.0
 			_put_down_where_aimed()
 	elif _placing >= 0.0:
 		return # One thing at a time while putting something down.
-	elif event.is_action_pressed("use_hand"):
+	elif event.is_action_pressed(Controls.USE_HAND):
 		_use_hand()
-	elif event.is_action_pressed("toss") and held_card_id >= 0:
+	elif event.is_action_pressed(Controls.TOSS) and held_card_id >= 0:
 		_toss()
 		_hold(-1)
-	elif event.is_action_pressed("interact"):
+	elif event.is_action_pressed(Controls.INTERACT):
 		_toggle_binder()
-	elif event.is_action_pressed("inspect") and held_card_id >= 0:
+	elif event.is_action_pressed(Controls.INSPECT) and held_card_id >= 0:
 		_set_zoomed(not _zoomed)
-	elif event.is_action_pressed("flip_next"):
+	elif event.is_action_pressed(Controls.FLIP_NEXT):
 		_flip(1)
-	elif event.is_action_pressed("flip_previous"):
+	elif event.is_action_pressed(Controls.FLIP_PREVIOUS):
 		_flip(-1)
 
 
@@ -474,31 +475,37 @@ func _update_hint() -> void:
 		Aim.LOOSE_CARD:
 			if _hands_empty():
 				var card := CardDatabase.get_card(_aim_loose_card.card_id)
-				text = "%s · %s #%d\nclick: pick up" % [card.name, card.set_code, card.collector_number]
+				text = "%s · %s #%d\n%s: pick up" % [card.name, card.set_code, card.collector_number, _key(Controls.USE_HAND)]
 			elif held_card_id >= 0:
 				text = _put_down_hint()
 		Aim.SHELF:
 			var space: BinderRange = _aim_shelf.spaces[_aim_space]
 			text = "Shelf space for %s" % space.label
 			if carried_binder != null:
-				text += "\nclick: shelve this binder"
+				text += "\n%s: shelve this binder" % _key(Controls.USE_HAND)
 		Aim.FLOOR, Aim.SURFACE:
 			if not _hands_empty():
 				text = _put_down_hint()
 			elif _aim == Aim.FLOOR and pile.top_card_at(_aim_point) >= 0:
-				text = "click: pick up"
+				text = "%s: pick up" % _key(Controls.USE_HAND)
 	if held_card_id >= 0:
-		var card_keys := "F: lower it · move the mouse: tilt it" if _zoomed else "F: inspect · right-click: toss"
+		var card_keys := "%s: lower it · move the mouse: tilt it" % _key(Controls.INSPECT) if _zoomed \
+			else "%s: inspect · %s: toss" % [_key(Controls.INSPECT), _key(Controls.TOSS)]
 		text = card_keys if text.is_empty() else text + "\n" + card_keys
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
 
 
+## How a hint shows an action's key or button (see Controls).
+func _key(action: StringName) -> String:
+	return Controls.label(action)
+
+
 func _put_down_hint() -> String:
 	if _placing >= 0.0:
 		return "release: put it here"
-	return "click: put it here · hold: place carefully"
+	return "%s: put it here · hold: place carefully" % _key(Controls.USE_HAND)
 
 
 func _binder_hint(binder: Binder) -> String:
@@ -507,18 +514,19 @@ func _binder_hint(binder: Binder) -> String:
 	match binder.state:
 		Binder.State.SHELVED:
 			var correct: bool = binder.shelf_unit.spaces[binder.shelf_space] == binder.binder
-			text += "\n%s · click: take it down" % ("On its shelf" if correct else "Wrong shelf space")
+			text += "\n%s · %s: take it down" % ["On its shelf" if correct else "Wrong shelf space", _key(Controls.USE_HAND)]
 		Binder.State.CLOSED:
 			if carried_binder == null:
-				text += "\nE: open · click: pick up"
+				text += "\n%s: open · %s: pick up" % [_key(Controls.INTERACT), _key(Controls.USE_HAND)]
 		Binder.State.OPEN:
 			var pages := BinderLayout.spread_pages(binder.binder, binder.spread)
 			var shown := []
 			for page in [pages.x, pages.y]:
 				if page >= 0:
 					shown.append(str(page + 1))
-			text += "\npage %s of %d · scroll: turn pages · E: close" % [
-				"–".join(shown) if not shown.is_empty() else "cover", BinderLayout.page_count(binder.binder)]
+			text += "\npage %s of %d · %s: turn pages · %s: close" % [
+				"–".join(shown) if not shown.is_empty() else "cover", BinderLayout.page_count(binder.binder),
+				Controls.pair_label(Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS), _key(Controls.INTERACT)]
 			if _aim_pocket >= 0:
 				text += "\n" + _pocket_hint(binder, _aim_pocket)
 	return text
@@ -528,12 +536,12 @@ func _pocket_hint(binder: Binder, pocket: int) -> String:
 	var number := binder.binder.first + pocket
 	var id := binder.contents.card_at(pocket)
 	if id < 0:
-		return "#%d · empty%s" % [number, " · click: file this card" if held_card_id >= 0 else ""]
+		return "#%d · empty%s" % [number, " · %s: file this card" % _key(Controls.USE_HAND) if held_card_id >= 0 else ""]
 	var card := CardDatabase.get_card(id)
 	if binder.contents.is_locked(pocket):
 		return "#%d · %s" % [number, card.name]
 	return "#%d · %s %s #%d doesn't belong here%s" % [number, card.name, card.set_code, card.collector_number,
-		" · click: take it out" if _hands_empty() else ""]
+		" · %s: take it out" % _key(Controls.USE_HAND) if _hands_empty() else ""]
 
 
 func _toss() -> void:

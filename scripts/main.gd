@@ -29,7 +29,7 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("credits"):
+	if event.is_action_pressed(Controls.CREDITS):
 		_credits.visible = not _credits.visible
 
 
@@ -43,7 +43,7 @@ func _process(delta: float) -> void:
 ## Frame rate and draw calls are for us while testing: they show when running
 ## from the editor or a debug export, and are left out of release exports.
 func _update_stats() -> void:
-	var text := "%d cards on the floor · Tab: credits" % _pile.card_count_on_floor()
+	var text := "%d cards on the floor · %s: credits" % [_pile.card_count_on_floor(), Controls.label(Controls.CREDITS)]
 	if not CardDatabase.is_real_data():
 		text += "\nPlaceholder cards: run tools/import_scryfall.py for Khans of Tarkir"
 	if OS.is_debug_build():
@@ -67,7 +67,7 @@ func _on_held_changed(card: CardData, binder: BinderRange) -> void:
 		CardData.Rarity.keys()[card.rarity].capitalize(), card.type_line]
 
 
-## The credits (Tab): Fan Content disclaimer, data and art sources.
+## The credits (Controls.CREDITS): Fan Content disclaimer, data and art sources.
 func _build_credits() -> void:
 	_credits = PanelContainer.new()
 	_credits.set_anchors_and_offsets_preset(Control.PRESET_CENTER)

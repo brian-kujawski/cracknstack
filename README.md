@@ -28,6 +28,8 @@ Controls:
 | Tab | Show or hide the credits |
 | Esc | Free the mouse (click to capture it again) |
 
+These are the defaults. Every binding is defined in one place, `scripts/input/controls.gd` (the `Controls` autoload), and the hints on screen read their key names from it. Rebinds are saved to `user://controls.cfg`; the settings menu for changing them comes later (M4b).
+
 A card in its own pocket locks in with a chime and a gold edge; anywhere else it glows red, makes no sound and can be taken back out. A binder in its own shelf space locks in with a chime; in another binder's space it glows red. A shelf lights up when every binder on it is in its own space and complete.
 
 ## Benchmark
@@ -83,6 +85,7 @@ data/real/          imported Scryfall data and images (not in git)
 scenes/             main scene, player
 scripts/binders/    Binder (open, turn pages, file, carry, shelve), BinderContents, LooseCard (a card set down on a table)
 scripts/data/       CardData, SetData, BinderRange, BinderLayout, CardSort, CardDatabase, CardFileLoader
+scripts/input/      Controls: every bindable action, its defaults, rebinds and key names
 scripts/feedback/   placeholder sounds, synthesised in code
 scripts/player/     first-person controller and Hands (everything you do with a card or binder)
 scripts/pile/       the card pile: PileWorld (packed arrays + chunked MultiMeshes), scatter, picking, gap fill, face atlas

@@ -31,6 +31,7 @@ func _ready() -> void:
 	_test_credits()
 	_test_inspect_tilt()
 	_test_glide()
+	_test_controls()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -584,3 +585,33 @@ func _test_glide() -> void:
 	var to := Transform3D(Basis.IDENTITY, Vector3(1, 0, 0))
 	_check(Glide.pose(from, to, 0.5, 0.1).origin.is_equal_approx(Vector3(0.5, 0.1, 0)), "a put-down should arc up by its lift at the midpoint")
 	_check(Glide.pose(from, to, 1.0, 0.1).origin.is_equal_approx(to.origin), "a glide should end exactly at its target")
+
+
+func _test_controls() -> void:
+	Controls.reset_all()
+	for entry in Controls.ACTIONS:
+		_check(not Controls.events(entry[0]).is_empty(), "%s has a default binding" % entry[0])
+	_check(Controls.label(Controls.INTERACT) == "E", "interact shows as E, got " + Controls.label(Controls.INTERACT))
+	_check(Controls.label(Controls.USE_HAND) == "click", "use hand shows as click")
+	_check(Controls.pair_label(Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS) == "scroll", "page turning shows as scroll")
+
+	var g := InputEventKey.new()
+	g.physical_keycode = KEY_G
+	Controls.rebind(Controls.INTERACT, g)
+	_check(Controls.label(Controls.INTERACT) == "G", "a rebind changes the hint, got " + Controls.label(Controls.INTERACT))
+	var press := InputEventKey.new()
+	press.physical_keycode = KEY_G
+	press.pressed = true
+	_check(press.is_action_pressed(Controls.INTERACT), "the rebound key triggers the action")
+	_check(Controls.actions_using(g) == [Controls.INTERACT], "actions_using finds the rebind")
+
+	var path := "user://test_controls.cfg"
+	Controls.save(path)
+	Controls.reset_all()
+	_check(Controls.label(Controls.INTERACT) == "E", "reset_all restores defaults")
+	Controls.load_rebinds(path)
+	_check(Controls.label(Controls.INTERACT) == "G", "rebinds survive a save and load")
+	_check(Controls.label(Controls.INSPECT) == "F", "unchanged actions keep their defaults after a load")
+	Controls.reset(Controls.INTERACT)
+	_check(Controls.label(Controls.INTERACT) == "E", "reset puts one action back")
+	DirAccess.remove_absolute(path)
