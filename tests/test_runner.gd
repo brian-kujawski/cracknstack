@@ -26,9 +26,13 @@ func _ready() -> void:
 	_test_binder_contents()
 	_test_binder_pockets()
 	_test_shelving()
-	_test_unsorted_stack()
+	_test_loose_card()
 	_test_real_data_format()
 	_test_credits()
+	_test_inspect_tilt()
+	_test_glide()
+	_test_controls()
+	_test_onscreen_text()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -300,6 +304,15 @@ func _test_pile_grid() -> void:
 		grid_entries += cell.size()
 	_check(grid_entries == pile.card_count_on_floor(),
 		"picking grid has one entry per floor card (%d entries, %d cards)" % [grid_entries, pile.card_count_on_floor()])
+
+	# A card put down lands exactly where its ghost showed it would.
+	var id := pile.top_card_at(pile.card_position(5))
+	var aim := pile.card_position(id)
+	pile.pick_up(id)
+	var shown := pile.drop_pose(aim, 0.4)
+	pile.drop(id, aim, 0.4)
+	_check(pile.card_position(id).is_equal_approx(shown.origin),
+		"a dropped card lands at its drop pose (%s vs %s)" % [pile.card_position(id), shown.origin])
 	pile.queue_free()
 
 
@@ -441,16 +454,15 @@ func _test_shelving() -> void:
 			b.queue_free()
 
 
-func _test_unsorted_stack() -> void:
-	var stack := UnsortedStack.new()
-	stack.setup(null)
-	add_child(stack)
-	stack.place(Vector3(1, 0.75, 1), 0.0, false)
-	stack.push(10)
-	stack.push(20)
-	_check(stack.size() == 2 and stack.top_card() == 20, "the last card stacked is on top")
-	_check(stack.pop() == 20 and stack.pop() == 10, "cards come off the top first")
-	_check(stack.is_queued_for_deletion(), "an empty stack goes away")
+func _test_loose_card() -> void:
+	var card := LooseCard.new()
+	add_child(card)
+	card.setup(10, Vector3(1, 0.75, 1), 0.5)
+	_check(card.card_id == 10, "a loose card keeps its card")
+	_check(card.card_pose().origin.is_equal_approx(LooseCard.pose_at(Vector3(1, 0.75, 1), 0.5).origin),
+		"a loose card lies where its ghost showed it would")
+	_check(card.collision_layer == Binder.PHYSICS_LAYER, "loose cards can be aimed at and rested on like binders")
+	card.queue_free()
 
 
 const FIXTURE_DIR := "user://test_real_data"
@@ -551,3 +563,117 @@ func _test_credits() -> void:
 	_check("Scryfall" in text and "Test Set art by Amy Artist, Zed Painter." in text, "real-data credits name Scryfall and the artists")
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_check(Credits.DISCLAIMER in Credits.text() and not "Scryfall" in Credits.text(), "placeholder credits still carry the disclaimer")
+
+
+func _test_inspect_tilt() -> void:
+	var limit := deg_to_rad(15.0)
+	var tilt := Hands.inspect_tilt(Vector2.ZERO, Vector2(40, -20), 0.0025, limit)
+	_check(is_equal_approx(tilt.y, 0.1) and is_equal_approx(tilt.x, -0.05), "tilt should follow the mouse 1:1: %s" % tilt)
+	tilt = Hands.inspect_tilt(tilt, Vector2(10000, 10000), 0.0025, limit)
+	_check(is_equal_approx(tilt.x, limit) and is_equal_approx(tilt.y, limit), "tilt should clamp to the limit: %s" % tilt)
+	tilt = Hands.inspect_tilt(tilt, Vector2(-40, 0), 0.0025, limit)
+	_check(is_equal_approx(tilt.y, limit - 0.1), "moving back from the limit should tilt back at once: %s" % tilt)
+
+
+func _test_glide() -> void:
+	var up := Glide.flat_card(Vector3.ZERO, Basis.IDENTITY)
+	_check(up.basis.z.is_equal_approx(Vector3.UP), "a face-up card's face should point up: %s" % up.basis.z)
+	_check(up.basis.y.is_equal_approx(Vector3.FORWARD), "a flat card's top edge should point along -z: %s" % up.basis.y)
+	var down := Glide.flat_card(Vector3.ZERO, Basis.IDENTITY, false)
+	_check(down.basis.z.is_equal_approx(Vector3.DOWN), "a face-down card's face should point down: %s" % down.basis.z)
+	_check(down.basis.y.is_equal_approx(Vector3.FORWARD), "a face-down card's top edge should still point along -z: %s" % down.basis.y)
+	var from := Transform3D(Basis.IDENTITY, Vector3.ZERO)
+	var to := Transform3D(Basis.IDENTITY, Vector3(1, 0, 0))
+	_check(Glide.pose(from, to, 0.5, 0.1).origin.is_equal_approx(Vector3(0.5, 0.1, 0)), "a put-down should arc up by its lift at the midpoint")
+	_check(Glide.pose(from, to, 1.0, 0.1).origin.is_equal_approx(to.origin), "a glide should end exactly at its target")
+
+
+func _test_controls() -> void:
+	Controls.reset_all()
+	for entry in Controls.ACTIONS:
+		_check(not Controls.events(entry[0]).is_empty(), "%s has a default binding" % entry[0])
+	_check(Controls.label(Controls.INTERACT) == "E", "interact shows as E, got " + Controls.label(Controls.INTERACT))
+	_check(Controls.label(Controls.USE_HAND) == "click", "use hand shows as click")
+	_check(Controls.pair_label(Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS) == "scroll", "page turning shows as scroll")
+
+	var g := InputEventKey.new()
+	g.physical_keycode = KEY_G
+	Controls.rebind(Controls.INTERACT, g)
+	_check(Controls.label(Controls.INTERACT) == "G", "a rebind changes the hint, got " + Controls.label(Controls.INTERACT))
+	var press := InputEventKey.new()
+	press.physical_keycode = KEY_G
+	press.pressed = true
+	_check(press.is_action_pressed(Controls.INTERACT), "the rebound key triggers the action")
+	_check(Controls.actions_using(g) == [Controls.INTERACT], "actions_using finds the rebind")
+
+	var path := "user://test_controls.cfg"
+	Controls.save(path)
+	Controls.reset_all()
+	_check(Controls.label(Controls.INTERACT) == "E", "reset_all restores defaults")
+	Controls.load_rebinds(path)
+	_check(Controls.label(Controls.INTERACT) == "G", "rebinds survive a save and load")
+	_check(Controls.label(Controls.INSPECT) == "F", "unchanged actions keep their defaults after a load")
+	Controls.reset(Controls.INTERACT)
+	_check(Controls.label(Controls.INTERACT) == "E", "reset puts one action back")
+	DirAccess.remove_absolute(path)
+
+
+func _test_onscreen_text() -> void:
+	var khans := SetData.new()
+	khans.code = "KTK"
+	khans.card_count = 269
+	_check(khans.number_text(4) == "004" and khans.number_text(269) == "269", "collector numbers are zero-padded to three digits")
+	khans.card_count = 1200
+	_check(khans.number_text(4) == "0004", "a set past 999 pads to four digits")
+
+	var range_data := CardDatabase.all_binders()[0]
+	var set_data := CardDatabase.get_set(range_data.set_code)
+	_check(range_data.numbers_text() == "%s #001-%s" % [set_data.code, set_data.number_text(range_data.last)],
+		"binder numbers read like KTK #001-269, got " + range_data.numbers_text())
+
+	var main := preload("res://scripts/main.gd")
+	var ids := _first_binder_cards()
+	var card := CardDatabase.get_card(ids[3])
+	_check(main.card_details(card) == "%s\n%s\n%s #004/%s\n%s" % [card.name, set_data.name, set_data.code,
+		set_data.number_text(set_data.card_count), CardData.Rarity.keys()[card.rarity].capitalize()],
+		"held card details: name, set, padded number of total, rarity; got " + main.card_details(card))
+
+	var binder := Binder.new()
+	binder.setup(range_data, Color.RED, null)
+	var other := Binder.new()
+	other.setup(CardDatabase.all_binders()[1], Color.BLUE, null)
+	binder.contents.insert(0, ids[0])
+	binder.contents.insert(1, ids[2]) # The wrong card: doesn't count.
+	other.contents.insert(0, _card_for(CardDatabase.all_binders()[1], 0))
+	var binders: Array[Binder] = [binder, other]
+	_check(main.cards_organized(binders) == 2, "Cards Organized counts locked cards across every binder")
+
+	var hands := Hands.new()
+	var capacity := binder.contents.capacity()
+	var filled := "Cards Filled: 1/%d (%d%%)" % [capacity, floori(100.0 / capacity)]
+	_check(hands._binder_hint(binder) == filled + "\nE: Open Binder", "closed binder hint, got " + hands._binder_hint(binder))
+	binder.state = Binder.State.OPEN
+	binder.spread = 1
+	var pages := BinderLayout.page_count(range_data)
+	_check(hands._binder_hint(binder) == "%s\nPages 2–3 of %d\nE: Close Binder" % [filled, pages],
+		"open binder hint, got " + hands._binder_hint(binder))
+	binder.spread = 0
+	_check(hands._binder_hint(binder).contains("\nPage 1 of %d\n" % pages), "the first spread shows one page")
+	hands._aim_pocket = 2
+	_check(hands._binder_hint(binder) == "%s #003: ???\n%s\nPage 1 of %d\nE: Close Binder" % [set_data.code, filled, pages],
+		"the pocket line sits on top, above the binder's lines; got " + hands._binder_hint(binder))
+	hands._aim_pocket = -1
+	_check(hands._pocket_hint(binder, 0) == "%s #001\n%s" % [set_data.code, CardDatabase.get_card(ids[0]).name],
+		"a locked pocket names its card")
+	_check(hands._pocket_hint(binder, 1) == set_data.code + " #002: ???", "a pocket with the wrong card stays a mystery")
+	_check(hands._pocket_hint(binder, 2) == set_data.code + " #003: ???", "an empty pocket is a mystery")
+	hands.free()
+	binder.free()
+	other.free()
+
+
+func _card_for(range_data: BinderRange, pocket: int) -> int:
+	for card in CardDatabase.cards_in_set(range_data.set_code):
+		if card.collector_number == range_data.first + pocket:
+			return card.id
+	return -1

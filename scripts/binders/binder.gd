@@ -34,6 +34,9 @@ const CELL := Vector2(0.074, 0.099)
 const OPEN_HALF_FOOTPRINT := Vector2(COVER.x, COVER.y / 2)
 ## Height of the page surface when the binder lies open.
 const OPEN_HEIGHT := 0.012
+## A card being filed first stops this far from its pocket (most of a card's
+## length up the page, and a little above it), then slides down into it.
+const POCKET_ENTRY := Vector3(0, 0.006, -0.06)
 const CLOSE_AFTER_COMPLETE := 1.2
 
 const LOCKED_GLOW := Color(1.0, 0.78, 0.3, 0.3)
@@ -100,12 +103,15 @@ func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
 	body.position.y = THICKNESS / 2
 	_closed_view.add_child(body)
 
-	var cover := _make_label("%s\n%d–%d" % [binder.set_code, binder.first, binder.last], 64, 0.0009)
+	var cover := _make_label("%s\n%s" % [CardDatabase.get_set(binder.set_code).name, binder.numbers_text()], 44, 0.0009)
+	# Long set names wrap to fit the cover.
+	cover.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cover.width = (COVER.x - 0.03) / cover.pixel_size
 	cover.rotation.x = -PI / 2
 	cover.position.y = THICKNESS + 0.001
 	_closed_view.add_child(cover)
 	# Spine label on the -x face, reading top to bottom like a real spine.
-	var spine := _make_label("%s  %d–%d" % [binder.set_code, binder.first, binder.last], 40, 0.0007)
+	var spine := _make_label(binder.numbers_text(), 40, 0.0007)
 	spine.rotation.y = -PI / 2
 	spine.position = Vector3(-COVER.x / 2 - 0.001, THICKNESS / 2, 0)
 	_closed_view.add_child(spine)
@@ -134,6 +140,18 @@ func pocket_at(global_point: Vector3) -> int:
 		return -1
 	var pocket := page * BinderLayout.POCKETS_PER_PAGE + cell.y * BinderLayout.COLUMNS + cell.x
 	return pocket if pocket < contents.capacity() else -1
+
+
+## Where a card in this pocket lies, as a global pose for a card quad (see
+## Glide).
+func pocket_pose(pocket: int) -> Transform3D:
+	return Glide.flat_card(to_global(pocket_position(pocket)), global_basis)
+
+
+## Where a card waits before sliding into this pocket: just above the page
+## and up past the pocket's open top edge (toward -z), as a global pose.
+func pocket_entry_pose(pocket: int) -> Transform3D:
+	return Glide.flat_card(to_global(pocket_position(pocket) + POCKET_ENTRY), global_basis)
 
 
 ## Local position of a pocket's centre on the current spread (pages up).
@@ -169,7 +187,7 @@ func close() -> void:
 	_closed_view.visible = true
 	_set_collision_box(SIZE)
 	_lower_onto_what_is_below(position.y + DROP_HEIGHT)
-	_let_go()
+	let_go()
 
 
 ## Turns pages: +1 forward, -1 back. Returns false at either end.
@@ -252,7 +270,7 @@ func put_down(parent: Node, point: Vector3, yaw: float) -> void:
 	rotation = Vector3(0, yaw, 0)
 	position = point
 	_lower_onto_what_is_below(point.y + DROP_HEIGHT)
-	_let_go()
+	let_go()
 
 
 ## Stands the binder in a shelf space. ShelfUnit decides where and whether
@@ -305,20 +323,24 @@ func _lower_onto_what_is_below(from_height: float) -> void:
 			var half := Vector2(_shape.size.x, _shape.size.z) / 2
 			position.y = pile.height_under(Vector2(position.x, position.z), half, rotation.y)
 		return
+	global_position.y = rest_height(Vector2(global_position.x, global_position.z), global_rotation.y, from_height)
+
+
+## How high the binder would come to rest if lowered flat (closed or open, as
+## it is now) from `from_height` at a global x, z, turned to `yaw`.
+func rest_height(at: Vector2, yaw: float, from_height: float) -> float:
 	var params := PhysicsShapeQueryParameters3D.new()
 	params.shape = _shape
 	params.collision_mask = PHYSICS_MASK
 	params.exclude = [get_rid()]
-	var start := Transform3D(Basis(Vector3.UP, global_rotation.y),
-		Vector3(global_position.x, from_height + _shape.size.y / 2, global_position.z))
-	params.transform = start
+	params.transform = Transform3D(Basis(Vector3.UP, yaw), Vector3(at.x, from_height + _shape.size.y / 2, at.y))
 	params.motion = Vector3(0, -(from_height + 0.5), 0)
 	var safe: float = get_world_3d().direct_space_state.cast_motion(params)[0]
-	global_position.y = from_height + params.motion.y * safe + 0.002
+	return from_height + params.motion.y * safe + 0.002
 
 
-## Hands the binder back to physics, at rest.
-func _let_go() -> void:
+## Hands the binder back to physics, at rest (if it's lying closed).
+func let_go() -> void:
 	if state != State.CLOSED:
 		return
 	freeze = false

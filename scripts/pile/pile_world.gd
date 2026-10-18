@@ -143,6 +143,11 @@ func is_on_floor(id: int) -> bool:
 	return _states[id] == State.ON_FLOOR
 
 
+## Where a floor card lies, as a global pose for a card quad (see Glide).
+func card_pose(id: int) -> Transform3D:
+	return Glide.flat_card(to_global(_positions[id]), global_basis * Basis(Vector3.UP, _rotations[id]), _face_up[id] == 1)
+
+
 ## The highest card on the floor covering this floor point, or -1.
 func top_card_at(point: Vector3) -> int:
 	var p := Vector2(point.x, point.z)
@@ -182,6 +187,17 @@ func drop(id: int, point: Vector3, rotation_y: float, face_up := true) -> void:
 	_face_up[id] = 1 if face_up else 0
 	_put_on_floor(id, p, rotation_y)
 	_rebuild_chunk(_chunk_of[id])
+
+
+## Where drop() would lay a card aimed at `point`, as a global pose for a
+## card quad (see Glide).
+func drop_pose(point: Vector3, rotation_y: float) -> Transform3D:
+	var p := clear_point(Vector2(point.x, point.z), CARD_SIZE / 2, rotation_y)
+	var top := 0.0
+	for cell in _footprint_cells(p, rotation_y):
+		top = maxf(top, _heights[cell])
+	return Glide.flat_card(to_global(Vector3(p.x, top + CARD_THICKNESS, p.y)),
+		global_basis * Basis(Vector3.UP, rotation_y))
 
 
 func set_highlight(id: int) -> void:

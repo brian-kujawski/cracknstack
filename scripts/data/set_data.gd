@@ -30,6 +30,12 @@ func build_binder_ranges(capacity: int) -> void:
 		binder_ranges.append(binder)
 
 
+## A collector number as printed on the cards: zero-padded to three digits,
+## or to however many the set's size needs.
+func number_text(collector_number: int) -> String:
+	return str(collector_number).pad_zeros(maxi(3, str(card_count).length()))
+
+
 ## The binder volume holding this collector number, or null if out of range.
 func binder_for(collector_number: int) -> BinderRange:
 	for binder in binder_ranges:

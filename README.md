@@ -19,13 +19,15 @@ Controls:
 |---|---|
 | WASD, mouse | Walk, look |
 | Ctrl or C | Crouch |
-| Left-click | Context sensitive. Empty-handed: pick up the card under the crosshair (from the floor, a stack, or a misplaced card in an open binder), or pick up a closed binder (from the floor, a table or a shelf). Holding a card: file it into the pocket you're looking at, add it to the stack you're looking at, or else bring it up close. Carrying a binder: set it down on the floor or a table, or stand it in the shelf space you're looking at. |
+| Left-click | Context sensitive. Empty-handed: pick up the card under the crosshair (from the floor, a table, or a misplaced card in an open binder), or pick up a closed binder (from the floor, a table or a shelf). Holding a card: file it into the pocket you're looking at, or put it down where you're looking (on the floor it rejoins the pile). Carrying a binder: put it down where you're looking, or stand it in the shelf space you're looking at. |
+| Left-click and hold | When putting something down: a ghost shows where it will go and follows your aim; let go to put it there |
 | Right-click | Toss the held card back onto the pile |
 | E | Open or close the binder you're looking at |
 | Mouse wheel | Turn the pages of the open binder you're looking at |
-| F | Put the held card on an unsorted stack (starts a new one where you're looking) |
-| Tab | Show or hide the credits |
+| F | Bring the held card up close to inspect it (the view holds still and the mouse tilts the card; F again lowers it) |
 | Esc | Free the mouse (click to capture it again) |
+
+These are the defaults. Every binding is defined in one place, `scripts/input/controls.gd` (the `Controls` autoload), and the hints on screen read their key names from it. Rebinds are saved to `user://controls.cfg`; the settings menu for changing them comes later (M4b).
 
 A card in its own pocket locks in with a chime and a gold edge; anywhere else it glows red, makes no sound and can be taken back out. A binder in its own shelf space locks in with a chime; in another binder's space it glows red. A shelf lights up when every binder on it is in its own space and complete.
 
@@ -80,8 +82,9 @@ Exits non-zero if any check fails. CI runs the same thing on every pull request.
 data/placeholder/   generated placeholder card data
 data/real/          imported Scryfall data and images (not in git)
 scenes/             main scene, player
-scripts/binders/    Binder (open, turn pages, file, carry, shelve), BinderContents, UnsortedStack
+scripts/binders/    Binder (open, turn pages, file, carry, shelve), BinderContents, LooseCard (a card set down on a table)
 scripts/data/       CardData, SetData, BinderRange, BinderLayout, CardSort, CardDatabase, CardFileLoader
+scripts/input/      Controls: every bindable action, its defaults, rebinds and key names
 scripts/feedback/   placeholder sounds, synthesised in code
 scripts/player/     first-person controller and Hands (everything you do with a card or binder)
 scripts/pile/       the card pile: PileWorld (packed arrays + chunked MultiMeshes), scatter, picking, gap fill, face atlas
