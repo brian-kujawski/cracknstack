@@ -1,10 +1,11 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="2_player"]
 [ext_resource type="Script" path="res://scripts/store/store_builder.gd" id="3_store"]
 [ext_resource type="Script" path="res://scripts/pile/pile_world.gd" id="4_pile"]
 [ext_resource type="Script" path="res://scripts/benchmark.gd" id="5_benchmark"]
+[ext_resource type="Script" path="res://scripts/ui/pause_menu.gd" id="6_pause"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 
@@ -97,3 +98,6 @@ grow_vertical = 0
 horizontal_alignment = 2
 vertical_alignment = 2
 mouse_filter = 2
+
+[node name="PauseMenu" type="CanvasLayer" parent="."]
+script = ExtResource("6_pause")

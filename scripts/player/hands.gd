@@ -296,6 +296,15 @@ func _put_down_pose():
 
 ## Shows the ghost of what's in hand where it would go, once the button has
 ## been held a moment.
+## Pausing lets go of a put-down in progress: its release goes to the pause
+## screen, not to us.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PAUSED and _placing >= 0.0:
+		_placing = -1.0
+		_ghost_card.visible = false
+		_ghost_binder.visible = false
+
+
 func _update_ghost(delta: float) -> void:
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		_placing = -1.0 # The release won't reach us; let it go.

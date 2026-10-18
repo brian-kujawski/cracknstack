@@ -25,7 +25,7 @@ Controls:
 | E | Open or close the binder you're looking at |
 | Mouse wheel | Turn the pages of the open binder you're looking at |
 | F | Bring the held card up close to inspect it (the view holds still and the mouse tilts the card; F again lowers it) |
-| Esc | Free the mouse (click to capture it again) |
+| Esc | Pause (Esc again, or the Continue button, to go back in) |
 
 These are the defaults. Every binding is defined in one place, `scripts/input/controls.gd` (the `Controls` autoload), and the hints on screen read their key names from it. Rebinds are saved to `user://controls.cfg`; the settings menu for changing them comes later (M4b).
 
@@ -89,7 +89,7 @@ scripts/feedback/   placeholder sounds, synthesised in code
 scripts/player/     first-person controller and Hands (everything you do with a card or binder)
 scripts/pile/       the card pile: PileWorld (packed arrays + chunked MultiMeshes), scatter, picking, gap fill, face atlas
 scripts/store/      graybox room builder, shelf units, shelf layout (binders split evenly across the three wall shelves)
-scripts/ui/         credits
+scripts/ui/         credits, pause screen
 shaders/            card faces (real images, or placeholders drawn procedurally) and binder pages
 tests/              headless checks for the data layer, shelving and pile
 tools/              placeholder generator and the Scryfall importer

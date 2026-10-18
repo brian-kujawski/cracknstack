@@ -33,6 +33,7 @@ func _ready() -> void:
 	_test_glide()
 	_test_controls()
 	_test_onscreen_text()
+	_test_pause()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -677,3 +678,23 @@ func _card_for(range_data: BinderRange, pocket: int) -> int:
 		if card.collector_number == range_data.first + pocket:
 			return card.id
 	return -1
+
+
+func _test_pause() -> void:
+	var menu := PauseMenu.new()
+	add_child(menu)
+	_check(not menu.is_paused() and not get_tree().paused, "the game starts unpaused")
+	var esc := InputEventAction.new()
+	esc.action = Controls.PAUSE
+	esc.pressed = true
+	menu._unhandled_input(esc)
+	_check(menu.is_paused() and menu.visible and get_tree().paused, "Esc pauses and shows the pause screen")
+	_check(Input.mouse_mode != Input.MOUSE_MODE_CAPTURED, "pausing frees the mouse")
+	menu._unhandled_input(esc)
+	_check(not menu.is_paused() and not get_tree().paused, "Esc again goes back in")
+	menu.pause()
+	var button: Button = menu.find_children("*", "Button", true, false)[0]
+	_check(button.text == "Click to Continue", "the pause screen has a Continue button")
+	button.pressed.emit()
+	_check(not menu.is_paused() and not get_tree().paused, "the Continue button goes back in")
+	menu.free()
