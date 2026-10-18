@@ -659,6 +659,10 @@ func _test_onscreen_text() -> void:
 		"open binder hint, got " + hands._binder_hint(binder))
 	binder.spread = 0
 	_check(hands._binder_hint(binder).contains("\nPage 1 of %d\n" % pages), "the first spread shows one page")
+	hands._aim_pocket = 2
+	_check(hands._binder_hint(binder) == "%s #003: ???\n%s\nPage 1 of %d\nE: Close Binder" % [set_data.code, filled, pages],
+		"the pocket line sits on top, above the binder's lines; got " + hands._binder_hint(binder))
+	hands._aim_pocket = -1
 	_check(hands._pocket_hint(binder, 0) == "%s #001\n%s" % [set_data.code, CardDatabase.get_card(ids[0]).name],
 		"a locked pocket names its card")
 	_check(hands._pocket_hint(binder, 1) == set_data.code + " #002: ???", "a pocket with the wrong card stays a mystery")

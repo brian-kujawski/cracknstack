@@ -511,8 +511,10 @@ func _binder_hint(binder: Binder) -> String:
 			lines.append("%s %s of %d" % ["Pages" if shown.size() > 1 else "Page", "–".join(shown),
 				BinderLayout.page_count(binder.binder)])
 			lines.append("%s: Close Binder" % _key(Controls.INTERACT))
+			# On top: the block is anchored at the bottom, so lines that come and
+			# go as you aim grow it upward and leave the binder's lines in place.
 			if _aim_pocket >= 0:
-				lines.append(_pocket_hint(binder, _aim_pocket))
+				lines.insert(0, _pocket_hint(binder, _aim_pocket))
 	return "\n".join(lines)
 
 
