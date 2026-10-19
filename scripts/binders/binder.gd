@@ -217,13 +217,20 @@ func insert(pocket: int, card_id: int) -> BinderContents.Result:
 		return result
 	_refresh_spread()
 	if result == BinderContents.Result.LOCKED:
+		Progression.earn(Progression.CARD_LOCKED)
 		_flash(_pocket_view(pocket), FLASH_GLOW, LOCKED_GLOW, 0.9)
 		var page := pocket / BinderLayout.POCKETS_PER_PAGE
 		if contents.is_page_complete(page):
 			_flash(_page_view(page), PAGE_FLASH_GLOW, PAGE_DONE_GLOW, 1.4)
 		if contents.is_complete():
+			Progression.earn_once("complete:" + key(), Progression.binder_complete_bonus(contents.capacity()))
 			_on_complete()
 	return result
+
+
+## Names this binder for bonuses paid once: its set and first number.
+func key() -> String:
+	return "%s#%d" % [binder.set_code, binder.first]
 
 
 ## Takes an unlocked card out of a pocket; -1 if there isn't one.

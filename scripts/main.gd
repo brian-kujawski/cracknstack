@@ -23,6 +23,7 @@ func _ready() -> void:
 	_hands.shown_card_changed.connect(_on_shown_card_changed)
 	_hands.hint_changed.connect(func(text: String) -> void: _hint.text = text)
 	_on_shown_card_changed(null)
+	Progression.mana_changed.connect(func(_mana: int) -> void: _update_stats())
 	_update_stats()
 
 
@@ -37,7 +38,8 @@ func _process(delta: float) -> void:
 ## testing: they show when running from the editor or a debug export, and are
 ## left out of release exports.
 func _update_stats() -> void:
-	var text := "Cards Organized: %d/%d" % [cards_organized(_pile.binders), CardDatabase.card_count()]
+	var text := "Cards Organized: %d/%d\nMana: %d" % [
+		cards_organized(_pile.binders), CardDatabase.card_count(), Progression.mana]
 	if OS.is_debug_build():
 		var debug := "%d fps · %d draw calls" % [
 			Engine.get_frames_per_second(),

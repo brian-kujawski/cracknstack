@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="2_player"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://scripts/pile/pile_world.gd" id="4_pile"]
 [ext_resource type="Script" path="res://scripts/benchmark.gd" id="5_benchmark"]
 [ext_resource type="Script" path="res://scripts/ui/pause_menu.gd" id="6_pause"]
+[ext_resource type="Script" path="res://scripts/ui/upgrade_menu.gd" id="7_upgrades"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 
@@ -101,3 +102,6 @@ mouse_filter = 2
 
 [node name="PauseMenu" type="CanvasLayer" parent="."]
 script = ExtResource("6_pause")
+
+[node name="UpgradeMenu" type="CanvasLayer" parent="."]
+script = ExtResource("7_upgrades")
