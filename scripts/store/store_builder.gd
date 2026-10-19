@@ -19,11 +19,28 @@ const DOOR_SIZE := Vector2(1.0, 2.1)
 const BACK_SHELF := Vector2(2.0, 10.0)
 const TABLE_SIZE := Vector3(1.3, 1.0, 1.3)
 const TABLE_CENTERS := [Vector2(4.6, 2.9), Vector2(7.4, 2.9), Vector2(4.6, 5.3), Vector2(7.4, 5.3)]
+## Windows on the front wall, either side of the door: centres along x, and
+## the opening's size and sill height.
+const WINDOW_XS := [2.9, 9.1]
+const WINDOW_SIZE := Vector2(1.8, 1.5)
+const WINDOW_SILL := 0.9
+## Pendant shades hang this high (their rim), about a metre over the tables.
+const PENDANT_HEIGHT := 2.05
+## The shelf's track light: how far out from the back wall it runs, and how
+## many spotlights are on it.
+const TRACK_Z := 1.15
+const TRACK_HEADS := 7
+const FIXTURE_LIGHT := Color(1.0, 0.82, 0.6)
 
 ## Floor footprints nothing on the floor may overlap (the shelves and the
 ## table legs), as x/z rectangles. The space under a table top is open:
 ## cards can end up underneath.
 var obstacles: Array[Rect2] = []
+## For the DayCycle: the light from each window, the curtains, and the sky
+## seen between them.
+var window_lights: Array[Light3D] = []
+var curtain_material := _material(Color(0.86, 0.8, 0.68))
+var sky_material := StandardMaterial3D.new()
 
 var _wall_material := _material(Color(0.86, 0.84, 0.8))
 var _floor_material := _material(Color(0.55, 0.5, 0.45))
@@ -31,6 +48,8 @@ var _shelf_material := _material(Color(0.62, 0.48, 0.34))
 var _door_material := _material(Color(0.9, 0.5, 0.15))
 var _table_material := _wood(Color(0.46, 0.29, 0.16))
 var _felt_material := _material(Color(0.1, 0.24, 0.17))
+var _fixture_material := _metal(Color(0.12, 0.13, 0.12), 0.45)
+var _brass_material := _metal(Color(0.75, 0.6, 0.35), 0.35)
 
 
 ## The floor area cards can land on, inset a little from the walls.
@@ -42,7 +61,9 @@ func _ready() -> void:
 	_build_shell()
 	_build_binder_shelves()
 	_build_tables()
-	_build_lights()
+	_build_windows()
+	_build_pendants()
+	_build_track_light()
 
 
 func _build_shell() -> void:
@@ -142,7 +163,7 @@ static func _tapered_leg(top: float, foot: float, height: float) -> ArrayMesh:
 	return tool.commit()
 
 
-func _add_part(body: StaticBody3D, size: Vector3, center: Vector3, material: Material, solid: bool) -> void:
+func _add_part(body: Node3D, size: Vector3, center: Vector3, material: Material, solid: bool) -> void:
 	var mesh := BoxMesh.new()
 	mesh.size = size
 	var instance := MeshInstance3D.new()
@@ -151,7 +172,7 @@ func _add_part(body: StaticBody3D, size: Vector3, center: Vector3, material: Mat
 	instance.position = center
 	body.add_child(instance)
 	if solid:
-		_add_shape(body, size, center)
+		_add_shape(body as StaticBody3D, size, center)
 
 
 func _add_shape(body: StaticBody3D, size: Vector3, center: Vector3) -> void:
@@ -163,14 +184,178 @@ func _add_shape(body: StaticBody3D, size: Vector3, center: Vector3) -> void:
 	body.add_child(shape)
 
 
-func _build_lights() -> void:
-	for x in [2.5, 6.0, 9.5]:
-		for z in [2.5, 5.5]:
-			var light := OmniLight3D.new()
-			light.position = Vector3(x, CEILING_HEIGHT - 0.3, z)
-			light.omni_range = 5.5
-			light.light_energy = 1.2
-			add_child(light)
+## Each window is a framed opening with a deep sill, the sky behind it, and
+## two curtains drawn nearly closed on a rod, so daylight comes in diffuse.
+func _build_windows() -> void:
+	const FRAME := 0.07
+	const FRAME_DEPTH := 0.06
+	const CURTAIN_Z := 0.13
+	sky_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sky_material.albedo_color = Color.BLACK
+	curtain_material.emission_enabled = true
+	curtain_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var size: Vector2 = WINDOW_SIZE
+	for x in WINDOW_XS:
+		var mid_y := WINDOW_SILL + size.y / 2
+		_add_part(self, Vector3(size.x, size.y, 0.01), Vector3(x, mid_y, DEPTH - 0.005), sky_material, false)
+		# Frame: head, jambs, a cross bar, and a sill that sticks out.
+		var frame_z := DEPTH - FRAME_DEPTH / 2
+		for side in [-1, 1]:
+			_add_part(self, Vector3(FRAME, size.y + 2 * FRAME, FRAME_DEPTH), Vector3(x + side * (size.x + FRAME) / 2, mid_y, frame_z), _shelf_material, false)
+		_add_part(self, Vector3(size.x + 2 * FRAME, FRAME, FRAME_DEPTH), Vector3(x, WINDOW_SILL + size.y + FRAME / 2, frame_z), _shelf_material, false)
+		_add_part(self, Vector3(size.x, FRAME * 0.6, FRAME_DEPTH * 0.6), Vector3(x, mid_y, DEPTH - FRAME_DEPTH * 0.3), _shelf_material, false)
+		_add_part(self, Vector3(size.x + 2 * FRAME + 0.06, 0.04, 0.16), Vector3(x, WINDOW_SILL - 0.02, DEPTH - 0.08), _shelf_material, false)
+		# Curtains drawn to within a hand's width of each other.
+		var rod_y := WINDOW_SILL + size.y + FRAME + 0.08
+		var rod := MeshInstance3D.new()
+		var rod_mesh := CylinderMesh.new()
+		rod_mesh.top_radius = 0.012
+		rod_mesh.bottom_radius = 0.012
+		rod_mesh.height = size.x + 0.5
+		rod.mesh = rod_mesh
+		rod.material_override = _brass_material
+		rod.rotation.z = PI / 2
+		rod.position = Vector3(x, rod_y, DEPTH - CURTAIN_Z)
+		add_child(rod)
+		var curtain_width := size.x / 2 + 0.2
+		var drop := rod_y - (WINDOW_SILL - 0.12)
+		for side in [-1, 1]:
+			var curtain := MeshInstance3D.new()
+			curtain.mesh = _curtain_mesh(curtain_width, drop)
+			curtain.material_override = curtain_material
+			curtain.position = Vector3(x + side * (curtain_width / 2 + 0.05), rod_y, DEPTH - CURTAIN_Z)
+			add_child(curtain)
+		# Soft daylight into the room, no shadows (the curtains diffuse it).
+		var light := SpotLight3D.new()
+		light.position = Vector3(x, mid_y + 0.3, DEPTH - 0.3)
+		light.rotation.x = deg_to_rad(-12)
+		light.spot_angle = 60.0
+		light.spot_range = 9.0
+		light.spot_attenuation = 0.8
+		light.light_specular = 0.2
+		add_child(light)
+		window_lights.append(light)
+
+
+## A pleated curtain hanging from its top edge (origin at the top centre).
+static func _curtain_mesh(width: float, drop: float) -> ArrayMesh:
+	const PLEAT := 0.11
+	const DEPTH_OF_PLEAT := 0.035
+	const STEPS := 40
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in STEPS:
+		var x0 := -width / 2 + width * i / STEPS
+		var x1 := -width / 2 + width * (i + 1) / STEPS
+		var z0 := DEPTH_OF_PLEAT / 2 * sin(TAU * x0 / PLEAT)
+		var z1 := DEPTH_OF_PLEAT / 2 * sin(TAU * x1 / PLEAT)
+		var a := Vector3(x0, 0, z0)
+		var b := Vector3(x1, 0, z1)
+		var c := Vector3(x1, -drop, z1)
+		var d := Vector3(x0, -drop, z0)
+		for v in [a, b, c, a, c, d]:
+			tool.add_vertex(v)
+	tool.generate_normals()
+	return tool.commit()
+
+
+## A pendant over each table: a ceiling canopy, a cord, and a deep enamel
+## shade with a warm downlight that pools on the felt and spills onto the
+## floor round the table.
+func _build_pendants() -> void:
+	var bulb_material := StandardMaterial3D.new()
+	bulb_material.emission_enabled = true
+	bulb_material.emission = FIXTURE_LIGHT
+	bulb_material.emission_energy_multiplier = 4.0
+	bulb_material.albedo_color = Color(1, 0.95, 0.85)
+	var inside_material := _material(Color(0.95, 0.92, 0.85))
+	inside_material.cull_mode = BaseMaterial3D.CULL_FRONT
+	for center in TABLE_CENTERS:
+		var at := Vector3(center.x, 0, center.y)
+		_add_cylinder(Vector3(at.x, CEILING_HEIGHT - 0.015, at.z), 0.06, 0.06, 0.03, _fixture_material)
+		var cord_top := CEILING_HEIGHT - 0.03
+		var shade_top := PENDANT_HEIGHT + 0.2
+		_add_cylinder(Vector3(at.x, (cord_top + shade_top) / 2, at.z), 0.004, 0.004, cord_top - shade_top, _fixture_material)
+		# The shade: a short neck flaring to a wide rim, painted inside.
+		_add_cylinder(Vector3(at.x, shade_top - 0.03, at.z), 0.03, 0.03, 0.06, _fixture_material)
+		_add_cylinder(Vector3(at.x, PENDANT_HEIGHT + 0.07, at.z), 0.05, 0.23, 0.14, _fixture_material, self, true)
+		_add_cylinder(Vector3(at.x, PENDANT_HEIGHT + 0.07, at.z), 0.048, 0.228, 0.14, inside_material, self, true)
+		var bulb := MeshInstance3D.new()
+		var bulb_mesh := SphereMesh.new()
+		bulb_mesh.radius = 0.04
+		bulb_mesh.height = 0.08
+		bulb.mesh = bulb_mesh
+		bulb.material_override = bulb_material
+		bulb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		bulb.position = Vector3(at.x, PENDANT_HEIGHT + 0.09, at.z)
+		add_child(bulb)
+		var light := SpotLight3D.new()
+		light.position = Vector3(at.x, PENDANT_HEIGHT + 0.05, at.z)
+		light.rotation.x = -PI / 2
+		light.light_color = FIXTURE_LIGHT
+		light.light_energy = 1.4
+		light.spot_angle = 50.0
+		light.spot_range = 4.5
+		light.spot_attenuation = 1.2
+		light.shadow_enabled = true
+		light.shadow_blur = 2.0
+		add_child(light)
+		# A little light up and out, so the ceiling and walls aren't black.
+		var glow := OmniLight3D.new()
+		glow.position = Vector3(at.x, PENDANT_HEIGHT + 0.3, at.z)
+		glow.light_color = FIXTURE_LIGHT
+		glow.light_energy = 0.15
+		glow.omni_range = 4.0
+		add_child(glow)
+
+
+## A ceiling track along the shelf with spotlights angled at its face, so
+## the labels and spines read clearly. No shadows: it's there to light faces.
+func _build_track_light() -> void:
+	var length: float = BACK_SHELF.y - BACK_SHELF.x
+	var track_y := CEILING_HEIGHT - 0.02
+	_add_part(self, Vector3(length, 0.03, 0.035), Vector3((BACK_SHELF.x + BACK_SHELF.y) / 2, track_y, TRACK_Z), _fixture_material, false)
+	var lens_material := StandardMaterial3D.new()
+	lens_material.emission_enabled = true
+	lens_material.emission = FIXTURE_LIGHT
+	lens_material.emission_energy_multiplier = 3.0
+	var target_y := 1.15
+	var target_z := ShelfUnit.DEPTH
+	for i in TRACK_HEADS:
+		var x: float = BACK_SHELF.x + length * (i + 0.5) / TRACK_HEADS
+		_add_cylinder(Vector3(x, track_y - 0.05, TRACK_Z), 0.008, 0.008, 0.08, _fixture_material)
+		var head := Node3D.new()
+		head.position = Vector3(x, track_y - 0.1, TRACK_Z)
+		add_child(head)
+		head.look_at(Vector3(x, target_y, target_z), Vector3.UP)
+		var can := _add_cylinder(Vector3.ZERO, 0.035, 0.035, 0.13, _fixture_material, head)
+		can.rotation.x = PI / 2
+		var lens := _add_cylinder(Vector3(0, 0, -0.066), 0.03, 0.03, 0.002, lens_material, head)
+		lens.rotation.x = PI / 2
+		var light := SpotLight3D.new()
+		light.light_color = FIXTURE_LIGHT
+		light.light_energy = 1.2
+		light.spot_angle = 36.0
+		light.spot_range = 4.0
+		light.spot_attenuation = 0.6
+		light.position = Vector3(0, 0, -0.07)
+		head.add_child(light)
+
+
+func _add_cylinder(center: Vector3, top: float, bottom: float, height: float, material: Material,
+		parent: Node = self, open_bottom := false) -> MeshInstance3D:
+	var mesh := CylinderMesh.new()
+	mesh.cap_bottom = not open_bottom
+	mesh.top_radius = top
+	mesh.bottom_radius = bottom
+	mesh.height = height
+	mesh.radial_segments = 24
+	var instance := MeshInstance3D.new()
+	instance.mesh = mesh
+	instance.material_override = material
+	instance.position = center
+	parent.add_child(instance)
+	return instance
 
 
 func _add_shelf(unit: ShelfUnit) -> void:
@@ -213,6 +398,13 @@ func _add_solid(size: Vector3, center: Vector3, material: Material) -> void:
 static func _wood(color: Color) -> StandardMaterial3D:
 	var material := _material(color)
 	material.roughness = 0.55
+	return material
+
+
+static func _metal(color: Color, roughness: float) -> StandardMaterial3D:
+	var material := _material(color)
+	material.metallic = 0.8
+	material.roughness = roughness
 	return material
 
 

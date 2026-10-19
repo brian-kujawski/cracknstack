@@ -36,6 +36,7 @@ func _ready() -> void:
 	_test_pause()
 	_test_progression()
 	_test_upgrade_menu()
+	_test_day_cycle()
 	await _test_crouch()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
@@ -794,6 +795,26 @@ func _test_upgrade_menu() -> void:
 	menu.free()
 	Progression.reset()
 	Progression.allow_debt = OS.is_debug_build()
+
+
+func _test_day_cycle() -> void:
+	var noon := DayCycle.daylight_at(12.5)
+	var midnight := DayCycle.daylight_at(0.0)
+	var dusk := DayCycle.daylight_at(19.0)
+	_check(noon.a > 0.9 and midnight.a == 0.0, "full daylight at noon, none at midnight")
+	_check(dusk.r > dusk.b and dusk.a > 0.0 and dusk.a < noon.a, "dusk is warm and dimmer than noon")
+	_check(DayCycle.daylight_at(24.0) == midnight and DayCycle.daylight_at(36.0) == DayCycle.daylight_at(12.0), "the day wraps round")
+	var environment := Environment.new()
+	var day := DayCycle.new()
+	day.setup(environment, [] as Array[Light3D], null, null)
+	day.hour = 12.0
+	day.apply()
+	var day_ambient := environment.ambient_light_energy
+	day.hour = 23.0
+	day.apply()
+	_check(environment.ambient_light_energy < day_ambient and environment.ambient_light_energy > 0.0, "nights are dimmer but not black")
+	day.free()
+	_check(DayCycle.DAY_LENGTH == 900.0, "a day lasts 15 minutes")
 
 
 func _test_crouch() -> void:
