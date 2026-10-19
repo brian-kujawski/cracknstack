@@ -300,13 +300,6 @@ func _build_pendants() -> void:
 		light.shadow_enabled = true
 		light.shadow_blur = 2.0
 		add_child(light)
-		# A little light up and out, so the ceiling and walls aren't black.
-		var glow := OmniLight3D.new()
-		glow.position = Vector3(at.x, PENDANT_HEIGHT + 0.3, at.z)
-		glow.light_color = FIXTURE_LIGHT
-		glow.light_energy = 0.15
-		glow.omni_range = 4.0
-		add_child(glow)
 
 
 ## A ceiling track along the shelf with spotlights angled at its face, so
