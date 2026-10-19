@@ -26,7 +26,9 @@ const PAUSE := &"pause"
 const UPGRADES := &"upgrades"
 ## Sorceries, one key each, in Magic's colour order (white, blue, black,
 ## red, green): 1-5. Each is added as it's built.
+const CAST_TELEPORT := &"cast_teleport"
 const CAST_DEMONIC_TUTOR := &"cast_demonic_tutor"
+const CAST_CHAIN_LIGHTNING := &"cast_chain_lightning"
 
 ## Every bindable action in menu order: [action, what it's called in the menu].
 const ACTIONS := [
@@ -36,14 +38,16 @@ const ACTIONS := [
 	[MOVE_RIGHT, "Step right"],
 	[CROUCH, "Crouch"],
 	[USE_HAND, "Pick up, put down, file, shelve"],
-	[TOSS, "Toss the held card"],
+	[TOSS, "Toss the held card, or flip the pile"],
 	[INSPECT, "Inspect the held card"],
 	[INTERACT, "Open or close a binder"],
 	[FLIP_NEXT, "Next page"],
 	[FLIP_PREVIOUS, "Previous page"],
 	[PAUSE, "Pause"],
 	[UPGRADES, "Upgrades"],
+	[CAST_TELEPORT, "Cast Teleport"],
 	[CAST_DEMONIC_TUTOR, "Cast Demonic Tutor"],
+	[CAST_CHAIN_LIGHTNING, "Cast Chain Lightning"],
 ]
 
 ## Defaults per action: keys by physical keycode (so WASD stays put on
@@ -58,7 +62,9 @@ const DEFAULT_KEYS := {
 	INTERACT: [KEY_E],
 	PAUSE: [KEY_ESCAPE],
 	UPGRADES: [KEY_TAB],
+	CAST_TELEPORT: [KEY_2],
 	CAST_DEMONIC_TUTOR: [KEY_3],
+	CAST_CHAIN_LIGHTNING: [KEY_4],
 }
 const DEFAULT_BUTTONS := {
 	USE_HAND: [MOUSE_BUTTON_LEFT],

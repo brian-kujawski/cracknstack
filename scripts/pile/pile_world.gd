@@ -26,6 +26,8 @@ const GAP_FILL_MAX_CARDS := 6
 const GAP_FILL_PULL := 0.35 # fraction of the way toward the gap
 const GAP_FILL_SECONDS := 0.18
 const OVERLAP_DISTANCE := 0.075
+## A pile flip tosses the topmost cards within this distance of where you aim.
+const FLIP_RADIUS := 0.15
 ## Collision layer of the pile's surface: a coarse height field that only
 ## binders collide with, so they can rest on the cards.
 const SURFACE_LAYER := 8
@@ -72,6 +74,14 @@ var _mesh: ArrayMesh
 
 ## card id -> {from: Vector3, to: Vector3, t: float}
 var _slides := {}
+## Cards glowing by magic (Chain Lightning, later Tithe): card id -> seconds
+## left. A card stops glowing when it's picked up or its time runs out.
+var _glowing := {}
+## A glowing card is usually buried, so each also gets a soft light drawn
+## over everything, where it lies: card id -> marker.
+var _glow_markers := {}
+var _glow_material: StandardMaterial3D
+var _glow_time := 0.0
 
 var _surface: HeightMapShape3D
 var _surface_columns := 0
@@ -170,12 +180,22 @@ func pick_up(id: int) -> void:
 	if id == _highlighted:
 		set_highlight(-1)
 	_slides.erase(id)
+	_stop_glow(id)
 	var gap := Vector2(_positions[id].x, _positions[id].z)
 	_states[id] = State.HELD
 	_grid_remove(id)
 	_chunk_remove(id)
 	_refresh_cells(_footprint_cells(gap, _rotations[id]))
 	_start_gap_fill(gap)
+
+
+## The binder card `id` belongs in, wherever it is now.
+func binder_for(id: int) -> Binder:
+	var card := CardDatabase.get_card(id)
+	for binder in binders:
+		if binder.binder.set_code == card.set_code and binder.binder.contains(card.collector_number):
+			return binder
+	return null
 
 
 ## Takes card `id` from wherever it lies: the floor, a table, or another
@@ -234,6 +254,41 @@ func set_highlight(id: int) -> void:
 		_update_instance_custom(id)
 
 
+## Makes floor cards glow for `seconds`, wherever they lie. Cards not on the
+## floor are skipped.
+func glow(ids: Array, seconds: float) -> void:
+	for id in ids:
+		if is_on_floor(id):
+			_glowing[id] = seconds
+			_update_instance_custom(id)
+			if not _glow_markers.has(id):
+				var marker := MeshInstance3D.new()
+				var quad := QuadMesh.new()
+				quad.size = Vector2(0.3, 0.3)
+				marker.mesh = quad
+				marker.material_override = _glow_marker_material()
+				marker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(marker)
+				marker.position = _positions[id] + Vector3.UP * 0.02
+				_glow_markers[id] = marker
+
+
+func is_glowing(id: int) -> bool:
+	return _glowing.has(id)
+
+
+## The cards a pile flip aimed at `point` tosses: up to `count` of the
+## topmost cards lying within FLIP_RADIUS, highest first.
+func flip_cards(point: Vector3, count: int) -> Array[int]:
+	var p := Vector2(point.x, point.z)
+	var found: Array[int] = []
+	for id in _cards_near(p):
+		if _states[id] == State.ON_FLOOR and Vector2(_positions[id].x, _positions[id].z).distance_to(p) < FLIP_RADIUS:
+			found.append(id)
+	found.sort_custom(func(a: int, b: int) -> bool: return _positions[a].y > _positions[b].y)
+	return found.slice(0, count)
+
+
 ## The nearest floor point to p where a footprint (half size, turned by
 ## rotation_y) is inside the walls and clear of every obstacle.
 func clear_point(p: Vector2, half_size: Vector2, rotation_y: float) -> Vector2:
@@ -264,6 +319,7 @@ func _physics_process(_delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	_fade_glows(delta)
 	if _slides.is_empty():
 		return
 	var finished: Array[int] = []
@@ -283,6 +339,47 @@ func _process(delta: float) -> void:
 		var cells := _footprint_cells(Vector2(from.x, from.z), _rotations[id])
 		cells.append_array(_footprint_cells(Vector2(_positions[id].x, _positions[id].z), _rotations[id]))
 		_refresh_cells(cells)
+
+
+func _fade_glows(delta: float) -> void:
+	if _glowing.is_empty():
+		return
+	_glow_time += delta
+	_glow_material.albedo_color.a = 0.8 + 0.2 * sin(_glow_time * 5.0)
+	for id in _glowing.keys():
+		_glowing[id] -= delta
+		if _glowing[id] <= 0.0:
+			_stop_glow(id)
+			_update_instance_custom(id)
+
+
+func _stop_glow(id: int) -> void:
+	_glowing.erase(id)
+	if _glow_markers.has(id):
+		_glow_markers[id].queue_free()
+		_glow_markers.erase(id)
+
+
+## One shared material for every marker: a warm round glow that faces the
+## camera and shows through the pile (and everything else).
+func _glow_marker_material() -> StandardMaterial3D:
+	if _glow_material == null:
+		var gradient := Gradient.new()
+		gradient.set_color(0, Color(1.0, 0.97, 0.8, 1.0))
+		gradient.set_color(1, Color(1.0, 0.45, 0.1, 0.0))
+		gradient.add_point(0.4, Color(1.0, 0.75, 0.25, 0.95))
+		var texture := GradientTexture2D.new()
+		texture.gradient = gradient
+		texture.fill = GradientTexture2D.FILL_RADIAL
+		texture.fill_from = Vector2(0.5, 0.5)
+		texture.fill_to = Vector2(0.5, 0.0)
+		_glow_material = StandardMaterial3D.new()
+		_glow_material.albedo_texture = texture
+		_glow_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_glow_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_glow_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		_glow_material.no_depth_test = true
+	return _glow_material
 
 
 func _start_gap_fill(gap: Vector2) -> void:
@@ -554,8 +651,8 @@ func _card_transform(id: int) -> Transform3D:
 
 func _instance_custom(id: int) -> Color:
 	var card := CardDatabase.get_card(id)
-	var rarity_and_highlight := float(card.rarity) + (4.0 if id == _highlighted else 0.0)
-	return Color(card.collector_number, _set_numbers[id], rarity_and_highlight, _face_up[id])
+	var flags := float(card.rarity) + (4.0 if id == _highlighted else 0.0) + (8.0 if _glowing.has(id) else 0.0)
+	return Color(card.collector_number, _set_numbers[id], flags, _face_up[id])
 
 
 func _update_instance_custom(id: int) -> void:

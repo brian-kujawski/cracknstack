@@ -39,6 +39,7 @@ func _ready() -> void:
 	_test_sorcery_recharge()
 	_test_step_one_upgrades()
 	_test_demonic_tutor()
+	await _test_step_two_upgrades()
 	await _test_crouch()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
@@ -951,6 +952,112 @@ func _test_demonic_tutor() -> void:
 	pile.free()
 	Progression.reset()
 	Progression.allow_debt = OS.is_debug_build()
+
+
+func _test_step_two_upgrades() -> void:
+	Progression.reset()
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 5)
+	var binder := Binder.new()
+	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
+	pile.add_child(binder)
+	pile.binders.append(binder)
+	binder.put_down(pile, Vector3(4.0, 0.75, 2.0), 0.0)
+	binder.open()
+	var ids := _first_binder_cards()
+	var hands := Hands.new()
+	var camera := Camera3D.new()
+	camera.name = "Camera3D"
+	var holder := CharacterBody3D.new() # Stands in for the player.
+	holder.add_child(camera)
+	holder.add_child(hands)
+	holder.process_mode = Node.PROCESS_MODE_DISABLED # Aim is set by hand below.
+	add_child(holder)
+	hands.pile = pile
+	var main := preload("res://scripts/main.gd")
+
+	# Enlightened Tutor: the set of a floor card you've never held.
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_floor_card = ids[20]
+	_check(hands.shown_set_card_id() == -1, "without Enlightened Tutor a floor card shows nothing")
+	_buy_through(0, 1)
+	_check(hands.shown_set_card_id() == ids[20], "Enlightened Tutor shows a floor card's set")
+	var set_data := CardDatabase.get_set(CardDatabase.get_card(ids[20]).set_code)
+	_check(main.set_details(CardDatabase.get_card(ids[20])) == "%s\n%s #???" % [set_data.name, set_data.code],
+		"just the set, the number unknown: got " + main.set_details(CardDatabase.get_card(ids[20])))
+
+	# Pile flip, then Unmask.
+	var point := pile.card_position(ids[30])
+	hands._aim_point = point
+	var flipped := hands.flip_pile()
+	_check(flipped.size() == 4, "a pile flip tosses 4 cards, got %d" % flipped.size())
+	_check(flipped.all(func(id: int) -> bool: return not pile.is_on_floor(id)), "flipped cards leave the pile")
+	_land_tossed(pile)
+	_check(flipped.all(func(id: int) -> bool: return pile.is_on_floor(id)), "and land back on it")
+	_buy_through(2, 3) # Unmask II
+	flipped = hands.flip_pile()
+	_check(flipped.size() == 16, "Unmask II flips 16, got %d" % flipped.size())
+	_land_tossed(pile)
+	_check(flipped.all(func(id: int) -> bool: return pile._face_up[id] == 1), "and every one lands face up")
+	Progression.reset()
+	_buy_through(2, 1)
+	_check(hands.flip_pile().size() == 8, "Unmask I flips 8")
+	_land_tossed(pile)
+
+	# Harmonize: hold 3, wheel cycles the top.
+	_check(hands.hand_size() == 1, "one card at a time to start")
+	_buy_through(4, 1)
+	_check(hands.hand_size() == 3, "Harmonize I holds 3")
+	for i in 3:
+		pile.pick_up(ids[40 + i])
+		hands._take_in_hand(ids[40 + i])
+	_check(hands.held_card_id == ids[42] and hands.behind == [ids[41], ids[40]] and not hands.has_room(),
+		"each card picked up goes on top, and then the hand is full")
+	hands.cycle_hand(1)
+	_check(hands.held_card_id == ids[41] and hands.behind == [ids[40], ids[42]], "the wheel brings the next card up")
+	hands.cycle_hand(-1)
+	_check(hands.held_card_id == ids[42], "and back")
+	hands._release_top()
+	_check(hands.held_card_id == ids[41] and hands.hand_count() == 2, "when the top card goes, the next comes up")
+
+	# Teleport: the top card files itself, wherever its binder is.
+	_buy_through(1, 1)
+	binder.close()
+	var mana := Progression.mana
+	_check(hands.cast_teleport() and hands.held_card_id == ids[40], "Teleport sends the top card off")
+	await get_tree().create_timer(1.5).timeout
+	_check(binder.contents.is_locked(41), "and it files itself, even in a closed binder")
+	_check(Progression.mana == mana + Progression.CARD_LOCKED, "earning its Mana")
+	_check(not hands.cast_teleport(), "then it recharges")
+
+	# Chain Lightning: the next lock-in lights a missing card from its page.
+	binder.open()
+	binder.show_pocket(40)
+	_buy_through(3, 1)
+	_check(Progression.arm("Chain Lightning") and Progression.is_armed("Chain Lightning"), "Chain Lightning arms")
+	_check(main.sorcery_lines().has("4: Chain Lightning (armed)"), "and says so in the corner: %s" % main.sorcery_lines())
+	hands._file(binder, 40, ids[40])
+	var page_cards := range(36, 45).map(func(i: int) -> int: return ids[i]).filter(func(id: int) -> bool: return pile.is_glowing(id))
+	_check(page_cards.size() == 1 and not Progression.is_armed("Chain Lightning"),
+		"the lock-in sets it off: 1 missing card from the page glows, got %d" % page_cards.size())
+	pile._process(hands.chain_lightning_glow_seconds + 1.0)
+	_check(not pile.is_glowing(page_cards[0]), "the glow fades")
+
+	holder.free()
+	pile.free()
+	Progression.reset()
+	Progression.allow_debt = OS.is_debug_build()
+
+
+## Runs every tossed card in the pile until it lands.
+func _land_tossed(pile: PileWorld) -> void:
+	for child in pile.get_children():
+		if child is TossedCard:
+			var steps := 0
+			while not child.is_queued_for_deletion() and steps < 600:
+				child._physics_process(1.0 / 60.0)
+				steps += 1
 
 
 func _test_crouch() -> void:

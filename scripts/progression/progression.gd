@@ -74,7 +74,9 @@ const NUMERALS := ["", "I", "II", "III"]
 
 ## Each sorcery's cooldown in seconds, by rank (I, II, III). Tuning guesses.
 const COOLDOWNS := {
+	"Teleport": [30.0, 30.0],
 	"Demonic Tutor": [60.0, 40.0, 20.0],
+	"Chain Lightning": [60.0, 45.0, 30.0],
 }
 ## Seconds each card filed by hand takes off every recharge in progress.
 const FILING_SPEEDUP := 2.0
@@ -95,6 +97,9 @@ var _paid := {}
 ## Sorceries recharging: node -> [seconds left, seconds before filing can't
 ## cut it any shorter].
 var _recharging := {}
+## Sorceries cast and waiting for something to set them off (Chain
+## Lightning waits for your next lock-in).
+var _armed := {}
 
 
 func _init() -> void:
@@ -107,6 +112,7 @@ func reset() -> void:
 	_bought.assign(COLOURS.map(func(_c) -> int: return 0))
 	_paid.clear()
 	_recharging.clear()
+	_armed.clear()
 	mana_changed.emit(mana)
 	sorceries_changed.emit()
 
@@ -221,3 +227,25 @@ func card_filed_by_hand() -> void:
 		var timer: Array = _recharging[node]
 		timer[0] = maxf(timer[0] - FILING_SPEEDUP, timer[1])
 	tick(0.0)
+
+
+## Casts a sorcery that waits for a trigger: it starts recharging now and
+## stays armed until fire() is called. Returns false if it can't be cast.
+func arm(node: String) -> bool:
+	if not cast(node):
+		return false
+	_armed[node] = true
+	sorceries_changed.emit()
+	return true
+
+
+func is_armed(node: String) -> bool:
+	return _armed.has(node)
+
+
+## Sets off an armed sorcery. Returns whether it was armed.
+func fire(node: String) -> bool:
+	if not _armed.erase(node):
+		return false
+	sorceries_changed.emit()
+	return true

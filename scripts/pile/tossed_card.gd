@@ -22,6 +22,9 @@ var velocity: Vector3
 ## rolls around the long axis, z spins flat.
 var tumble: Vector3
 var exclude: Array[RID] = []
+## How it lands: -1 as the tumble leaves it, 1 face up, 0 face down (Unmask
+## decides before the card comes down).
+var land_face_up := -1
 
 
 ## Builds the visual from the held card's material and launches it.
@@ -77,7 +80,7 @@ func _physics_process(delta: float) -> void:
 func _land(point: Vector3) -> void:
 	# The quad's face points along its local +Z; face up if that ends up
 	# pointing at the ceiling more than the floor.
-	var face_up := global_transform.basis.z.y > 0.0
+	var face_up := global_transform.basis.z.y > 0.0 if land_face_up < 0 else land_face_up == 1
 	var yaw := atan2(-global_transform.basis.y.x, -global_transform.basis.y.z)
 	pile.drop(card_id, point, yaw, face_up)
 	queue_free()

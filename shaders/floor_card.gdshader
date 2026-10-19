@@ -1,7 +1,7 @@
 // Cards lying on the floor, drawn with one MultiMesh per chunk. Each card
 // is a face plus four thin edges (see PileWorld._card_mesh).
 // Per instance:  COLOR = (set accent colour, face atlas index or -1)
-//                CUSTOM = (collector number, set number, rarity + 4 * highlighted, face up)
+//                CUSTOM = (collector number, set number, rarity + 4 * highlighted + 8 * glowing, face up)
 // With real data the face comes from the atlas (FaceAtlas); with a face
 // index of -1 the placeholder face is drawn instead.
 shader_type spatial;
@@ -27,7 +27,9 @@ void vertex() {
 const vec3 EDGE = vec3(0.2, 0.18, 0.16);
 
 void fragment() {
-	bool highlighted = int(card.z + 0.5) >= 4;
+	int flags = int(card.z + 0.5);
+	bool highlighted = (flags / 4) % 2 == 1;
+	bool glowing = flags >= 8;
 	// PlaneMesh UVs already read the right way round from above (u along
 	// +x, v along +z), so faces are sampled as they are.
 	vec2 uv = UV;
@@ -52,5 +54,9 @@ void fragment() {
 	}
 	if (highlighted) {
 		EMISSION = vec3(0.35, 0.3, 0.1);
+	}
+	// Found by magic: a bright pulse that reads from across the room.
+	if (glowing) {
+		EMISSION += vec3(1.6, 0.9, 0.3) * (0.6 + 0.4 * sin(TIME * 5.0));
 	}
 }
