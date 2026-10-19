@@ -178,6 +178,29 @@ func pick_up(id: int) -> void:
 	_start_gap_fill(gap)
 
 
+## Takes card `id` from wherever it lies: the floor, a table, or another
+## binder's pocket it was misplaced in. Returns the global card pose it left
+## (see Glide), or null if it can't be had (in hand, in flight, or locked
+## into its own pocket).
+func take_from_anywhere(id: int):
+	if is_on_floor(id):
+		var from := card_pose(id)
+		pick_up(id)
+		return from
+	for child in get_children():
+		if child is LooseCard and child.card_id == id and not child.is_queued_for_deletion():
+			var from: Transform3D = child.card_pose()
+			child.queue_free()
+			return from
+	for binder in binders:
+		for pocket in binder.contents.capacity():
+			if binder.contents.card_at(pocket) == id and not binder.contents.is_locked(pocket):
+				var from := binder.pocket_pose(pocket)
+				binder.take(pocket)
+				return from
+	return null
+
+
 ## Lays a held card on top of whatever is at `point`, face up or down.
 func drop(id: int, point: Vector3, rotation_y: float, face_up := true) -> void:
 	if _states[id] != State.HELD:

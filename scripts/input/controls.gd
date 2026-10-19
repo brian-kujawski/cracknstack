@@ -24,6 +24,9 @@ const FLIP_NEXT := &"flip_next"
 const FLIP_PREVIOUS := &"flip_previous"
 const PAUSE := &"pause"
 const UPGRADES := &"upgrades"
+## Sorceries, one key each, in Magic's colour order (white, blue, black,
+## red, green): 1-5. Each is added as it's built.
+const CAST_DEMONIC_TUTOR := &"cast_demonic_tutor"
 
 ## Every bindable action in menu order: [action, what it's called in the menu].
 const ACTIONS := [
@@ -40,6 +43,7 @@ const ACTIONS := [
 	[FLIP_PREVIOUS, "Previous page"],
 	[PAUSE, "Pause"],
 	[UPGRADES, "Upgrades"],
+	[CAST_DEMONIC_TUTOR, "Cast Demonic Tutor"],
 ]
 
 ## Defaults per action: keys by physical keycode (so WASD stays put on
@@ -54,6 +58,7 @@ const DEFAULT_KEYS := {
 	INTERACT: [KEY_E],
 	PAUSE: [KEY_ESCAPE],
 	UPGRADES: [KEY_TAB],
+	CAST_DEMONIC_TUTOR: [KEY_3],
 }
 const DEFAULT_BUTTONS := {
 	USE_HAND: [MOUSE_BUTTON_LEFT],

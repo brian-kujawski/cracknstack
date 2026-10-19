@@ -8,6 +8,8 @@ extends CharacterBody3D
 
 @export var walk_speed := 3.5
 @export var crouch_speed := 1.6
+## Fervor (red): walking and crouch-walking this many times faster.
+@export var fervor_speedup := 1.5
 @export var mouse_sensitivity := 0.0025
 @export var stand_eye_height := 1.65
 @export var crouch_eye_height := 0.5
@@ -56,10 +58,16 @@ func _physics_process(delta: float) -> void:
 
 	var input := Input.get_vector(Controls.MOVE_LEFT, Controls.MOVE_RIGHT, Controls.MOVE_FORWARD, Controls.MOVE_BACK)
 	var direction := (transform.basis * Vector3(input.x, 0, input.y)).normalized()
-	var speed := crouch_speed if _crouched else walk_speed
+	var speed := move_speed()
 	velocity.x = direction.x * speed
 	velocity.z = direction.z * speed
 	move_and_slide()
+
+
+## Walking or crouch-walking speed, with Fervor if you have it.
+func move_speed() -> float:
+	var speed := crouch_speed if _crouched else walk_speed
+	return speed * fervor_speedup if Progression.rank("Fervor") > 0 else speed
 
 
 func is_crouched() -> bool:

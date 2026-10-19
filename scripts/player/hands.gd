@@ -18,6 +18,11 @@ extends Node
 ## up close to inspect it (F again lowers it). E opens or closes the binder
 ## you're looking at, and the mouse wheel turns its pages.
 ##
+## Upgrades bought with Mana (see Progression) change some of this: Snap
+## speeds up every glide, Spider Climb lengthens your reach, Remember the
+## Fallen names cards you've held wherever you see them again, and Demonic
+## Tutor (3) brings the card for the aimed pocket up out of the pile.
+##
 ## Cards and binders glide between the world and the hand rather than jumping;
 ## while one is on its way, the hands take no new orders.
 ##
@@ -33,8 +38,9 @@ signal hint_changed(text: String)
 
 enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF }
 
-## How far from the eye the player can reach.
+## How far from the eye the player can reach, and with Spider Climb.
 @export var reach := 2.6
+@export var spider_climb_reach := 3.4
 ## Toss: each throw picks its forward and upward speed (m/s) and its
 ## end-over-end flip rate (flips per second) at random between min and max.
 ## A gentle lob, not a throw.
@@ -51,13 +57,20 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF }
 @export var toss_spin_per_second_max := 0.35
 @export var zoom_seconds := 0.18
 ## How long a card or binder takes to come to hand or go where it's put, and
-## how high a put-down arcs at its midpoint (metres).
-@export var card_glide_seconds := 0.16
-@export var binder_glide_seconds := 0.24
+## how high a put-down arcs at its midpoint (metres). Deliberately unhurried,
+## so Snap has room to speed them up.
+@export var card_glide_seconds := 0.24
+@export var binder_glide_seconds := 0.36
 @export var put_down_lift := 0.04
 ## Filing: after gliding to just above its pocket, the card slides down into
 ## it, a little slower.
-@export var pocket_slide_seconds := 0.22
+@export var pocket_slide_seconds := 0.33
+## Demonic Tutor: the card flies up out of the pile in an arc this high, and
+## takes this long plus this much per metre (at most the cap).
+@export var tutor_lift := 0.5
+@export var tutor_seconds := 0.3
+@export var tutor_seconds_per_metre := 0.08
+@export var tutor_seconds_max := 1.0
 ## Holding the button this long before letting go shows the ghost.
 @export var ghost_after_seconds := 0.12
 ## How far a card up close can tilt each way (degrees), on both axes. Kept
@@ -73,6 +86,8 @@ const ZOOMED_ROTATION := Vector3.ZERO
 ## A carried binder: held low and to the right, cover tilted toward you.
 const CARRIED_POSITION := Vector3(0.3, -0.36, -0.55)
 const CARRIED_ROTATION := Vector3(0.7, -0.5, 0.0)
+## How many times faster every glide is at each rank of Snap (none, I, II).
+const SNAP_SPEEDUP := [1.0, 1.5, 2.0]
 
 var pile: PileWorld
 var held_card_id := -1
@@ -100,6 +115,8 @@ var _ghost_binder: MeshInstance3D
 
 var _aim := Aim.NONE
 var _aim_point := Vector3.ZERO
+## The top floor card under the crosshair, or -1.
+var _aim_floor_card := -1
 var _aim_binder: Binder
 var _aim_pocket := -1
 var _aim_loose_card: LooseCard
@@ -145,8 +162,8 @@ func _physics_process(delta: float) -> void:
 	if pile == null:
 		return
 	_update_aim()
-	var target := pile.top_card_at(_aim_point) if _aim == Aim.FLOOR and _hands_empty() else -1
-	pile.set_highlight(target)
+	_aim_floor_card = pile.top_card_at(_aim_point) if _aim == Aim.FLOOR else -1
+	pile.set_highlight(_aim_floor_card if _hands_empty() else -1)
 	_update_hover()
 	_update_ghost(delta)
 	_update_hint()
@@ -184,6 +201,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_flip(1)
 	elif event.is_action_pressed(Controls.FLIP_PREVIOUS):
 		_flip(-1)
+	elif event.is_action_pressed(Controls.CAST_DEMONIC_TUTOR):
+		cast_demonic_tutor()
 
 
 func _hands_empty() -> bool:
@@ -207,7 +226,7 @@ func _use_hand() -> void:
 		return
 	match _aim:
 		Aim.FLOOR:
-			var id := pile.top_card_at(_aim_point)
+			var id := _aim_floor_card
 			if id >= 0:
 				var from := pile.card_pose(id)
 				pile.pick_up(id)
@@ -249,6 +268,7 @@ func _file(binder: Binder, pocket: int, id: int) -> void:
 	var result := binder.insert(pocket, id)
 	if result != BinderContents.Result.LOCKED:
 		return # Misplaced: it stays in the pocket glowing red, and makes no sound.
+	Progression.card_filed_by_hand()
 	var page := pocket / BinderLayout.POCKETS_PER_PAGE
 	var sound := FeedbackSounds.Kind.CARD_LOCKED
 	if binder.contents.is_complete():
@@ -256,6 +276,27 @@ func _file(binder: Binder, pocket: int, id: int) -> void:
 	elif binder.contents.is_page_complete(page):
 		sound = FeedbackSounds.Kind.PAGE_COMPLETE
 	FeedbackSounds.play(pile, binder.to_global(binder.pocket_position(pocket)), sound)
+
+
+## Demonic Tutor: aimed at an empty pocket of an open binder with empty
+## hands, its card rises from wherever it lies into your hand. Filing it is
+## up to you. Returns whether it was cast.
+func cast_demonic_tutor() -> bool:
+	if not Progression.can_cast("Demonic Tutor") or not _hands_empty() or _gliding():
+		return false
+	if _aim != Aim.BINDER or not _aim_binder.is_open() or _aim_pocket < 0 \
+			or _aim_binder.contents.card_at(_aim_pocket) >= 0:
+		return false
+	var binder := _aim_binder.binder
+	var id := CardDatabase.cards_in_set(binder.set_code)[binder.first + _aim_pocket - 1].id
+	var from = pile.take_from_anywhere(id)
+	if from == null:
+		return false
+	Progression.cast("Demonic Tutor")
+	var flight := minf(tutor_seconds + tutor_seconds_per_metre * from.origin.distance_to(_camera.global_position),
+		tutor_seconds_max)
+	_hold(id, from, flight, tutor_lift)
+	return true
 
 
 func _toggle_binder() -> void:
@@ -364,10 +405,10 @@ func _put_down_card(to: Transform3D, land: Callable, via = null) -> void:
 	var from := _held_view.global_transform
 	_hold(-1)
 	if via is Transform3D:
-		_glide = Glide.start(card, from, func() -> Transform3D: return via, card_glide_seconds, put_down_lift)
-		Glide.then(_glide, card, via, to, pocket_slide_seconds)
+		_glide = Glide.start(card, from, func() -> Transform3D: return via, glide_seconds(card_glide_seconds), put_down_lift)
+		Glide.then(_glide, card, via, to, glide_seconds(pocket_slide_seconds))
 	else:
-		_glide = Glide.start(card, from, func() -> Transform3D: return to, card_glide_seconds, put_down_lift)
+		_glide = Glide.start(card, from, func() -> Transform3D: return to, glide_seconds(card_glide_seconds), put_down_lift)
 	_glide.tween_callback(func() -> void:
 		land.call()
 		card.queue_free())
@@ -381,7 +422,7 @@ func _carry(binder: Binder) -> void:
 	carried_binder = binder
 	held_changed.emit(null, binder.binder)
 	var carried := binder.transform
-	_glide = Glide.start(binder, from, func() -> Transform3D: return _camera.global_transform * carried, binder_glide_seconds)
+	_glide = Glide.start(binder, from, func() -> Transform3D: return _camera.global_transform * carried, glide_seconds(binder_glide_seconds))
 
 
 func _set_binder_down() -> void:
@@ -395,7 +436,7 @@ func _set_binder_down() -> void:
 	# hand it to physics.
 	binder.freeze = true
 	var to := binder.global_transform
-	_glide = Glide.start(binder, from, func() -> Transform3D: return to, binder_glide_seconds, put_down_lift)
+	_glide = Glide.start(binder, from, func() -> Transform3D: return to, glide_seconds(binder_glide_seconds), put_down_lift)
 	_glide.tween_callback(binder.let_go)
 
 
@@ -409,12 +450,22 @@ func _shelve_carried_binder() -> void:
 	var correct := shelf.shelve(_aim_space, binder)
 	held_changed.emit(null, null)
 	var to := binder.global_transform
-	_glide = Glide.start(binder, from, func() -> Transform3D: return to, binder_glide_seconds)
+	_glide = Glide.start(binder, from, func() -> Transform3D: return to, glide_seconds(binder_glide_seconds))
 	if correct:
 		var lit := shelf.is_section_complete(shelf.shelf_of(_aim_space))
 		_glide.tween_callback(func() -> void:
 			FeedbackSounds.play(pile, binder.global_position,
 				FeedbackSounds.Kind.SECTION_COMPLETE if lit else FeedbackSounds.Kind.BINDER_SHELVED))
+
+
+## How long a glide that takes `seconds` at heart takes now, with Snap.
+func glide_seconds(seconds: float) -> float:
+	return seconds / SNAP_SPEEDUP[Progression.rank("Snap")]
+
+
+## How far you can reach now, with Spider Climb.
+func current_reach() -> float:
+	return spider_climb_reach if Progression.rank("Spider Climb") > 0 else reach
 
 
 ## On the floor, nudges a footprint at `point` clear of walls, shelves and
@@ -440,7 +491,7 @@ func _update_aim() -> void:
 	_aim_shelf = null
 	_aim_space = -1
 	var from := _camera.global_position
-	var to := from - _camera.global_transform.basis.z * reach
+	var to := from - _camera.global_transform.basis.z * current_reach()
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.exclude = [(get_parent() as CollisionObject3D).get_rid()]
 	# The pile's surface collider is only for binders to rest on; aim at the
@@ -488,14 +539,32 @@ func _update_hint() -> void:
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
-	var shown: CardData = null
-	if held_card_id >= 0:
-		shown = CardDatabase.get_card(held_card_id)
-	elif _aim == Aim.LOOSE_CARD and _hands_empty() and seen_cards.has(_aim_loose_card.card_id):
-		shown = CardDatabase.get_card(_aim_loose_card.card_id)
+	var id := shown_card_id()
+	var shown: CardData = CardDatabase.get_card(id) if id >= 0 else null
 	if shown != _shown_card:
 		_shown_card = shown
 		shown_card_changed.emit(shown)
+
+
+## The card whose details to show: the one in hand, or else one you're
+## looking at that you've held before. Without Remember the Fallen that's
+## only a card lying on a table; with it, cards on the floor and misplaced
+## in a pocket too. -1 for none.
+func shown_card_id() -> int:
+	if held_card_id >= 0:
+		return held_card_id
+	if not _hands_empty():
+		return -1
+	var id := -1
+	if _aim == Aim.LOOSE_CARD:
+		return _aim_loose_card.card_id if seen_cards.has(_aim_loose_card.card_id) else -1
+	if Progression.rank("Remember the Fallen") == 0:
+		return -1
+	if _aim == Aim.FLOOR:
+		id = _aim_floor_card
+	elif _aim == Aim.BINDER and _aim_binder.is_open() and not _aim_binder.contents.is_locked(_aim_pocket):
+		id = _aim_binder.contents.card_at(_aim_pocket)
+	return id if seen_cards.has(id) else -1
 
 
 ## How a hint shows an action's key or button (see Controls).
@@ -596,8 +665,9 @@ func _pose_held_card() -> void:
 
 
 ## Puts card `id` in the hand (-1 empties it). Given `from`, a global card
-## pose, the card glides up to the hand from there.
-func _hold(id: int, from = null) -> void:
+## pose, the card glides up to the hand from there, taking `seconds` (a
+## normal pick-up's if negative; before Snap) and arcing `lift` metres up.
+func _hold(id: int, from = null, seconds := -1.0, lift := 0.0) -> void:
 	if _zoom_tween:
 		_zoom_tween.kill()
 	_zoomed = false
@@ -608,7 +678,8 @@ func _hold(id: int, from = null) -> void:
 	held_card_id = id
 	if id >= 0 and from is Transform3D:
 		var held := _held_view.transform
-		_glide = Glide.start(_held_view, from, func() -> Transform3D: return _camera.global_transform * held, card_glide_seconds)
+		_glide = Glide.start(_held_view, from, func() -> Transform3D: return _camera.global_transform * held,
+			glide_seconds(seconds if seconds >= 0.0 else card_glide_seconds), lift)
 	_held_view.visible = id >= 0
 	if id < 0:
 		held_changed.emit(null, null)

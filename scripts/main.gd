@@ -3,6 +3,11 @@ extends Node3D
 ## dumped on its floor, and the player.
 
 const PILE_SEED := 1993
+## Sorceries in key order, each with the action that casts it. Only learned
+## ones show, under the Mana total.
+const SORCERIES := [
+	["Demonic Tutor", Controls.CAST_DEMONIC_TUTOR],
+]
 
 @onready var _store: Node3D = $Store
 @onready var _pile: PileWorld = $Pile
@@ -24,6 +29,8 @@ func _ready() -> void:
 	_hands.hint_changed.connect(func(text: String) -> void: _hint.text = text)
 	_on_shown_card_changed(null)
 	Progression.mana_changed.connect(func(_mana: int) -> void: _update_stats())
+	Progression.unlocked.connect(func(_colour: int, _step: int) -> void: _update_stats())
+	Progression.sorceries_changed.connect(_update_stats)
 	_update_stats()
 
 
@@ -40,6 +47,8 @@ func _process(delta: float) -> void:
 func _update_stats() -> void:
 	var text := "Cards Organized: %d/%d\nMana: %d" % [
 		cards_organized(_pile.binders), CardDatabase.card_count(), Progression.mana]
+	for line in sorcery_lines():
+		text += "\n" + line
 	if OS.is_debug_build():
 		var debug := "%d fps · %d draw calls" % [
 			Engine.get_frames_per_second(),
@@ -56,6 +65,21 @@ static func cards_organized(binders: Array[Binder]) -> int:
 	for binder in binders:
 		count += binder.contents.locked_count
 	return count
+
+
+## One line per learned sorcery: its key and name, and while it recharges,
+## the seconds left. "3: Demonic Tutor (42 s)"
+static func sorcery_lines() -> PackedStringArray:
+	var lines := PackedStringArray()
+	for entry in SORCERIES:
+		if Progression.rank(entry[0]) == 0:
+			continue
+		var line := "%s: %s" % [Controls.label(entry[1]), entry[0]]
+		var left := Progression.recharge_left(entry[0])
+		if left > 0.0:
+			line += " (%d s)" % ceili(left)
+		lines.append(line)
+	return lines
 
 
 func _on_shown_card_changed(card: CardData) -> void:

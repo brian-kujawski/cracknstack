@@ -26,6 +26,8 @@ Controls:
 | Mouse wheel | Turn the pages of the open binder you're looking at |
 | F | Bring the held card up close to inspect it (the view holds still and the mouse tilts the card; F again lowers it) |
 | Esc | Pause (Esc again, or the Continue button, to go back in) |
+| Tab | Upgrade menu: spend Mana on upgrades (Tab or Esc to go back in) |
+| 3 | Cast Demonic Tutor, once learned: aimed at an empty pocket of an open binder, its card flies up out of the pile into your hand. It then recharges (shown under your Mana); filing cards by hand speeds that up |
 
 These are the defaults. Every binding is defined in one place, `scripts/input/controls.gd` (the `Controls` autoload), and the hints on screen read their key names from it. Rebinds are saved to `user://controls.cfg`; the settings menu for changing them comes later (M4b).
 

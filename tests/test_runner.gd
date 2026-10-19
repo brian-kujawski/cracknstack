@@ -36,6 +36,9 @@ func _ready() -> void:
 	_test_pause()
 	_test_progression()
 	_test_upgrade_menu()
+	_test_sorcery_recharge()
+	_test_step_one_upgrades()
+	_test_demonic_tutor()
 	await _test_crouch()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
@@ -792,6 +795,160 @@ func _test_upgrade_menu() -> void:
 	menu._unhandled_input(tab)
 	_check(not menu.is_open() and not get_tree().paused, "Tab closes it too")
 	menu.free()
+	Progression.reset()
+	Progression.allow_debt = OS.is_debug_build()
+
+
+## Buys a colour's unlocks up to and including `step`, on credit.
+func _buy_through(colour: int, step: int) -> void:
+	Progression.allow_debt = true
+	while Progression.bought_count(colour) <= step:
+		Progression.buy(colour, Progression.bought_count(colour))
+
+
+func _test_sorcery_recharge() -> void:
+	Progression.reset()
+	_check(not Progression.can_cast("Demonic Tutor") and not Progression.cast("Demonic Tutor"),
+		"a sorcery can't be cast before it's learned")
+	_buy_through(2, 0)
+	_check(Progression.can_cast("Demonic Tutor"), "a learned sorcery starts ready")
+	_check(Progression.cast("Demonic Tutor") and not Progression.can_cast("Demonic Tutor"), "casting starts its recharge")
+	_check(is_equal_approx(Progression.recharge_left("Demonic Tutor"), 60.0), "Demonic Tutor I recharges in 60 s")
+	Progression.tick(10.0)
+	Progression.card_filed_by_hand()
+	_check(is_equal_approx(Progression.recharge_left("Demonic Tutor"), 50.0 - Progression.FILING_SPEEDUP),
+		"filing a card by hand speeds the recharge")
+	for i in 100:
+		Progression.card_filed_by_hand()
+	_check(is_equal_approx(Progression.recharge_left("Demonic Tutor"), 60.0 * Progression.MIN_RECHARGE_SHARE - 10.0),
+		"but never below the minimum, got %.1f" % Progression.recharge_left("Demonic Tutor"))
+	Progression.tick(20.0)
+	_check(Progression.can_cast("Demonic Tutor") and Progression.recharge_left("Demonic Tutor") == 0.0,
+		"it's ready again once the time is up")
+	_buy_through(2, 2)
+	Progression.cast("Demonic Tutor")
+	_check(is_equal_approx(Progression.recharge_left("Demonic Tutor"), 40.0), "Demonic Tutor II recharges in 40 s")
+	var main := preload("res://scripts/main.gd")
+	_check(main.sorcery_lines() == PackedStringArray(["3: Demonic Tutor (40 s)"]),
+		"the corner shows each learned sorcery's key and recharge, got %s" % main.sorcery_lines())
+	Progression.reset()
+	_check(main.sorcery_lines().is_empty(), "no sorceries learned, no lines")
+	Progression.allow_debt = OS.is_debug_build()
+
+
+func _test_step_one_upgrades() -> void:
+	Progression.reset()
+	var hands := Hands.new()
+	_check(is_equal_approx(hands.glide_seconds(0.24), 0.24) and is_equal_approx(hands.current_reach(), 2.6),
+		"without upgrades: glides and reach as they are")
+	var player: CharacterBody3D = load("res://scenes/player/player.tscn").instantiate()
+	player.process_mode = Node.PROCESS_MODE_DISABLED
+	add_child(player)
+	player.global_position = Vector3(80, 0, 80)
+	_check(is_equal_approx(player.move_speed(), player.walk_speed), "walking at the base speed")
+
+	# Remember the Fallen: a card you've held, seen again on the floor or
+	# misplaced in a pocket.
+	var binder := Binder.new()
+	binder.setup(CardDatabase.all_binders()[0], Color.RED, null)
+	add_child(binder)
+	binder.put_down(self, Vector3(4.0, 0.75, 2.0), 0.0)
+	binder.open()
+	var ids := _first_binder_cards()
+	binder.insert(0, ids[1]) # Misplaced.
+	hands.seen_cards[ids[1]] = true
+	hands.seen_cards[ids[5]] = true
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_floor_card = ids[5]
+	_check(hands.shown_card_id() == -1, "without Remember the Fallen, a floor card is a mystery")
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._aim_pocket = 0
+	_check(hands.shown_card_id() == -1, "and so is a misplaced card")
+
+	_buy_through(0, 0) # Remember the Fallen
+	_buy_through(1, 0) # Snap I
+	_buy_through(3, 0) # Fervor
+	_buy_through(4, 0) # Spider Climb
+	_check(hands.shown_card_id() == ids[1], "Remember the Fallen names a misplaced card you've held")
+	hands._aim = Hands.Aim.FLOOR
+	_check(hands.shown_card_id() == ids[5], "and a floor card you've held")
+	hands._aim_floor_card = ids[6]
+	_check(hands.shown_card_id() == -1, "but not one you've never held")
+	_check(is_equal_approx(hands.glide_seconds(0.24), 0.16), "Snap I: glides 50% faster")
+	_check(is_equal_approx(hands.current_reach(), 3.4), "Spider Climb: reach 3.4 m")
+	_check(is_equal_approx(player.move_speed(), player.walk_speed * 1.5), "Fervor: walk 50% faster")
+	player.set_crouched(true)
+	_check(is_equal_approx(player.move_speed(), player.crouch_speed * 1.5), "and crouch-walk 50% faster")
+	_buy_through(1, 2) # Snap II
+	_check(is_equal_approx(hands.glide_seconds(0.24), 0.12), "Snap II: glides twice as fast")
+	player.free()
+	hands.free()
+	binder.free()
+	Progression.reset()
+	Progression.allow_debt = OS.is_debug_build()
+
+
+func _test_demonic_tutor() -> void:
+	Progression.reset()
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 3)
+	var binder := Binder.new()
+	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
+	pile.add_child(binder)
+	pile.binders.append(binder)
+	binder.put_down(pile, Vector3(4.0, 0.75, 2.0), 0.0)
+	binder.open()
+	var ids := _first_binder_cards()
+
+	var hands := Hands.new()
+	var camera := Camera3D.new()
+	var holder := Node3D.new()
+	holder.add_child(camera)
+	holder.add_child(hands)
+	camera.name = "Camera3D"
+	add_child(holder)
+	hands.pile = pile
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._aim_pocket = 2
+	_check(not hands.cast_demonic_tutor(), "Demonic Tutor does nothing before it's learned")
+	_buy_through(2, 0)
+	_check(hands.cast_demonic_tutor() and hands.held_card_id == ids[2] and not pile.is_on_floor(ids[2]),
+		"Demonic Tutor brings the aimed pocket's card up off the floor into your hand")
+	_check(not Progression.can_cast("Demonic Tutor"), "and starts recharging")
+	hands._glide.custom_step(10.0)
+	hands._hold(-1)
+	Progression.reset()
+	_buy_through(2, 0)
+	binder.insert(1, ids[2]) # Misplaced in the wrong pocket.
+	hands._aim_pocket = 1
+	_check(not hands.cast_demonic_tutor(), "a pocket that isn't empty can't be tutored for")
+	hands._aim_pocket = 2
+	_check(hands.cast_demonic_tutor() and hands.held_card_id == ids[2] and binder.contents.card_at(1) == -1,
+		"a card misplaced in a pocket comes out of it")
+	hands._glide.custom_step(10.0)
+	hands._hold(-1)
+	Progression.reset()
+	_buy_through(2, 0)
+	var loose := LooseCard.new()
+	pile.add_child(loose)
+	loose.setup(ids[3], Vector3(1, 0.75, 1), 0.0)
+	pile.pick_up(ids[3])
+	hands._aim_pocket = 3
+	_check(hands.cast_demonic_tutor() and hands.held_card_id == ids[3] and loose.is_queued_for_deletion(),
+		"a card lying on a table comes too")
+	hands._glide.custom_step(10.0)
+	hands._hold(-1)
+	Progression.reset()
+	_buy_through(2, 0)
+	hands._aim_pocket = 4
+	pile.pick_up(ids[4]) # Somewhere it can't be had, like mid-toss.
+	_check(not hands.cast_demonic_tutor() and Progression.can_cast("Demonic Tutor"),
+		"no card to fetch, no cast spent")
+	holder.free()
+	pile.free()
 	Progression.reset()
 	Progression.allow_debt = OS.is_debug_build()
 
