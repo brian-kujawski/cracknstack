@@ -45,6 +45,22 @@ const WRONG_GLOW := Color(1.0, 0.1, 0.06, 1.6)
 const PAGE_DONE_GLOW := Color(1.0, 0.8, 0.35, 0.05)
 const PAGE_FLASH_GLOW := Color(1.0, 0.8, 0.35, 0.6)
 
+## The look of a closed binder: two stiff leather covers a little larger than
+## the pages, a rounded spine with two raised bands, a stack of sleeve pages,
+## and three metal rings by the spine. Details past this distance are hidden.
+const COVER_BOARD := 0.004
+const PAGE_INSET := Vector2(0.007, 0.008) # page edge to cover edge (x, y)
+const RING_X := -COVER.x / 2 + 0.021
+const RING_ZS := [-0.1, 0.0, 0.1]
+const DETAIL_RANGE := 5.0
+
+## Shared by every binder: the leather (one per-binder material) and the
+## details (pages, rings, stitching; shared materials). Built on first use.
+static var _leather_mesh: ArrayMesh
+static var _detail_mesh: ArrayMesh
+static var _open_mesh: ArrayMesh
+static var _grain: NoiseTexture2D
+
 var binder: BinderRange
 var contents: BinderContents
 var state := State.CLOSED
@@ -92,16 +108,24 @@ func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
 	add_child(_closed_view)
 	_cover_material = StandardMaterial3D.new()
 	_cover_material.albedo_color = accent.darkened(0.35)
-	_cover_material.roughness = 0.5
+	_cover_material.roughness = 0.6
+	_cover_material.normal_enabled = true
+	_cover_material.normal_texture = _leather_grain()
+	_cover_material.normal_scale = 0.8
+	_cover_material.uv1_triplanar = true
+	_cover_material.uv1_scale = Vector3.ONE * 16.0
 	_cover_material.emission_enabled = true
 	_cover_material.emission = Color.BLACK
-	var mesh := BoxMesh.new()
-	mesh.size = SIZE
+	_build_meshes()
 	var body := MeshInstance3D.new()
-	body.mesh = mesh
+	body.mesh = _leather_mesh
 	body.material_override = _cover_material
-	body.position.y = THICKNESS / 2
 	_closed_view.add_child(body)
+	var details := MeshInstance3D.new()
+	details.mesh = _detail_mesh
+	details.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	details.visibility_range_end = DETAIL_RANGE
+	_closed_view.add_child(details)
 
 	var cover := _make_label("%s\n%s" % [CardDatabase.get_set(binder.set_code).name, binder.numbers_text()], 44, 0.0009)
 	# Long set names wrap to fit the cover.
@@ -411,7 +435,11 @@ func _build_open_view() -> void:
 	_open_view = Node3D.new()
 	add_child(_open_view)
 	var cover_mesh := BoxMesh.new()
-	cover_mesh.size = Vector3(COVER.x, OPEN_HEIGHT - 0.002, COVER.y)
+	cover_mesh.size = Vector3(COVER.x, COVER_BOARD + 0.001, COVER.y)
+	var open_details := MeshInstance3D.new()
+	open_details.mesh = _open_mesh
+	open_details.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_open_view.add_child(open_details)
 	var page_mesh := QuadMesh.new()
 	page_mesh.size = PAGE
 	var card_mesh := QuadMesh.new()
@@ -422,7 +450,7 @@ func _build_open_view() -> void:
 		var cover := MeshInstance3D.new()
 		cover.mesh = cover_mesh
 		cover.material_override = _cover_material
-		cover.position = Vector3(_page_center_x(side), (OPEN_HEIGHT - 0.002) / 2, 0)
+		cover.position = Vector3(_page_center_x(side), (COVER_BOARD + 0.001) / 2, 0)
 		_open_view.add_child(cover)
 		var page := MeshInstance3D.new()
 		page.mesh = page_mesh
@@ -478,6 +506,155 @@ func _refresh_spread() -> void:
 				var material: ShaderMaterial = view.material_override
 				CardView.apply(material, id)
 				material.set_shader_parameter("glow", LOCKED_GLOW if contents.is_locked(first_pocket + i) else WRONG_GLOW)
+
+
+## Builds the shared meshes the first time a binder is set up.
+static func _build_meshes() -> void:
+	if _leather_mesh != null:
+		return
+	var half := COVER / 2
+	var leather := SurfaceTool.new()
+	leather.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Covers, flush with the binder's footprint.
+	for y in [COVER_BOARD / 2, THICKNESS - COVER_BOARD / 2]:
+		_append_box(leather, Vector3(COVER.x, COVER_BOARD, COVER.y), Vector3(0, y, 0))
+	# A rounded spine along -x, with a raised band near each end.
+	var spine_depth := 0.008
+	_append_spine(leather, spine_depth, THICKNESS / 2, COVER.y, 0.0)
+	for z in [-half.y + 0.035, half.y - 0.035]:
+		_append_spine(leather, spine_depth + 0.0015, THICKNESS / 2 + 0.0008, 0.008, z)
+	_leather_mesh = leather.commit()
+
+	var pages := SurfaceTool.new()
+	pages.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Sheets, each a thin slab with a hairline gap so the edge reads as a stack.
+	var page_left := -half.x + 0.022
+	var page_right := half.x - PAGE_INSET.x
+	var inside := THICKNESS - 2 * COVER_BOARD
+	var sheets := 14
+	for i in sheets:
+		var pitch := inside / sheets
+		_append_box(pages, Vector3(page_right - page_left, pitch * 0.75, COVER.y - 2 * PAGE_INSET.y),
+			Vector3((page_left + page_right) / 2, COVER_BOARD + pitch * (i + 0.5), 0))
+	var metal := SurfaceTool.new()
+	metal.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# The ring mechanism on the back cover, and three rings through the pages.
+	_append_box(metal, Vector3(0.014, 0.003, COVER.y - 0.05), Vector3(RING_X, COVER_BOARD + 0.0015, 0))
+	for z in RING_ZS:
+		_append_ring(metal, inside / 2 - 0.001, 0.0018, Vector3(RING_X, THICKNESS / 2, z))
+	var thread := SurfaceTool.new()
+	thread.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Stitching just inside the edge of both covers.
+	for y in [-0.0002, THICKNESS + 0.0002]:
+		_append_stitching(thread, Rect2(-half.x + 0.018, -half.y + 0.01, COVER.x - 0.028, COVER.y - 0.02), y)
+	_detail_mesh = ArrayMesh.new()
+	_commit_surface(_detail_mesh, pages, _pages_material())
+	_commit_surface(_detail_mesh, metal, _metal_material())
+	_commit_surface(_detail_mesh, thread, _thread_material())
+
+	# Open: a page stack under each page, the mechanism and rings down the
+	# middle, and stitching round each cover.
+	var open_pages := SurfaceTool.new()
+	open_pages.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for side in [-1, 1]:
+		_append_box(open_pages, Vector3(PAGE.x, OPEN_HEIGHT - COVER_BOARD - 0.0015, PAGE.y),
+			Vector3(side * COVER.x / 2, (OPEN_HEIGHT + COVER_BOARD - 0.0005) / 2, 0))
+	var open_metal := SurfaceTool.new()
+	open_metal.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_append_box(open_metal, Vector3(0.012, 0.0025, COVER.y - 0.05), Vector3(0, COVER_BOARD + 0.0012, 0))
+	for z in RING_ZS:
+		_append_ring(open_metal, 0.0135, 0.0018, Vector3(0, OPEN_HEIGHT, z))
+	var open_thread := SurfaceTool.new()
+	open_thread.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for side in [-1, 1]:
+		var x0: float = 0.0 if side > 0 else -COVER.x
+		_append_stitching(open_thread, Rect2(x0 + 0.005, -half.y + 0.005, COVER.x - 0.01, COVER.y - 0.01), COVER_BOARD + 0.0012)
+	_open_mesh = ArrayMesh.new()
+	_commit_surface(_open_mesh, open_pages, _pages_material())
+	_commit_surface(_open_mesh, open_metal, _metal_material())
+	_commit_surface(_open_mesh, open_thread, _thread_material())
+
+
+static func _append_box(tool: SurfaceTool, size: Vector3, center: Vector3) -> void:
+	var box := BoxMesh.new()
+	box.size = size
+	tool.append_from(box, 0, Transform3D(Basis.IDENTITY, center))
+
+
+## A half-round bulge along the -x edge: a flattened cylinder lying along z.
+static func _append_spine(tool: SurfaceTool, depth: float, radius: float, length: float, z: float) -> void:
+	var cylinder := CylinderMesh.new()
+	cylinder.top_radius = radius
+	cylinder.bottom_radius = radius
+	cylinder.height = length
+	cylinder.radial_segments = 24
+	cylinder.rings = 1
+	var basis := Basis(Vector3(1, 0, 0), PI / 2).scaled(Vector3(depth / radius, 1, 1))
+	tool.append_from(cylinder, 0, Transform3D(basis, Vector3(-COVER.x / 2 + depth, THICKNESS / 2, z)))
+
+
+## A metal ring standing across the spine (its loop in the x-y plane).
+static func _append_ring(tool: SurfaceTool, radius: float, wire: float, center: Vector3) -> void:
+	var torus := TorusMesh.new()
+	torus.inner_radius = radius - wire
+	torus.outer_radius = radius + wire
+	torus.rings = 24
+	torus.ring_segments = 8
+	tool.append_from(torus, 0, Transform3D(Basis(Vector3(1, 0, 0), PI / 2), center))
+
+
+## Four thin strips of thread round a rectangle (x, z) at height y.
+static func _append_stitching(tool: SurfaceTool, rect: Rect2, y: float) -> void:
+	const WIDTH := 0.0015
+	const HEIGHT := 0.0004
+	var c := rect.get_center()
+	_append_box(tool, Vector3(rect.size.x, HEIGHT, WIDTH), Vector3(c.x, y, rect.position.y))
+	_append_box(tool, Vector3(rect.size.x, HEIGHT, WIDTH), Vector3(c.x, y, rect.end.y))
+	_append_box(tool, Vector3(WIDTH, HEIGHT, rect.size.y), Vector3(rect.position.x, y, c.y))
+	_append_box(tool, Vector3(WIDTH, HEIGHT, rect.size.y), Vector3(rect.end.x, y, c.y))
+
+
+static func _commit_surface(mesh: ArrayMesh, tool: SurfaceTool, material: Material) -> void:
+	tool.set_material(material)
+	tool.commit(mesh)
+
+
+## A fine pebbled grain for the leather, as a normal map.
+static func _leather_grain() -> NoiseTexture2D:
+	if _grain == null:
+		var noise := FastNoiseLite.new()
+		noise.noise_type = FastNoiseLite.TYPE_CELLULAR
+		noise.frequency = 0.06
+		_grain = NoiseTexture2D.new()
+		_grain.width = 256
+		_grain.height = 256
+		_grain.seamless = true
+		_grain.as_normal_map = true
+		_grain.bump_strength = 6.0
+		_grain.noise = noise
+	return _grain
+
+
+static func _pages_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.9, 0.9, 0.88)
+	material.roughness = 0.35
+	return material
+
+
+static func _metal_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.78, 0.78, 0.8)
+	material.metallic = 1.0
+	material.roughness = 0.3
+	return material
+
+
+static func _thread_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.8, 0.75, 0.64)
+	material.roughness = 0.9
+	return material
 
 
 func _make_label(text: String, font_size: int, pixel_size: float) -> Label3D:
