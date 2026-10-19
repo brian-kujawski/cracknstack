@@ -300,6 +300,15 @@ func _build_pendants() -> void:
 		light.shadow_enabled = true
 		light.shadow_blur = 2.0
 		add_child(light)
+		# Lights the inside of the shade, and fades out on its way to the table
+		# and ceiling: a stand-in for the light that would bounce off them.
+		var fill := OmniLight3D.new()
+		fill.position = Vector3(at.x, PENDANT_HEIGHT + 0.06, at.z)
+		fill.light_color = FIXTURE_LIGHT
+		fill.light_energy = 0.3
+		fill.omni_range = 1.3
+		fill.omni_attenuation = 2.0
+		add_child(fill)
 
 
 ## A ceiling track along the shelf with spotlights angled at its face, so
