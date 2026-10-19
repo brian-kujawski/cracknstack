@@ -25,11 +25,13 @@ extends Node
 ## Upgrades bought with Mana (see Progression) change some of this: Snap
 ## speeds up every glide, Spider Climb lengthens your reach, Remember the
 ## Fallen names cards you've held wherever you see them again, Enlightened
-## Tutor shows the set of a floor card you look at, and Unmask flips more
+## Tutor shows the set of a floor card you look at (at rank II, the whole
+## card), and Unmask flips more
 ## cards, more of them face up. Harmonize lets you hold several cards: a
 ## quick click on another card picks it up too (hold the button to put the
 ## top one down instead), and the wheel cycles which is on top when you're
-## not aiming at an open binder. Shunt files the card in hand into its own
+## not aiming at an open binder. Brainstorm sends missing cards flying into
+## a binder when you finish one of its pages by hand. Shunt files the card in hand into its own
 ## pocket wherever you click on its open pages. Sorceries: Tithe (1) lights
 ## up missing cards for the binder you hold or look at, Teleport (2) sends
 ## the top card to its binder, Demonic Tutor (3) brings the card for the
@@ -122,6 +124,8 @@ const HAND_SIZES := [1, 3, 7, 15]
 ## chance each lands face up.
 const FLIP_COUNTS := [4, 8, 16]
 const FLIP_FACE_UP_CHANCE := [0.5, 0.75, 1.0]
+## Brainstorm at each rank (I, II, III): cards it pulls in.
+const BRAINSTORM_CARDS := [1, 3, 9]
 ## Tithe at each rank (I, II, III): missing cards lit (0 for all of them)
 ## and for how long.
 const TITHE_CARDS := [5, 10, 0]
@@ -404,6 +408,33 @@ func _file(binder: Binder, pocket: int, id: int) -> void:
 		return # Misplaced: it stays in the pocket glowing red, and makes no sound.
 	Progression.card_filed_by_hand()
 	_locked_in(binder, pocket)
+	if binder.contents.is_page_complete(pocket / BinderLayout.POCKETS_PER_PAGE):
+		brainstorm(binder)
+
+
+## Brainstorm: a page just finished by hand pulls missing cards for this
+## binder's other pages up out of the pile, at random, and they fly into
+## their pockets. Pages they finish don't set it off again, so it never
+## chains. Returns the cards sent.
+func brainstorm(binder: Binder) -> Array[int]:
+	var rank := Progression.rank("Brainstorm")
+	if rank == 0:
+		return []
+	var missing: Array[int] = []
+	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
+	for pocket in binder.contents.capacity():
+		var id := cards[binder.binder.first + pocket - 1].id
+		if binder.contents.card_at(pocket) < 0 and pile.is_on_floor(id):
+			missing.append(id)
+	missing.shuffle()
+	missing = missing.slice(0, BRAINSTORM_CARDS[rank - 1])
+	for id in missing:
+		var pocket := CardDatabase.get_card(id).collector_number - binder.binder.first
+		var from := pile.card_pose(id)
+		pile.pick_up(id)
+		_fly_to_pocket(id, from, binder, pocket, func() -> void:
+			FeedbackSounds.play(pile, binder.global_position, FeedbackSounds.Kind.CARD_LOCKED))
+	return missing
 
 
 ## A card locked into its pocket, by hand or by Teleport: the chime, and
@@ -521,24 +552,30 @@ func cast_teleport() -> bool:
 	if binder.contents.card_at(pocket) >= 0:
 		return false
 	Progression.cast("Teleport")
-	var card := _card_copy(id)
 	var from := _held_view.global_transform
 	_release_top()
+	_fly_to_pocket(id, from, binder, pocket, func() -> void: _locked_in(binder, pocket))
+	return true
+
+
+## Card `id` flies by magic from the global pose `from` into its own pocket
+## of `binder`, wherever that is, and calls `landed` once it's locked in.
+## Your hands are free while it flies.
+func _fly_to_pocket(id: int, from: Transform3D, binder: Binder, pocket: int, landed: Callable) -> void:
+	var card := _card_copy(id)
 	var to := func() -> Transform3D:
 		if binder.is_open():
 			return binder.pocket_pose(pocket)
 		return Glide.flat_card(binder.global_position + binder.global_basis.y * Binder.THICKNESS, binder.global_basis)
 	var flight := minf(teleport_seconds + teleport_seconds_per_metre * from.origin.distance_to(to.call().origin),
 		teleport_seconds_max)
-	# Not the hands' glide: your hands are free while it flies.
 	Glide.start(card, from, to, glide_seconds(flight), teleport_lift).tween_callback(func() -> void:
 		card.queue_free()
 		if binder.insert(pocket, id) == BinderContents.Result.LOCKED:
-			_locked_in(binder, pocket)
+			landed.call()
 		else:
 			# Its pocket filled while it flew: it falls onto the pile there.
 			pile.drop(id, binder.global_position, binder.rotation.y))
-	return true
 
 
 ## Demonic Tutor: aimed at an empty pocket of an open binder with room in
@@ -877,6 +914,9 @@ func shown_card_id() -> int:
 	var id := -1
 	if _aim == Aim.LOOSE_CARD:
 		return _aim_loose_card.card_id if seen_cards.has(_aim_loose_card.card_id) else -1
+	# Enlightened Tutor II reads every floor card at a glance.
+	if _aim == Aim.FLOOR and Progression.rank("Enlightened Tutor") >= 2:
+		return _aim_floor_card
 	if Progression.rank("Remember the Fallen") == 0:
 		return -1
 	if _aim == Aim.FLOOR:

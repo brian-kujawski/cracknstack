@@ -41,6 +41,7 @@ func _ready() -> void:
 	_test_demonic_tutor()
 	await _test_step_two_upgrades()
 	await _test_step_three_upgrades()
+	await _test_step_four_upgrades()
 	await _test_crouch()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
@@ -1113,6 +1114,60 @@ func _test_step_three_upgrades() -> void:
 	_check(not pile.is_on_floor(ids[12]) and not Progression.can_cast("Abundance"), "out of the pile, and recharges")
 	await get_tree().create_timer(1.5).timeout
 	_check(hands._incoming == 0, "the cards arrive")
+
+	holder.free()
+	pile.free()
+	Progression.reset()
+	Progression.allow_debt = OS.is_debug_build()
+
+
+func _test_step_four_upgrades() -> void:
+	Progression.reset()
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
+	var binder := Binder.new()
+	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
+	pile.add_child(binder)
+	pile.binders.append(binder)
+	binder.put_down(pile, Vector3(4.0, 0.75, 2.0), 0.0)
+	binder.open()
+	var ids := _first_binder_cards()
+	var hands := Hands.new()
+	var camera := Camera3D.new()
+	camera.name = "Camera3D"
+	var holder := CharacterBody3D.new()
+	holder.add_child(camera)
+	holder.add_child(hands)
+	holder.process_mode = Node.PROCESS_MODE_DISABLED
+	add_child(holder)
+	hands.pile = pile
+
+	# Enlightened Tutor II: a floor card you've never held, read in full.
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_floor_card = ids[50]
+	_buy_through(0, 1)
+	_check(hands.shown_card_id() == -1 and hands.shown_set_card_id() == ids[50], "Enlightened Tutor I shows only the set")
+	_buy_through(0, 3)
+	_check(hands.shown_card_id() == ids[50], "Enlightened Tutor II shows the whole card")
+
+	# Brainstorm: finishing a page by hand sends a missing card home.
+	binder.show_pocket(0)
+	for i in 8:
+		pile.pick_up(ids[i])
+		binder.insert(i, ids[i])
+	pile.pick_up(ids[8])
+	_check(hands.brainstorm(binder).is_empty(), "no Brainstorm before it's learned")
+	_buy_through(1, 3)
+	var locked := binder.contents.locked_count
+	hands._file(binder, 8, ids[8]) # The last card of page 1, by hand.
+	await get_tree().create_timer(1.5).timeout
+	_check(binder.contents.locked_count == locked + 2,
+		"the page's last card and 1 Brainstormed card lock in, got %d" % (binder.contents.locked_count - locked))
+	var count_before := binder.contents.locked_count
+	_check(hands.brainstorm(binder).size() == 1, "Brainstorm I sends 1 card")
+	await get_tree().create_timer(1.5).timeout
+	_check(binder.contents.locked_count == count_before + 1, "which files itself")
 
 	holder.free()
 	pile.free()
