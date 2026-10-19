@@ -207,6 +207,7 @@ func _ready() -> void:
 	var material := ShaderMaterial.new()
 	material.shader = preload("res://shaders/held_card.gdshader")
 	_held_view.material_override = material
+	_held_view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_held_view.visible = false
 	_camera.add_child(_held_view)
 	for i in MAX_FANNED:

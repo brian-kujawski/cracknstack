@@ -1,7 +1,9 @@
 class_name ShelfUnit
 extends StaticBody3D
-## One graybox shelving unit, any number of spaces wide. Its origin is on
-## the floor, centred under the unit, and its open front faces local +Z.
+## One shelving unit, any number of spaces wide: plain flat-pack store
+## shelving split into bays by thin dividers, with an edge band on the front
+## of each board, a recessed kick plate and a top cap. Its origin is on the
+## floor, centred under the unit, and its open front faces local +Z.
 ##
 ## Labelled units show each binder's set code and number range on the shelf
 ## lip under its space. A binder stood in its own space locks in; in any other
@@ -15,6 +17,19 @@ const BOARD_THICKNESS := 0.04
 const SIDE_THICKNESS := 0.03
 ## Height of each shelf board's top surface, top shelf first.
 const SHELF_HEIGHTS := [1.75, 1.35, 0.95, 0.55, 0.15]
+## Roughly how many spaces wide a bay is between dividers (about 0.8 m).
+const BAY_SPACES := 8
+const DIVIDER_THICKNESS := 0.012
+const BACK_THICKNESS := 0.02
+## The edge band on each board's front: its depth, and how far it hangs below
+## the board. Its top is flush with the board, so binders stand clear of it.
+const BAND_DEPTH := 0.012
+const BAND_DROP := 0.008
+## How far the kick plate sits back from the front.
+const KICK_RECESS := 0.025
+const CAP_THICKNESS := 0.025
+## How far the top cap overhangs the sides and front.
+const CAP_OVERHANG := 0.012
 
 ## Spaces along each shelf.
 var spaces_per_shelf := ShelfLayout.SPACES_PER_SHELF
@@ -42,12 +57,7 @@ func build(space_binders: Array, material: Material, per_shelf := ShelfLayout.SP
 	spaces_per_shelf = per_shelf
 	width = per_shelf * SPACE_WIDTH
 	shelved.resize(spaces.size())
-	_add_box(Vector3(SIDE_THICKNESS, HEIGHT, DEPTH), Vector3(-(width + SIDE_THICKNESS) / 2, HEIGHT / 2, 0), material)
-	_add_box(Vector3(SIDE_THICKNESS, HEIGHT, DEPTH), Vector3((width + SIDE_THICKNESS) / 2, HEIGHT / 2, 0), material)
-	_add_box(Vector3(width, HEIGHT, 0.02), Vector3(0, HEIGHT / 2, -DEPTH / 2 + 0.01), material)
-	_add_box(Vector3(width, BOARD_THICKNESS, DEPTH), Vector3(0, HEIGHT - BOARD_THICKNESS / 2, 0), material)
-	for top in SHELF_HEIGHTS:
-		_add_box(Vector3(width, BOARD_THICKNESS, DEPTH), Vector3(0, top - BOARD_THICKNESS / 2, 0), material)
+	_build_frame(material)
 
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
@@ -175,6 +185,55 @@ func _build_section_light(shelf: int) -> MeshInstance3D:
 	strip.position = Vector3(0, above - 0.003, DEPTH / 2 - 0.03)
 	add_child(strip)
 	return strip
+
+
+## The visible furniture. Collision stays one box over the whole unit.
+func _build_frame(material: Material) -> void:
+	var band := _tinted(material, 1.12)
+	var dark := _tinted(material, 0.72)
+	var board_depth := DEPTH - BACK_THICKNESS - BAND_DEPTH
+	var board_z := -DEPTH / 2 + BACK_THICKNESS + board_depth / 2
+	var band_z := DEPTH / 2 - BAND_DEPTH / 2
+	for side in [-1, 1]:
+		_add_box(Vector3(SIDE_THICKNESS, HEIGHT, DEPTH), Vector3(side * (width + SIDE_THICKNESS) / 2, HEIGHT / 2, 0), material)
+	_add_box(Vector3(width, HEIGHT, BACK_THICKNESS), Vector3(0, HEIGHT / 2, -DEPTH / 2 + BACK_THICKNESS / 2), dark)
+
+	# Boards, each with an edge band on its front; the top board is the last.
+	var board_tops: Array = SHELF_HEIGHTS.duplicate()
+	board_tops.append(HEIGHT)
+	for top in board_tops:
+		_add_box(Vector3(width, BOARD_THICKNESS, board_depth), Vector3(0, top - BOARD_THICKNESS / 2, board_z), material)
+		var band_height := BOARD_THICKNESS + BAND_DROP
+		_add_box(Vector3(width, band_height, BAND_DEPTH), Vector3(0, top - band_height / 2, band_z), band)
+
+	# Dividers on space boundaries, so every space keeps its full width.
+	var bays := maxi(1, roundi(float(spaces_per_shelf) / BAY_SPACES))
+	var lowest: float = SHELF_HEIGHTS[-1] - BOARD_THICKNESS
+	var divider_height := HEIGHT - BOARD_THICKNESS - lowest
+	var divider_depth := DEPTH - BACK_THICKNESS - BAND_DEPTH
+	for bay in range(1, bays):
+		var x := -width / 2 + SPACE_WIDTH * roundi(float(bay * spaces_per_shelf) / bays)
+		_add_box(Vector3(DIVIDER_THICKNESS, divider_height, divider_depth),
+			Vector3(x, lowest + divider_height / 2, board_z), material)
+
+	# Kick plate, set back under the bottom board.
+	var kick_height: float = lowest - BAND_DROP
+	_add_box(Vector3(width, kick_height, 0.018), Vector3(0, kick_height / 2, DEPTH / 2 - KICK_RECESS - 0.009), dark)
+
+	# Top cap, overhanging the sides and front (flush with the wall behind).
+	var cap_depth := DEPTH + CAP_OVERHANG
+	_add_box(Vector3(width + 2 * (SIDE_THICKNESS + CAP_OVERHANG), CAP_THICKNESS, cap_depth),
+		Vector3(0, HEIGHT + CAP_THICKNESS / 2, -DEPTH / 2 + cap_depth / 2), band)
+
+
+## A lighter or darker copy of the shelf material, for trim and back panels.
+static func _tinted(material: Material, factor: float) -> Material:
+	if not material is StandardMaterial3D:
+		return material
+	var copy: StandardMaterial3D = material.duplicate()
+	var c := copy.albedo_color
+	copy.albedo_color = Color(minf(c.r * factor, 1.0), minf(c.g * factor, 1.0), minf(c.b * factor, 1.0), c.a)
+	return copy
 
 
 func _add_box(size: Vector3, center: Vector3, material: Material) -> void:

@@ -43,6 +43,7 @@ func _ready() -> void:
 	await _test_step_three_upgrades()
 	await _test_step_four_upgrades()
 	await _test_steps_five_to_seven()
+	_test_day_cycle()
 	await _test_crouch()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
@@ -707,6 +708,22 @@ func _test_pause() -> void:
 	_check(button.text == "Click to Continue", "the pause screen has a Continue button")
 	button.pressed.emit()
 	_check(not menu.is_paused() and not get_tree().paused, "the Continue button goes back in")
+	var environment := Environment.new()
+	var day := DayCycle.new()
+	day.setup(environment, [] as Array[Light3D], null, null)
+	menu.day_cycle = day
+	var by_text := {}
+	for found: Button in menu.find_children("*", "Button", true, false):
+		by_text[found.text] = found
+	_check(by_text.has("Set Noon") == OS.is_debug_build() and by_text.has("Set Midnight") == OS.is_debug_build(), "time-of-day buttons appear only in developer builds")
+	if OS.is_debug_build():
+		menu.pause()
+		by_text["Set Midnight"].pressed.emit()
+		_check(day.hour == 0.0 and is_equal_approx(environment.ambient_light_energy, DayCycle.NIGHT_AMBIENT_ENERGY), "Set Midnight jumps to midnight while paused")
+		by_text["Set Noon"].pressed.emit()
+		_check(day.hour == 12.0 and environment.ambient_light_energy > DayCycle.NIGHT_AMBIENT_ENERGY, "Set Noon jumps to noon")
+		menu.resume()
+	day.free()
 	menu.free()
 
 
@@ -1285,6 +1302,24 @@ func _land_tossed(pile: PileWorld) -> void:
 			while not child.is_queued_for_deletion() and steps < 600:
 				child._physics_process(1.0 / 60.0)
 				steps += 1
+func _test_day_cycle() -> void:
+	var noon := DayCycle.daylight_at(12.5)
+	var midnight := DayCycle.daylight_at(0.0)
+	var dusk := DayCycle.daylight_at(19.0)
+	_check(noon.a > 0.9 and midnight.a == 0.0, "full daylight at noon, none at midnight")
+	_check(dusk.r > dusk.b and dusk.a > 0.0 and dusk.a < noon.a, "dusk is warm and dimmer than noon")
+	_check(DayCycle.daylight_at(24.0) == midnight and DayCycle.daylight_at(36.0) == DayCycle.daylight_at(12.0), "the day wraps round")
+	var environment := Environment.new()
+	var day := DayCycle.new()
+	day.setup(environment, [] as Array[Light3D], null, null)
+	day.hour = 12.0
+	day.apply()
+	var day_ambient := environment.ambient_light_energy
+	day.hour = 23.0
+	day.apply()
+	_check(environment.ambient_light_energy < day_ambient and environment.ambient_light_energy > 0.0, "nights are dimmer but not black")
+	day.free()
+	_check(DayCycle.DAY_LENGTH == 900.0, "a day lasts 15 minutes")
 
 
 func _test_crouch() -> void:
