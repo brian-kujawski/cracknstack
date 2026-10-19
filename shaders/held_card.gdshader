@@ -1,7 +1,8 @@
 // A single card outside the pile (in the hand, or tossed through the air):
 // same face as the floor cards, fed by uniforms instead of per-instance data.
+// Lit by the room where it really is, like any other object.
 shader_type spatial;
-render_mode unshaded, cull_disabled;
+render_mode cull_disabled;
 
 #include "res://shaders/card_face.gdshaderinc"
 
@@ -17,4 +18,5 @@ void fragment() {
 	ALBEDO = FRONT_FACING
 		? (has_face ? real_face(texture(face_texture, UV).rgb, UV) : card_face(UV, accent, set_number, collector_number, rarity))
 		: back_of_card(vec2(1.0 - UV.x, UV.y)); // Seen from behind, so u runs the other way.
+	ROUGHNESS = 0.6;
 }
