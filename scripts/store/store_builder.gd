@@ -1,8 +1,8 @@
 extends Node3D
 ## Builds the graybox store: one small room, cluttered on purpose. A closed
-## door in the front wall, three wall-length binder shelves ringing the other
-## walls (left, back, right), and four work tables in the middle for setting
-## binders down and stacking cards.
+## door in the front wall, one wall-length binder shelf on the back wall, and
+## four work tables in the middle for setting binders down and stacking cards.
+## The side walls are left open for store dressing later.
 ##
 ## Everything is plain boxes so the layout is cheap to change. Coordinates are
 ## metres: x runs 0..WIDTH left to right as you face the back wall, z runs from
@@ -14,12 +14,9 @@ const CEILING_HEIGHT := 3.0
 const WALL_THICKNESS := 0.2
 ## The door (closed, not usable yet): centred on the front wall.
 const DOOR_SIZE := Vector2(1.0, 2.1)
-## Binder shelves: [x or z range along the wall] for the left, back and
-## right walls. Binders run left wall (from the door end), back wall, right
-## wall (back to the door end), so walking round the room reads the timeline.
-const LEFT_SHELF := Vector2(1.2, 6.7) # z range
-const BACK_SHELF := Vector2(2.0, 10.0) # x range
-const RIGHT_SHELF := Vector2(1.2, 6.7) # z range
+## The binder shelf's x range along the back wall. Binders read left to
+## right, top shelf first, so the shelf reads the timeline like a book.
+const BACK_SHELF := Vector2(2.0, 10.0)
 const TABLE_SIZE := Vector3(1.3, 1.0, 1.3)
 const TABLE_CENTERS := [Vector2(4.6, 2.9), Vector2(7.4, 2.9), Vector2(4.6, 5.3), Vector2(7.4, 5.3)]
 
@@ -59,30 +56,16 @@ func _build_shell() -> void:
 	_add_solid(Vector3(DOOR_SIZE.x, DOOR_SIZE.y, 0.04), Vector3(WIDTH / 2, DOOR_SIZE.y / 2, DEPTH - 0.02), _door_material)
 
 
-## Three wall-length shelves, each as many spaces wide as its wall allows,
-## with the binders split evenly between them.
+## One wall-length shelf on the back wall, facing the door, holding every
+## binder.
 func _build_binder_shelves() -> void:
-	var lengths := [LEFT_SHELF.y - LEFT_SHELF.x, BACK_SHELF.y - BACK_SHELF.x, RIGHT_SHELF.y - RIGHT_SHELF.x]
-	var per_shelf: Array[int] = []
-	for length in lengths:
-		per_shelf.append(int((length - 2 * ShelfUnit.SIDE_THICKNESS) / ShelfUnit.SPACE_WIDTH))
+	var per_shelf: Array[int] = [int((BACK_SHELF.y - BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS) / ShelfUnit.SPACE_WIDTH)]
 	var assignments := ShelfLayout.assign(CardDatabase.all_binders(), per_shelf)
-	var inset := ShelfUnit.DEPTH / 2
-	var placements := [
-		# Left wall, facing +x: reads from the door end toward the back.
-		[Vector3(inset, 0, (LEFT_SHELF.x + LEFT_SHELF.y) / 2), PI / 2],
-		# Back wall, facing the door: reads left to right.
-		[Vector3((BACK_SHELF.x + BACK_SHELF.y) / 2, 0, inset), 0.0],
-		# Right wall, facing -x: reads from the back toward the door end.
-		[Vector3(WIDTH - inset, 0, (RIGHT_SHELF.x + RIGHT_SHELF.y) / 2), -PI / 2],
-	]
-	for u in 3:
-		var unit := ShelfUnit.new()
-		unit.name = "BinderShelf%d" % (u + 1)
-		unit.build(assignments[u], _shelf_material, per_shelf[u])
-		unit.position = placements[u][0]
-		unit.rotation.y = placements[u][1]
-		_add_shelf(unit)
+	var unit := ShelfUnit.new()
+	unit.name = "BinderShelf"
+	unit.build(assignments[0], _shelf_material, per_shelf[0])
+	unit.position = Vector3((BACK_SHELF.x + BACK_SHELF.y) / 2, 0, ShelfUnit.DEPTH / 2)
+	_add_shelf(unit)
 
 
 ## Each table is a top on four legs, so cards that slid underneath stay in
