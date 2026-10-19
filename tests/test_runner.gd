@@ -701,6 +701,22 @@ func _test_pause() -> void:
 	_check(button.text == "Click to Continue", "the pause screen has a Continue button")
 	button.pressed.emit()
 	_check(not menu.is_paused() and not get_tree().paused, "the Continue button goes back in")
+	var environment := Environment.new()
+	var day := DayCycle.new()
+	day.setup(environment, [] as Array[Light3D], null, null)
+	menu.day_cycle = day
+	var by_text := {}
+	for found: Button in menu.find_children("*", "Button", true, false):
+		by_text[found.text] = found
+	_check(by_text.has("Set Noon") == OS.is_debug_build() and by_text.has("Set Midnight") == OS.is_debug_build(), "time-of-day buttons appear only in developer builds")
+	if OS.is_debug_build():
+		menu.pause()
+		by_text["Set Midnight"].pressed.emit()
+		_check(day.hour == 0.0 and is_equal_approx(environment.ambient_light_energy, DayCycle.NIGHT_AMBIENT_ENERGY), "Set Midnight jumps to midnight while paused")
+		by_text["Set Noon"].pressed.emit()
+		_check(day.hour == 12.0 and environment.ambient_light_energy > DayCycle.NIGHT_AMBIENT_ENERGY, "Set Noon jumps to noon")
+		menu.resume()
+	day.free()
 	menu.free()
 
 

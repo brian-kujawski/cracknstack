@@ -60,6 +60,12 @@ func _process(delta: float) -> void:
 		apply()
 
 
+## Jumps to an hour and relights at once (works while paused).
+func set_hour(new_hour: float) -> void:
+	hour = fposmod(new_hour, 24.0)
+	apply()
+
+
 ## Sets every light and material for the current hour.
 func apply() -> void:
 	var daylight := daylight_at(hour)

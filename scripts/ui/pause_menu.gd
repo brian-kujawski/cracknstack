@@ -8,6 +8,9 @@ extends CanvasLayer
 
 const BACKDROP := Color(0.07, 0.05, 0.04, 0.92)
 
+## Set by the main scene; the developer time-of-day buttons drive it.
+var day_cycle: DayCycle
+
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -37,7 +40,30 @@ func _ready() -> void:
 	# Fires when the click comes back up, so neither half of it reaches the game.
 	resume_button.pressed.connect(resume)
 	column.add_child(resume_button)
+	if OS.is_debug_build():
+		_add_time_buttons(column)
 	visible = false
+
+
+## Developer only: jump straight to noon or midnight to check the lighting.
+func _add_time_buttons(column: VBoxContainer) -> void:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 16)
+	column.add_child(row)
+	for entry in [["Set Noon", 12.0], ["Set Midnight", 0.0]]:
+		var button := Button.new()
+		button.text = entry[0]
+		button.focus_mode = Control.FOCUS_NONE
+		button.custom_minimum_size = Vector2(142, 40)
+		button.add_theme_font_size_override("font_size", 18)
+		button.pressed.connect(_set_hour.bind(entry[1]))
+		row.add_child(button)
+
+
+func _set_hour(hour: float) -> void:
+	if day_cycle != null:
+		day_cycle.set_hour(hour)
 
 
 func _unhandled_input(event: InputEvent) -> void:
