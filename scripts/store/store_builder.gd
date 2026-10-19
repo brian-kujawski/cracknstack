@@ -12,8 +12,6 @@ const WIDTH := 12.0
 const DEPTH := 8.0
 const CEILING_HEIGHT := 3.0
 const WALL_THICKNESS := 0.2
-## The door (closed, not usable yet): centred on the front wall.
-const DOOR_SIZE := Vector2(1.0, 2.1)
 ## The binder shelf's x range along the back wall. Binders read left to
 ## right, top shelf first, so the shelf reads the timeline like a book.
 const BACK_SHELF := Vector2(2.0, 10.0)
@@ -47,7 +45,6 @@ var sky_material := StandardMaterial3D.new()
 var _wall_material := _material(Color(0.86, 0.84, 0.8))
 var _floor_material := _material(Color(0.55, 0.5, 0.45))
 var _shelf_material := _material(Color(0.62, 0.48, 0.34))
-var _door_material := _material(Color(0.9, 0.5, 0.15))
 var _table_material := _wood(Color(0.46, 0.29, 0.16))
 var _felt_material := _material(Color(0.1, 0.24, 0.17))
 var _fixture_material := _metal(Color(0.12, 0.13, 0.12), 0.45)
@@ -64,6 +61,7 @@ func _ready() -> void:
 	_build_binder_shelves()
 	_build_tables()
 	_build_windows()
+	_build_door()
 	_build_pendants()
 	_build_track_light()
 
@@ -76,8 +74,6 @@ func _build_shell() -> void:
 	_add_wall_x(0.0, WIDTH, DEPTH + half)
 	_add_wall_z(-half, 0.0, DEPTH)
 	_add_wall_z(WIDTH + half, 0.0, DEPTH)
-	# The door is just a slab on the inside of the front wall for now.
-	_add_solid(Vector3(DOOR_SIZE.x, DOOR_SIZE.y, 0.04), Vector3(WIDTH / 2, DOOR_SIZE.y / 2, DEPTH - 0.02), _door_material)
 
 
 ## One wall-length shelf on the back wall, facing the door, holding every
@@ -238,6 +234,21 @@ func _build_windows() -> void:
 		light.light_specular = 0.2
 		add_child(light)
 		window_lights.append(light)
+
+
+## The shop door, centred on the front wall and facing into the room, with
+## the same sky as the windows showing through the glass between the flyers.
+func _build_door() -> void:
+	var door := ShopDoor.new()
+	door.name = "ShopDoor"
+	door.build()
+	door.position = Vector3(WIDTH / 2, 0, DEPTH)
+	door.rotation.y = PI
+	add_child(door)
+	var opening := ShopDoor.LEAF_SIZE
+	_add_part(self, Vector3(opening.x, opening.y, 0.01), Vector3(WIDTH / 2, opening.y / 2, DEPTH - 0.005), sky_material, false)
+	var footprint := ShopDoor.footprint()
+	obstacles.append(Rect2(Vector2(WIDTH / 2 + footprint.position.x, DEPTH - footprint.end.y), footprint.size))
 
 
 ## A pleated curtain hanging from its top edge (origin at the top centre).
