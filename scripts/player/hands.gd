@@ -118,6 +118,7 @@ func _ready() -> void:
 	var material := ShaderMaterial.new()
 	material.shader = preload("res://shaders/held_card.gdshader")
 	_held_view.material_override = material
+	_held_view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_held_view.visible = false
 	_camera.add_child(_held_view)
 	_pose_held_card()
@@ -150,6 +151,19 @@ func _physics_process(delta: float) -> void:
 	_update_hover()
 	_update_ghost(delta)
 	_update_hint()
+	_update_held_light()
+
+
+## Lights the held card as if it lay on whatever is below it (see held_card).
+func _update_held_light() -> void:
+	if not _held_view.visible:
+		return
+	var from := _held_view.global_position
+	var query := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 3.0)
+	query.exclude = [(get_parent() as CollisionObject3D).get_rid()]
+	var hit := _camera.get_world_3d().direct_space_state.intersect_ray(query)
+	var below: float = hit.position.y if not hit.is_empty() else 0.0
+	(_held_view.material_override as ShaderMaterial).set_shader_parameter("light_floor", below + 0.01)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -358,6 +372,7 @@ func _put_down_card(to: Transform3D, land: Callable, via = null) -> void:
 	var material := ShaderMaterial.new()
 	material.shader = preload("res://shaders/held_card.gdshader")
 	CardView.apply(material, held_card_id)
+	material.set_shader_parameter("light_floor", to.origin.y + 0.01)
 	card.material_override = material
 	card.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pile.add_child(card)
