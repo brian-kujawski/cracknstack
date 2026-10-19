@@ -2,8 +2,9 @@ class_name UpgradeMenu
 extends CanvasLayer
 ## The upgrade menu: Tab (Controls.UPGRADES) stops the game and shows every
 ## unlock, one column per colour in buying order. Only each colour's next
-## unlock can be bought. Tab or Esc goes back in. A stand-in until the shop
-## moves to the front counter; nothing bought does anything yet.
+## unlock can be bought; hovering one says what it does. Tab or Esc goes
+## back in. A stand-in until the shop moves to the front counter; nothing
+## bought does anything yet.
 
 const BACKDROP := Color(0.07, 0.05, 0.04, 0.92)
 const COLOUR_TINTS := [
@@ -61,6 +62,7 @@ func _build_colour(colour: int) -> VBoxContainer:
 		var button := Button.new()
 		button.focus_mode = Control.FOCUS_NONE
 		button.custom_minimum_size = Vector2(220, 60)
+		button.tooltip_text = Progression.step_effect(colour, step)
 		button.pressed.connect(func() -> void: Progression.buy(colour, step))
 		list.add_child(button)
 		buttons.append(button)

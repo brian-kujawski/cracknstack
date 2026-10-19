@@ -18,24 +18,49 @@ const SECTION_LIT := 25
 ## Every colour's row uses the same prices, step by step.
 const PRICES := [20, 40, 90, 200, 400, 900, 2000]
 
-## Each colour's row of unlocks in buying order: [node, rank]. A rank of 0
-## marks a node that's bought once, with no numeral.
+## Each colour's row of unlocks in buying order: [node, rank, what it does].
+## A rank of 0 marks a node that's bought once, with no numeral.
 const COLOURS := [
 	{"name": "White", "steps": [
-		["Remember the Fallen", 0], ["Enlightened Tutor", 1], ["Tithe", 1], ["Enlightened Tutor", 2],
-		["Tithe", 2], ["Tithe", 3], ["Serra's Blessing", 0]]},
+		["Remember the Fallen", 0, "Remember the name and number of every card you've held."],
+		["Enlightened Tutor", 1, "See the set of any card on the floor."],
+		["Tithe", 1, "Cast: 5 missing cards for this binder glow for 5 s."],
+		["Enlightened Tutor", 2, "See the set, number and name of any card on the floor."],
+		["Tithe", 2, "Tithe lights 10 missing cards for 10 s."],
+		["Tithe", 3, "Tithe lights every missing card for 15 s."],
+		["Serra's Blessing", 0, "Tithe is always on for the binder you're using."]]},
 	{"name": "Blue", "steps": [
-		["Snap", 1], ["Teleport", 1], ["Snap", 2], ["Brainstorm", 1],
-		["Teleport", 2], ["Brainstorm", 2], ["Brainstorm", 3]]},
+		["Snap", 1, "Cards and binders move 50% faster."],
+		["Teleport", 1, "Cast: the held card flies to its binder and files itself."],
+		["Snap", 2, "Cards and binders move twice as fast."],
+		["Brainstorm", 1, "Finishing a page by hand pulls in 1 missing card for that binder."],
+		["Teleport", 2, "Teleport sends your whole hand."],
+		["Brainstorm", 2, "Brainstorm pulls in 3 cards."],
+		["Brainstorm", 3, "Brainstorm pulls in 9 cards."]]},
 	{"name": "Black", "steps": [
-		["Demonic Tutor", 1], ["Unmask", 1], ["Demonic Tutor", 2], ["Unmask", 2],
-		["Demonic Consultation", 1], ["Demonic Tutor", 3], ["Demonic Consultation", 2]]},
+		["Demonic Tutor", 1, "Cast: the card for the aimed pocket comes to your hand. 60 s cooldown."],
+		["Unmask", 1, "Pile flips toss 8 cards, most landing face up."],
+		["Demonic Tutor", 2, "Demonic Tutor's cooldown drops to 40 s."],
+		["Unmask", 2, "Pile flips toss 16 cards, all face up."],
+		["Demonic Consultation", 1, "Flipped cards for an open binder hover for 5 s."],
+		["Demonic Tutor", 3, "Demonic Tutor's cooldown drops to 20 s."],
+		["Demonic Consultation", 2, "Flipped cards hover for 15 s."]]},
 	{"name": "Red", "steps": [
-		["Fervor", 0], ["Chain Lightning", 1], ["Shunt", 1], ["Chain Lightning", 2],
-		["Shunt", 2], ["Chain Lightning", 3], ["Shunt", 3]]},
+		["Fervor", 0, "Walk and crouch-walk 50% faster."],
+		["Chain Lightning", 1, "Cast: your next filed card lights 1 missing card from its page. 60 s cooldown."],
+		["Shunt", 1, "Click anywhere on the right open pages to file a card."],
+		["Chain Lightning", 2, "Chain Lightning lights 3 cards. 45 s cooldown."],
+		["Shunt", 2, "Click anywhere on the right binder to file a card."],
+		["Chain Lightning", 3, "Chain Lightning lights the whole page. 30 s cooldown."],
+		["Shunt", 3, "File into the right binder even when it's closed."]]},
 	{"name": "Green", "steps": [
-		["Spider Climb", 0], ["Harmonize", 1], ["Abundance", 1], ["Harmonize", 2],
-		["Abundance", 2], ["Harmonize", 3], ["Abundance", 3]]},
+		["Spider Climb", 0, "Reach 30% further."],
+		["Harmonize", 1, "Hold 3 cards at once."],
+		["Abundance", 1, "Cast: the next unfiled cards after the held one come to your hand."],
+		["Harmonize", 2, "Hold 7 cards at once."],
+		["Abundance", 2, "Abundance's cooldown gets shorter."],
+		["Harmonize", 3, "Hold 15 cards at once."],
+		["Abundance", 3, "Abundance's cooldown gets shorter still."]]},
 ]
 
 const NUMERALS := ["", "I", "II", "III"]
@@ -84,6 +109,11 @@ static func binder_complete_bonus(card_count: int) -> int:
 static func step_name(colour: int, step: int) -> String:
 	var entry: Array = COLOURS[colour].steps[step]
 	return entry[0] if entry[1] == 0 else "%s %s" % [entry[0], NUMERALS[entry[1]]]
+
+
+## What an unlock does, in one line for the menu.
+static func step_effect(colour: int, step: int) -> String:
+	return COLOURS[colour].steps[step][2]
 
 
 static func price(step: int) -> int:

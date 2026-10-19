@@ -767,6 +767,11 @@ func _test_upgrade_menu() -> void:
 	add_child(menu)
 	var buttons: Array = menu.find_children("*", "Button", true, false)
 	_check(buttons.size() == 35, "the menu has a button for each of the 35 unlocks, got %d" % buttons.size())
+	_check((buttons[0] as Button).tooltip_text == "Remember the name and number of every card you've held.",
+		"hovering an unlock says what it does")
+	for button in buttons:
+		_check((button as Button).tooltip_text.length() <= 90 and (button as Button).tooltip_text.ends_with("."),
+			"every unlock has a one-line description: " + (button as Button).tooltip_text)
 	var tab := InputEventAction.new()
 	tab.action = Controls.UPGRADES
 	tab.pressed = true
