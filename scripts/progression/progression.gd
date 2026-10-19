@@ -74,9 +74,11 @@ const NUMERALS := ["", "I", "II", "III"]
 
 ## Each sorcery's cooldown in seconds, by rank (I, II, III). Tuning guesses.
 const COOLDOWNS := {
+	"Tithe": [20.0, 20.0, 20.0],
 	"Teleport": [30.0, 30.0],
 	"Demonic Tutor": [60.0, 40.0, 20.0],
 	"Chain Lightning": [60.0, 45.0, 30.0],
+	"Abundance": [45.0, 30.0, 20.0],
 }
 ## Seconds each card filed by hand takes off every recharge in progress.
 const FILING_SPEEDUP := 2.0

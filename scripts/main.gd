@@ -6,9 +6,11 @@ const PILE_SEED := 1993
 ## Sorceries in key order, each with the action that casts it. Only learned
 ## ones show, under the Mana total.
 const SORCERIES := [
+	["Tithe", Controls.CAST_TITHE],
 	["Teleport", Controls.CAST_TELEPORT],
 	["Demonic Tutor", Controls.CAST_DEMONIC_TUTOR],
 	["Chain Lightning", Controls.CAST_CHAIN_LIGHTNING],
+	["Abundance", Controls.CAST_ABUNDANCE],
 ]
 
 @onready var _store: Node3D = $Store

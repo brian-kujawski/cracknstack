@@ -40,6 +40,7 @@ func _ready() -> void:
 	_test_step_one_upgrades()
 	_test_demonic_tutor()
 	await _test_step_two_upgrades()
+	await _test_step_three_upgrades()
 	await _test_crouch()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
@@ -1043,6 +1044,75 @@ func _test_step_two_upgrades() -> void:
 		"the lock-in sets it off: 1 missing card from the page glows, got %d" % page_cards.size())
 	pile._process(hands.chain_lightning_glow_seconds + 1.0)
 	_check(not pile.is_glowing(page_cards[0]), "the glow fades")
+
+	holder.free()
+	pile.free()
+	Progression.reset()
+	Progression.allow_debt = OS.is_debug_build()
+
+
+func _test_step_three_upgrades() -> void:
+	Progression.reset()
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 9)
+	var binder := Binder.new()
+	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
+	pile.add_child(binder)
+	pile.binders.append(binder)
+	binder.put_down(pile, Vector3(4.0, 0.75, 2.0), 0.0)
+	binder.open()
+	var ids := _first_binder_cards()
+	var hands := Hands.new()
+	var camera := Camera3D.new()
+	camera.name = "Camera3D"
+	var holder := CharacterBody3D.new()
+	holder.add_child(camera)
+	holder.add_child(hands)
+	holder.process_mode = Node.PROCESS_MODE_DISABLED
+	add_child(holder)
+	hands.pile = pile
+
+	# Tithe: missing cards for the binder you look at glow.
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._aim_pocket = -1
+	_check(hands.cast_tithe().is_empty(), "Tithe does nothing before it's learned")
+	_buy_through(0, 2)
+	var lit := hands.cast_tithe()
+	_check(lit.size() == 5 and lit.all(func(id: int) -> bool: return pile.is_glowing(id) and ids.has(id)),
+		"Tithe I lights 5 of the binder's missing cards, got %d" % lit.size())
+	_check(not Progression.can_cast("Tithe"), "and recharges")
+	pile._process(5.5)
+	_check(not lit.any(func(id: int) -> bool: return pile.is_glowing(id)), "the glow lasts 5 s")
+
+	# Shunt: click anywhere on the right open pages.
+	_buy_through(3, 2)
+	pile.pick_up(ids[4])
+	hands._take_in_hand(ids[4])
+	binder.show_pocket(4)
+	_check(hands.shunt_pocket(binder) == 4, "Shunt finds the held card's own pocket on the open pages")
+	hands._aim_pocket = 7 # The wrong pocket, on the same page.
+	_check(hands._try_file_held_card(), "a click on the wrong pocket files it")
+	hands._glide.custom_step(10.0)
+	_check(binder.contents.is_locked(4) and binder.contents.card_at(7) == -1, "into its own pocket")
+	pile.pick_up(ids[40])
+	hands._take_in_hand(ids[40])
+	_check(hands.shunt_pocket(binder) == -1, "but not when its page isn't open")
+	hands._release_top()
+	pile.drop(ids[40], Vector3(2, 0, 2), 0.0)
+
+	# Abundance: the next unfiled cards come to hand behind the top one.
+	_buy_through(4, 2) # Harmonize I and Abundance I
+	pile.pick_up(ids[10])
+	hands._take_in_hand(ids[10])
+	binder.insert(11, ids[11]) # Already filed: skipped.
+	var brought := hands.cast_abundance()
+	_check(brought == [ids[12], ids[13]] and hands.behind == brought and hands.hand_count() == 3,
+		"Abundance brings the next unfiled cards, in order, until the hand is full; got %s" % [brought])
+	_check(not pile.is_on_floor(ids[12]) and not Progression.can_cast("Abundance"), "out of the pile, and recharges")
+	await get_tree().create_timer(1.5).timeout
+	_check(hands._incoming == 0, "the cards arrive")
 
 	holder.free()
 	pile.free()

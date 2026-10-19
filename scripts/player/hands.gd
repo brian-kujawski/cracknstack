@@ -29,10 +29,13 @@ extends Node
 ## cards, more of them face up. Harmonize lets you hold several cards: a
 ## quick click on another card picks it up too (hold the button to put the
 ## top one down instead), and the wheel cycles which is on top when you're
-## not aiming at an open binder. Sorceries: Teleport (2) sends the top card
-## to its binder, Demonic Tutor (3) brings the card for the aimed pocket up
-## out of the pile, and Chain Lightning (4) makes your next lock-in light up
-## a missing card from that page where it lies.
+## not aiming at an open binder. Shunt files the card in hand into its own
+## pocket wherever you click on its open pages. Sorceries: Tithe (1) lights
+## up missing cards for the binder you hold or look at, Teleport (2) sends
+## the top card to its binder, Demonic Tutor (3) brings the card for the
+## aimed pocket up out of the pile, Chain Lightning (4) makes your next
+## lock-in light up a missing card from that page where it lies, and
+## Abundance (5) fills your hand with the cards that come next.
 ##
 ## Cards and binders glide between the world and the hand rather than jumping;
 ## while one is on its way, the hands take no new orders.
@@ -119,6 +122,10 @@ const HAND_SIZES := [1, 3, 7, 15]
 ## chance each lands face up.
 const FLIP_COUNTS := [4, 8, 16]
 const FLIP_FACE_UP_CHANCE := [0.5, 0.75, 1.0]
+## Tithe at each rank (I, II, III): missing cards lit (0 for all of them)
+## and for how long.
+const TITHE_CARDS := [5, 10, 0]
+const TITHE_SECONDS := [5.0, 10.0, 15.0]
 ## Chain Lightning at each rank (I, II, III): missing cards from the page it
 ## lights. 0 means all of them.
 const CHAIN_LIGHTNING_CARDS := [1, 3, 0]
@@ -133,6 +140,9 @@ var pile: PileWorld
 var held_card_id := -1
 ## The rest of the hand, behind the top card in order (Harmonize).
 var behind: Array[int] = []
+## Cards still flying into the hand (Abundance). They're already in
+## `behind`; the fan shows once they've all arrived.
+var _incoming := 0
 var carried_binder: Binder
 ## Every card you've held at least once, by id. A card lying on a table is a
 ## mystery until you've picked it up; from then on you know what it is.
@@ -266,6 +276,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_flip(1)
 	elif event.is_action_pressed(Controls.FLIP_PREVIOUS):
 		_flip(-1)
+	elif event.is_action_pressed(Controls.CAST_TITHE):
+		cast_tithe()
+	elif event.is_action_pressed(Controls.CAST_ABUNDANCE):
+		cast_abundance()
 	elif event.is_action_pressed(Controls.CAST_TELEPORT):
 		cast_teleport()
 	elif event.is_action_pressed(Controls.CAST_DEMONIC_TUTOR):
@@ -350,10 +364,14 @@ func _pick_up_aimed() -> bool:
 ## Files the held card into the binder pocket under the crosshair. Returns
 ## false if there's no pocket there (so the click does something else).
 func _try_file_held_card() -> bool:
-	if _aim != Aim.BINDER or not _aim_binder.is_open() or _aim_pocket < 0:
+	if _aim != Aim.BINDER or not _aim_binder.is_open():
 		return false
 	var binder := _aim_binder
-	var pocket := _aim_pocket
+	var pocket := shunt_pocket(binder)
+	if pocket < 0:
+		pocket = _aim_pocket
+	if pocket < 0:
+		return false
 	if binder.contents.card_at(pocket) >= 0:
 		_pick_up_aimed() # With room in hand, a misplaced card comes out.
 		return true # The pocket's taken; the card stays in hand.
@@ -361,6 +379,22 @@ func _try_file_held_card() -> bool:
 	_put_down_card(binder.pocket_pose(pocket), func() -> void: _file(binder, pocket, id),
 		binder.pocket_entry_pose(pocket))
 	return true
+
+
+## Shunt: with the held card's own pocket empty and on the open spread of
+## this binder, that's where a click anywhere on the binder files it. -1
+## without Shunt, or if it doesn't apply.
+func shunt_pocket(binder: Binder) -> int:
+	if Progression.rank("Shunt") == 0 or held_card_id < 0 or not binder.is_open():
+		return -1
+	var card := CardDatabase.get_card(held_card_id)
+	if card.set_code != binder.binder.set_code or not binder.binder.contains(card.collector_number):
+		return -1
+	var pocket := card.collector_number - binder.binder.first
+	var pages := BinderLayout.spread_pages(binder.binder, binder.spread)
+	if pocket / BinderLayout.POCKETS_PER_PAGE not in [pages.x, pages.y] or binder.contents.card_at(pocket) >= 0:
+		return -1
+	return pocket
 
 
 ## The held card has arrived in its pocket.
@@ -402,6 +436,75 @@ func _strike_chain_lightning(binder: Binder, page: int) -> Array[int]:
 		missing = missing.slice(0, count)
 	pile.glow(missing, chain_lightning_glow_seconds)
 	return missing
+
+
+## Tithe: missing cards for the binder you're carrying or looking at, picked
+## at random from wherever they lie on the floor, glow for a while. How many
+## and how long go up with rank. Returns the cards lit.
+func cast_tithe() -> Array[int]:
+	var binder := carried_binder if carried_binder != null else (_aim_binder if _aim == Aim.BINDER else null)
+	if binder == null or not Progression.can_cast("Tithe"):
+		return []
+	var missing: Array[int] = []
+	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
+	for pocket in binder.contents.capacity():
+		var id := cards[binder.binder.first + pocket - 1].id
+		if not binder.contents.is_locked(pocket) and pile.is_on_floor(id):
+			missing.append(id)
+	if missing.is_empty():
+		return []
+	var rank := Progression.rank("Tithe")
+	missing.shuffle()
+	if TITHE_CARDS[rank - 1] > 0:
+		missing = missing.slice(0, TITHE_CARDS[rank - 1])
+	Progression.cast("Tithe")
+	pile.glow(missing, TITHE_SECONDS[rank - 1])
+	return missing
+
+
+## Abundance: holding a card, the unfiled cards that come next in its set,
+## in collector order, rise from wherever they lie into your hand behind
+## it, until your hand is full. Holding KTK #012 with room for two more
+## brings up #013 and #014. Cards locked in, or nowhere to be had (in
+## flight), are skipped. Returns the cards brought.
+func cast_abundance() -> Array[int]:
+	if not Progression.can_cast("Abundance") or held_card_id < 0 or not has_room() or _gliding():
+		return []
+	var top := CardDatabase.get_card(held_card_id)
+	var cards := CardDatabase.cards_in_set(top.set_code)
+	var brought: Array[int] = []
+	var poses := []
+	for number in range(top.collector_number + 1, cards.size() + 1):
+		if hand_count() + brought.size() >= hand_size():
+			break
+		var id := cards[number - 1].id
+		var binder := pile.binder_for(id)
+		if binder != null and binder.contents.is_locked(number - binder.binder.first):
+			continue
+		var from = pile.take_from_anywhere(id)
+		if from != null:
+			brought.append(id)
+			poses.append(from)
+	if brought.is_empty():
+		return []
+	Progression.cast("Abundance")
+	var old := behind.duplicate()
+	behind.assign(brought + old)
+	for i in brought.size():
+		var id := brought[i]
+		seen_cards[id] = true
+		var from: Transform3D = poses[i]
+		var card := _card_copy(id)
+		var flight := minf(tutor_seconds + tutor_seconds_per_metre * from.origin.distance_to(_camera.global_position),
+			tutor_seconds_max)
+		_incoming += 1
+		Glide.start(card, from, func() -> Transform3D: return _camera.global_transform * _fan_views[0].transform,
+			glide_seconds(flight), tutor_lift).tween_callback(func() -> void:
+				card.queue_free()
+				_incoming -= 1
+				_refresh_fan())
+	_refresh_fan()
+	return brought
 
 
 ## Teleport: the top card in hand flies to its own binder, wherever it is
@@ -900,10 +1003,17 @@ func _release_top() -> void:
 	_hold(behind.pop_front() if not behind.is_empty() else -1)
 
 
+## Redraws the cards behind the top one.
+func _refresh_fan() -> void:
+	for i in mini(behind.size(), _fan_views.size()):
+		CardView.apply(_fan_views[i].material_override, behind[i])
+	_show_fan()
+
+
 ## Shows the cards behind the top one, fanned out, except while inspecting.
 func _show_fan() -> void:
 	for i in _fan_views.size():
-		_fan_views[i].visible = i < behind.size() and _zoom_amount < 0.05
+		_fan_views[i].visible = i < behind.size() and _zoom_amount < 0.05 and _incoming == 0
 
 
 ## Puts card `id` on top of the hand in place of the top card (-1 for none;
@@ -924,9 +1034,7 @@ func _hold(id: int, from = null, seconds := -1.0, lift := 0.0) -> void:
 		_glide = Glide.start(_held_view, from, func() -> Transform3D: return _camera.global_transform * held,
 			glide_seconds(seconds if seconds >= 0.0 else card_glide_seconds), lift)
 	_held_view.visible = id >= 0
-	for i in mini(behind.size(), _fan_views.size()):
-		CardView.apply(_fan_views[i].material_override, behind[i])
-	_show_fan()
+	_refresh_fan()
 	if id < 0:
 		held_changed.emit(null, null)
 		return

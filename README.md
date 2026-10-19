@@ -27,9 +27,11 @@ Controls:
 | F | Bring the held card up close to inspect it (the view holds still and the mouse tilts the card; F again lowers it) |
 | Esc | Pause (Esc again, or the Continue button, to go back in) |
 | Tab | Upgrade menu: spend Mana on upgrades (Tab or Esc to go back in) |
+| 1 | Cast Tithe, once learned: holding or looking at a binder, some of its missing cards light up wherever they lie in the pile |
 | 2 | Cast Teleport, once learned: the top card in hand flies to its own binder, wherever it is, and files itself |
 | 3 | Cast Demonic Tutor, once learned: aimed at an empty pocket of an open binder, its card flies up out of the pile into your hand. It then recharges (shown under your Mana); filing cards by hand speeds that up |
 | 4 | Cast Chain Lightning, once learned: your next lock-in makes a missing card from that page glow where it lies in the pile |
+| 5 | Cast Abundance, once learned (needs Harmonize): holding a card, the next unfiled cards after it in its set fly into your hand behind it |
 
 These are the defaults. Every binding is defined in one place, `scripts/input/controls.gd` (the `Controls` autoload), and the hints on screen read their key names from it. Rebinds are saved to `user://controls.cfg`; the settings menu for changing them comes later (M4b).
 
