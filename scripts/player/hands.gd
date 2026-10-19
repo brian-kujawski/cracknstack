@@ -27,13 +27,15 @@ extends Node
 ## Fallen names cards you've held wherever you see them again, Enlightened
 ## Tutor shows the set of a floor card you look at (at rank II, the whole
 ## card), and Unmask flips more
-## cards, more of them face up. Harmonize lets you hold several cards: a
+## cards, more of them face up; with Demonic Consultation, flipped cards for
+## an open binder hover, ready to grab. Harmonize lets you hold several cards: a
 ## quick click on another card picks it up too (hold the button to put the
 ## top one down instead), and the wheel cycles which is on top when you're
 ## not aiming at an open binder. Brainstorm sends missing cards flying into
 ## a binder when you finish one of its pages by hand. Shunt files the card in hand into its own
 ## pocket wherever you click on its open pages. Sorceries: Tithe (1) lights
-## up missing cards for the binder you hold or look at, Teleport (2) sends
+## up missing cards for the binder you hold or look at (with Serra's
+## Blessing, always), Teleport (2) sends
 ## the top card to its binder, Demonic Tutor (3) brings the card for the
 ## aimed pocket up out of the pile, Chain Lightning (4) makes your next
 ## lock-in light up a missing card from that page where it lies, and
@@ -126,6 +128,11 @@ const FLIP_COUNTS := [4, 8, 16]
 const FLIP_FACE_UP_CHANCE := [0.5, 0.75, 1.0]
 ## Brainstorm at each rank (I, II, III): cards it pulls in.
 const BRAINSTORM_CARDS := [1, 3, 9]
+## Serra's Blessing tops up its glow this often.
+const BLESSING_REFRESH_SECONDS := 0.5
+## Demonic Consultation at each rank (I, II): how long flipped cards for an
+## open binder hover.
+const CONSULTATION_SECONDS := [5.0, 15.0]
 ## Tithe at each rank (I, II, III): missing cards lit (0 for all of them)
 ## and for how long.
 const TITHE_CARDS := [5, 10, 0]
@@ -186,6 +193,10 @@ var _hovered_binder: Binder
 var _hint := ""
 var _shown_card: CardData
 var _shown_set_only := false
+## Serra's Blessing: the binder whose missing cards glow, and when it next
+## refreshes them.
+var _blessed: Binder
+var _blessing_refresh := 0.0
 
 
 func _ready() -> void:
@@ -236,6 +247,7 @@ func _physics_process(delta: float) -> void:
 	_aim_floor_card = pile.top_card_at(_aim_point) if _aim == Aim.FLOOR else -1
 	pile.set_highlight(_aim_floor_card if has_room() else -1)
 	_update_hover()
+	_update_blessing(delta)
 	_update_ghost(delta)
 	_update_hint()
 
@@ -368,10 +380,20 @@ func _pick_up_aimed() -> bool:
 ## Files the held card into the binder pocket under the crosshair. Returns
 ## false if there's no pocket there (so the click does something else).
 func _try_file_held_card() -> bool:
-	if _aim != Aim.BINDER or not _aim_binder.is_open():
+	if _aim != Aim.BINDER:
 		return false
 	var binder := _aim_binder
 	var pocket := shunt_pocket(binder)
+	if pocket >= 0 and not binder.is_open():
+		# Shunt III: in through the closed cover.
+		var id := held_card_id
+		_put_down_card(Glide.flat_card(binder.global_position + binder.global_basis.y * Binder.THICKNESS, binder.global_basis),
+			func() -> void: _file(binder, pocket, id))
+		return true
+	if not binder.is_open():
+		return false
+	if pocket >= 0 and pocket != _aim_pocket:
+		binder.show_pocket(pocket) # Shunt II turns to the card's page.
 	if pocket < 0:
 		pocket = _aim_pocket
 	if pocket < 0:
@@ -385,18 +407,23 @@ func _try_file_held_card() -> bool:
 	return true
 
 
-## Shunt: with the held card's own pocket empty and on the open spread of
-## this binder, that's where a click anywhere on the binder files it. -1
-## without Shunt, or if it doesn't apply.
+## Shunt: with the held card's own pocket in this binder empty, that's
+## where a click anywhere on the binder files it. Shunt I needs the pocket's
+## page open, Shunt II just the binder open (it turns to the page), and
+## Shunt III files into a closed binder too. -1 without Shunt, or if it
+## doesn't apply.
 func shunt_pocket(binder: Binder) -> int:
-	if Progression.rank("Shunt") == 0 or held_card_id < 0 or not binder.is_open():
+	var rank := Progression.rank("Shunt")
+	if rank == 0 or held_card_id < 0 or (rank < 3 and not binder.is_open()):
 		return -1
 	var card := CardDatabase.get_card(held_card_id)
 	if card.set_code != binder.binder.set_code or not binder.binder.contains(card.collector_number):
 		return -1
 	var pocket := card.collector_number - binder.binder.first
+	if binder.contents.card_at(pocket) >= 0:
+		return -1
 	var pages := BinderLayout.spread_pages(binder.binder, binder.spread)
-	if pocket / BinderLayout.POCKETS_PER_PAGE not in [pages.x, pages.y] or binder.contents.card_at(pocket) >= 0:
+	if rank < 2 and pocket / BinderLayout.POCKETS_PER_PAGE not in [pages.x, pages.y]:
 		return -1
 	return pocket
 
@@ -420,12 +447,7 @@ func brainstorm(binder: Binder) -> Array[int]:
 	var rank := Progression.rank("Brainstorm")
 	if rank == 0:
 		return []
-	var missing: Array[int] = []
-	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
-	for pocket in binder.contents.capacity():
-		var id := cards[binder.binder.first + pocket - 1].id
-		if binder.contents.card_at(pocket) < 0 and pile.is_on_floor(id):
-			missing.append(id)
+	var missing := _missing_on_floor(binder)
 	missing.shuffle()
 	missing = missing.slice(0, BRAINSTORM_CARDS[rank - 1])
 	for id in missing:
@@ -469,6 +491,38 @@ func _strike_chain_lightning(binder: Binder, page: int) -> Array[int]:
 	return missing
 
 
+## Serra's Blessing: Tithe is always on, at full strength, for the binder you
+## carry, or else the last open binder you looked at, for as long as it
+## stays open. The glow is topped up now and then, so it lingers a moment
+## after you move on.
+func _update_blessing(delta: float) -> void:
+	if Progression.rank("Serra's Blessing") == 0:
+		_blessed = null
+		return
+	if carried_binder != null:
+		_blessed = carried_binder
+	elif _aim == Aim.BINDER and _aim_binder.is_open():
+		_blessed = _aim_binder
+	elif _blessed != null and not _blessed.is_open():
+		_blessed = null
+	_blessing_refresh -= delta
+	if _blessed == null or _blessing_refresh > 0.0:
+		return
+	_blessing_refresh = BLESSING_REFRESH_SECONDS
+	pile.glow(_missing_on_floor(_blessed), BLESSING_REFRESH_SECONDS * 2.0)
+
+
+## The cards a binder still needs that are lying on the floor.
+func _missing_on_floor(binder: Binder) -> Array[int]:
+	var missing: Array[int] = []
+	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
+	for pocket in binder.contents.capacity():
+		var id := cards[binder.binder.first + pocket - 1].id
+		if binder.contents.card_at(pocket) < 0 and pile.is_on_floor(id):
+			missing.append(id)
+	return missing
+
+
 ## Tithe: missing cards for the binder you're carrying or looking at, picked
 ## at random from wherever they lie on the floor, glow for a while. How many
 ## and how long go up with rank. Returns the cards lit.
@@ -476,12 +530,7 @@ func cast_tithe() -> Array[int]:
 	var binder := carried_binder if carried_binder != null else (_aim_binder if _aim == Aim.BINDER else null)
 	if binder == null or not Progression.can_cast("Tithe"):
 		return []
-	var missing: Array[int] = []
-	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
-	for pocket in binder.contents.capacity():
-		var id := cards[binder.binder.first + pocket - 1].id
-		if not binder.contents.is_locked(pocket) and pile.is_on_floor(id):
-			missing.append(id)
+	var missing := _missing_on_floor(binder)
 	if missing.is_empty():
 		return []
 	var rank := Progression.rank("Tithe")
@@ -539,22 +588,33 @@ func cast_abundance() -> Array[int]:
 
 
 ## Teleport: the top card in hand flies to its own binder, wherever it is
-## (buried, closed, on a shelf, across the room), and files itself. Not if a
-## wrong card is sitting in its pocket. Returns whether it was cast.
+## (buried, closed, on a shelf, across the room), and files itself; at rank
+## II, so does every card in hand. A card with a wrong card sitting in its
+## pocket stays in hand. Returns whether it was cast.
 func cast_teleport() -> bool:
 	if not Progression.can_cast("Teleport") or held_card_id < 0 or _gliding():
 		return false
-	var id := held_card_id
-	var binder := pile.binder_for(id)
-	if binder == null:
-		return false
-	var pocket := CardDatabase.get_card(id).collector_number - binder.binder.first
-	if binder.contents.card_at(pocket) >= 0:
+	var hand: Array[int] = [held_card_id]
+	if Progression.rank("Teleport") >= 2:
+		hand.append_array(behind)
+	var sent: Array[int] = []
+	for id in hand:
+		var binder := pile.binder_for(id)
+		if binder != null and binder.contents.card_at(CardDatabase.get_card(id).collector_number - binder.binder.first) < 0:
+			sent.append(id)
+	if sent.is_empty():
 		return false
 	Progression.cast("Teleport")
 	var from := _held_view.global_transform
-	_release_top()
-	_fly_to_pocket(id, from, binder, pocket, func() -> void: _locked_in(binder, pocket))
+	for id in sent:
+		var binder := pile.binder_for(id)
+		var pocket := CardDatabase.get_card(id).collector_number - binder.binder.first
+		if id == held_card_id:
+			_release_top()
+		else:
+			behind.erase(id)
+		_fly_to_pocket(id, from, binder, pocket, func() -> void: _locked_in(binder, pocket))
+	_refresh_fan()
 	return true
 
 
@@ -608,8 +668,19 @@ func flip_pile() -> Array[int]:
 		return []
 	var rank := Progression.rank("Unmask")
 	var ids := pile.flip_cards(_aim_point, FLIP_COUNTS[rank])
+	var consultation := Progression.rank("Demonic Consultation")
 	for id in ids:
 		var from := pile.card_pose(id)
+		var binder := pile.binder_for(id)
+		if consultation > 0 and binder != null and binder.is_open():
+			# Demonic Consultation: it hangs in the air, ready to grab.
+			var lying := pile.card_position(id)
+			pile.pick_up(id)
+			var hovering := HoveringCard.new()
+			pile.add_child(hovering)
+			hovering.hover(id, pile, pile.to_global(lying), _yaw_facing_player(pile.to_global(lying)), binder,
+				CONSULTATION_SECONDS[consultation - 1])
+			continue
 		pile.pick_up(id)
 		var card := TossedCard.new()
 		pile.add_child(card)

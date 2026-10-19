@@ -42,6 +42,7 @@ func _ready() -> void:
 	await _test_step_two_upgrades()
 	await _test_step_three_upgrades()
 	await _test_step_four_upgrades()
+	await _test_steps_five_to_seven()
 	await _test_crouch()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
@@ -1168,6 +1169,107 @@ func _test_step_four_upgrades() -> void:
 	_check(hands.brainstorm(binder).size() == 1, "Brainstorm I sends 1 card")
 	await get_tree().create_timer(1.5).timeout
 	_check(binder.contents.locked_count == count_before + 1, "which files itself")
+
+	holder.free()
+	pile.free()
+	Progression.reset()
+	Progression.allow_debt = OS.is_debug_build()
+
+
+func _test_steps_five_to_seven() -> void:
+	Progression.reset()
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 13)
+	var binder := Binder.new()
+	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
+	pile.add_child(binder)
+	pile.binders.append(binder)
+	binder.put_down(pile, Vector3(4.0, 0.75, 2.0), 0.0)
+	binder.open()
+	var ids := _first_binder_cards()
+	var hands := Hands.new()
+	var camera := Camera3D.new()
+	camera.name = "Camera3D"
+	var holder := CharacterBody3D.new()
+	holder.add_child(camera)
+	holder.add_child(hands)
+	holder.process_mode = Node.PROCESS_MODE_DISABLED
+	add_child(holder)
+	hands.pile = pile
+
+	# Teleport II: the whole hand.
+	_buy_through(4, 1) # Harmonize I
+	_buy_through(1, 4) # Teleport II
+	for i in 3:
+		pile.pick_up(ids[60 + i])
+		hands._take_in_hand(ids[60 + i])
+	_check(hands.cast_teleport() and hands.hand_count() == 0, "Teleport II sends the whole hand")
+	await get_tree().create_timer(1.5).timeout
+	_check(binder.contents.is_locked(60) and binder.contents.is_locked(61) and binder.contents.is_locked(62),
+		"and every card files itself")
+
+	# Shunt II and III.
+	_buy_through(3, 4) # Shunt II
+	binder.show_pocket(0)
+	pile.pick_up(ids[70])
+	hands._take_in_hand(ids[70])
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._aim_pocket = 2
+	_check(hands.shunt_pocket(binder) == 70, "Shunt II files onto the right binder open at the wrong pages")
+	_check(hands._try_file_held_card(), "a click files it")
+	hands._glide.custom_step(10.0)
+	_check(binder.contents.is_locked(70), "into its own pocket, turning to its page")
+	binder.close()
+	pile.pick_up(ids[71])
+	hands._take_in_hand(ids[71])
+	_check(hands.shunt_pocket(binder) == -1, "Shunt II needs the binder open")
+	_buy_through(3, 6) # Shunt III
+	_check(hands.shunt_pocket(binder) == 71 and hands._try_file_held_card(), "Shunt III files into a closed binder")
+	hands._glide.custom_step(10.0)
+	_check(binder.contents.is_locked(71), "through the cover")
+	binder.open()
+
+	# Demonic Consultation: flipped cards for an open binder hover.
+	_buy_through(2, 4) # Demonic Consultation I
+	var point := Vector3(6.0, 0.0, 6.0)
+	for i in 2: # Two of the binder's cards on top of the pile there.
+		pile.pick_up(ids[80 + i])
+		pile.drop(ids[80 + i], point, 0.0)
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_point = point
+	var flipped := hands.flip_pile()
+	var hovering := pile.get_children().filter(func(c: Node) -> bool: return c is HoveringCard)
+	var hovered_ids := hovering.map(func(c: HoveringCard) -> int: return c.card_id)
+	_check(hovered_ids.has(ids[80]) and hovered_ids.has(ids[81]) and hovered_ids.all(func(id: int) -> bool: return ids.has(id)),
+		"flipped cards whose binder is open hover; got %s" % [hovered_ids])
+	var card: HoveringCard = hovering[0]
+	_check(is_equal_approx(card.seconds_left, 5.0), "for 5 s")
+	_check(pile.take_from_anywhere(card.card_id) != null, "a hovering card can be grabbed")
+	binder.close()
+	for c in hovering:
+		if not c.is_queued_for_deletion():
+			c._process(0.1)
+	_check(hovered_ids.slice(1).all(func(id: int) -> bool: return pile.is_on_floor(id)), "closing the binder drops the rest")
+	_land_tossed(pile)
+
+	# Serra's Blessing: Tithe always on for the open binder you look at.
+	binder.open()
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	_buy_through(0, 6)
+	hands._update_blessing(0.0)
+	var glowing := ids.filter(func(id: int) -> bool: return pile.is_glowing(id))
+	var on_floor := ids.filter(func(id: int) -> bool: return pile.is_on_floor(id))
+	_check(glowing.size() == on_floor.size() and not glowing.is_empty(),
+		"Serra's Blessing lights every missing card (%d of %d)" % [glowing.size(), on_floor.size()])
+	hands._aim = Hands.Aim.NONE
+	hands._update_blessing(1.0)
+	_check(hands._blessed == binder, "and keeps on after you look away")
+	binder.close()
+	hands._update_blessing(1.0)
+	_check(hands._blessed == null, "until the binder is closed")
 
 	holder.free()
 	pile.free()
