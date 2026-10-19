@@ -20,7 +20,7 @@ const DOOR_SIZE := Vector2(1.0, 2.1)
 const LEFT_SHELF := Vector2(1.2, 6.7) # z range
 const BACK_SHELF := Vector2(2.0, 10.0) # x range
 const RIGHT_SHELF := Vector2(1.2, 6.7) # z range
-const TABLE_SIZE := Vector3(1.3, 0.75, 1.3)
+const TABLE_SIZE := Vector3(1.3, 1.0, 1.3)
 const TABLE_CENTERS := [Vector2(4.6, 2.9), Vector2(7.4, 2.9), Vector2(4.6, 5.3), Vector2(7.4, 5.3)]
 
 ## Floor footprints nothing on the floor may overlap (the shelves and the

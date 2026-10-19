@@ -34,6 +34,7 @@ func _ready() -> void:
 	_test_controls()
 	_test_onscreen_text()
 	_test_pause()
+	await _test_crouch()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -698,3 +699,35 @@ func _test_pause() -> void:
 	button.pressed.emit()
 	_check(not menu.is_paused() and not get_tree().paused, "the Continue button goes back in")
 	menu.free()
+
+
+func _test_crouch() -> void:
+	var player: CharacterBody3D = load("res://scenes/player/player.tscn").instantiate()
+	player.process_mode = Node.PROCESS_MODE_DISABLED # Driven by hand below.
+	add_child(player)
+	player.global_position = Vector3(50, 0, 50)
+	var shape: CapsuleShape3D = player.get_node("CollisionShape3D").shape
+	_check(is_equal_approx(shape.height, player.stand_body_height), "the body starts standing height")
+	player.set_crouched(true)
+	_check(player.is_crouched() and is_equal_approx(shape.height, player.crouch_body_height), "crouching shrinks the body")
+	_check(player.crouch_body_height < preload("res://scripts/store/store_builder.gd").TABLE_SIZE.y - 0.1, "a crouched body fits under a table top")
+
+	# A table top just over the crouched head.
+	var top := StaticBody3D.new()
+	var box := CollisionShape3D.new()
+	box.shape = BoxShape3D.new()
+	box.shape.size = Vector3(1.3, 0.04, 1.3)
+	top.add_child(box)
+	add_child(top)
+	top.global_position = Vector3(50, preload("res://scripts/store/store_builder.gd").TABLE_SIZE.y - 0.02, 50)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_check(not player.can_stand(), "no room to stand under a table")
+	player.set_crouched(false)
+	_check(player.is_crouched(), "you stay crouched under a table")
+	top.free()
+	await get_tree().physics_frame
+	_check(player.can_stand(), "room to stand once clear")
+	player.set_crouched(false)
+	_check(not player.is_crouched() and is_equal_approx(shape.height, player.stand_body_height), "standing up restores the body")
+	player.free()

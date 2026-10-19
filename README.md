@@ -18,7 +18,7 @@ Controls:
 | Input | Does |
 |---|---|
 | WASD, mouse | Walk, look |
-| Ctrl or C | Crouch |
+| Ctrl or C | Crouch (hold). You shrink enough to get under the work tables, and stay down until there's room to stand |
 | Left-click | Context sensitive. Empty-handed: pick up the card under the crosshair (from the floor, a table, or a misplaced card in an open binder), or pick up a closed binder (from the floor, a table or a shelf). Holding a card: file it into the pocket you're looking at, or put it down where you're looking (on the floor it rejoins the pile). Carrying a binder: put it down where you're looking, or stand it in the shelf space you're looking at. |
 | Left-click and hold | When putting something down: a ghost shows where it will go and follows your aim; let go to put it there |
 | Right-click | Toss the held card back onto the pile |
