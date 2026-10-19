@@ -24,8 +24,10 @@ const TABLE_CENTERS := [Vector2(4.6, 2.9), Vector2(7.4, 2.9), Vector2(4.6, 5.3),
 const WINDOW_XS := [2.9, 9.1]
 const WINDOW_SIZE := Vector2(1.8, 1.5)
 const WINDOW_SILL := 0.9
-## Pendant shades hang this high (their rim), about a metre over the tables.
-const PENDANT_HEIGHT := 2.05
+## Pendant shades hang this high (their rim), about 1.3 m over the tables:
+## high enough that each lamp lights the floor past its table's edge, so
+## the table shadows don't meet in a dark seam between neighbouring tables.
+const PENDANT_HEIGHT := 2.3
 ## The shelf's track light: how far out from the back wall it runs, and how
 ## many spotlights are on it.
 const TRACK_Z := 1.15
