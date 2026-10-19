@@ -34,6 +34,8 @@ func _ready() -> void:
 	_test_controls()
 	_test_onscreen_text()
 	_test_pause()
+	_test_progression()
+	_test_upgrade_menu()
 	await _test_crouch()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
@@ -699,6 +701,94 @@ func _test_pause() -> void:
 	button.pressed.emit()
 	_check(not menu.is_paused() and not get_tree().paused, "the Continue button goes back in")
 	menu.free()
+
+
+func _test_progression() -> void:
+	Progression.reset()
+	Progression.allow_debt = false
+	var range_data := CardDatabase.all_binders()[0]
+	var ids := _first_binder_cards()
+	var binder := Binder.new()
+	binder.setup(range_data, Color.RED, null)
+	add_child(binder)
+	binder.put_down(self, Vector3(4.0, 0.75, 2.0), 0.0)
+	binder.open()
+	binder.insert(1, ids[2])
+	_check(Progression.mana == 0, "a misplaced card earns nothing")
+	binder.take(1)
+	binder.insert(0, ids[0])
+	_check(Progression.mana == 1, "a card locked in earns 1 Mana")
+	for i in range(1, ids.size()):
+		binder.show_pocket(i)
+		binder.insert(i, ids[i])
+	var bonus := Progression.binder_complete_bonus(ids.size())
+	_check(bonus == ceili(ids.size() / 10.0), "finishing a binder pays 10% of its cards, rounded up")
+	_check(Progression.mana == ids.size() + bonus, "every card plus the binder bonus, got %d" % Progression.mana)
+
+	var unit := ShelfUnit.new()
+	unit.build(ShelfLayout.assign(CardDatabase.all_binders(), [12, 12, 12] as Array[int])[0], StandardMaterial3D.new())
+	add_child(unit)
+	var before := Progression.mana
+	unit.shelve(0, binder)
+	_check(Progression.mana == before + Progression.BINDER_SHELVED, "a binder in its own space pays the shelf bonus")
+	unit.unshelve(0)
+	unit.shelve(0, binder)
+	_check(Progression.mana == before + Progression.BINDER_SHELVED, "putting it back doesn't pay again")
+
+	Progression.reset()
+	_check(Progression.mana == 0 and Progression.bought_count(0) == 0, "reset starts a new game")
+	_check(not Progression.can_buy(0, 0), "an unlock you can't afford can't be bought")
+	Progression.earn(25)
+	_check(not Progression.can_buy(0, 1), "a colour's unlocks are bought in order")
+	_check(Progression.buy(0, 0) and Progression.mana == 5, "buying spends its price")
+	_check(Progression.is_bought(0, 0) and not Progression.buy(0, 0), "an unlock is bought once")
+	_check(Progression.rank("Remember the Fallen") == 1 and Progression.rank("Tithe") == 0, "rank tracks what's owned")
+	Progression.allow_debt = true
+	_check(Progression.buy(0, 1) and Progression.buy(0, 2) and Progression.mana == 5 - 40 - 90,
+		"debug builds can buy into negative Mana, got %d" % Progression.mana)
+	_check(Progression.rank("Enlightened Tutor") == 1 and Progression.rank("Tithe") == 1, "ranks follow the row")
+	_check(Progression.step_name(0, 3) == "Enlightened Tutor II" and Progression.step_name(0, 6) == "Serra's Blessing",
+		"unlocks read with their rank numeral, or none for single buys")
+	var total := 0
+	for colour in Progression.COLOURS.size():
+		_check(Progression.COLOURS[colour].steps.size() == 7, "every colour is a row of seven")
+		for step in 7:
+			total += Progression.price(step)
+	_check(total == 18250, "the whole tree costs 18,250 Mana")
+	Progression.reset()
+	Progression.allow_debt = OS.is_debug_build()
+	unit.free() # The shelved binder goes with it.
+
+
+func _test_upgrade_menu() -> void:
+	Progression.reset()
+	Progression.allow_debt = false
+	var menu := UpgradeMenu.new()
+	add_child(menu)
+	var buttons: Array = menu.find_children("*", "Button", true, false)
+	_check(buttons.size() == 35, "the menu has a button for each of the 35 unlocks, got %d" % buttons.size())
+	var tab := InputEventAction.new()
+	tab.action = Controls.UPGRADES
+	tab.pressed = true
+	menu._unhandled_input(tab)
+	_check(menu.is_open() and get_tree().paused, "Tab opens the upgrade menu and stops the game")
+	var first: Button = buttons[0]
+	_check(first.text == "Remember the Fallen\n20 Mana" and first.disabled, "an unaffordable unlock shows its price, greyed out")
+	Progression.earn(20)
+	_check(not first.disabled and (buttons[1] as Button).disabled, "once affordable, only the colour's next unlock lights up")
+	first.pressed.emit()
+	_check(Progression.is_bought(0, 0) and first.text == "Remember the Fallen\nOwned", "clicking buys it")
+	var esc := InputEventAction.new()
+	esc.action = Controls.PAUSE
+	esc.pressed = true
+	menu._unhandled_input(esc)
+	_check(not menu.is_open() and not get_tree().paused, "Esc closes the menu")
+	menu.open()
+	menu._unhandled_input(tab)
+	_check(not menu.is_open() and not get_tree().paused, "Tab closes it too")
+	menu.free()
+	Progression.reset()
+	Progression.allow_debt = OS.is_debug_build()
 
 
 func _test_crouch() -> void:

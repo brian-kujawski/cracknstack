@@ -2,8 +2,9 @@ class_name PauseMenu
 extends CanvasLayer
 ## The pause screen. Esc (Controls.PAUSE) stops the game and frees the mouse;
 ## Esc again, or the Continue button, goes back in. Losing the window's focus
-## (alt-tab) pauses too, so the mouse is never left loose in the game. This is
-## where the in-game menu (M4b) will grow from.
+## (alt-tab) pauses too, unless another menu (upgrades) already has the game
+## stopped, so the mouse is never left loose in the game. This is where the
+## in-game menu (M4b) will grow from.
 
 const BACKDROP := Color(0.07, 0.05, 0.04, 0.92)
 
@@ -49,7 +50,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and not visible and not "--benchmark" in OS.get_cmdline_user_args():
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and not get_tree().paused and not "--benchmark" in OS.get_cmdline_user_args():
 		pause()
 
 

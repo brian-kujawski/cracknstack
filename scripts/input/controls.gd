@@ -23,6 +23,7 @@ const INTERACT := &"interact"
 const FLIP_NEXT := &"flip_next"
 const FLIP_PREVIOUS := &"flip_previous"
 const PAUSE := &"pause"
+const UPGRADES := &"upgrades"
 
 ## Every bindable action in menu order: [action, what it's called in the menu].
 const ACTIONS := [
@@ -38,6 +39,7 @@ const ACTIONS := [
 	[FLIP_NEXT, "Next page"],
 	[FLIP_PREVIOUS, "Previous page"],
 	[PAUSE, "Pause"],
+	[UPGRADES, "Upgrades"],
 ]
 
 ## Defaults per action: keys by physical keycode (so WASD stays put on
@@ -51,6 +53,7 @@ const DEFAULT_KEYS := {
 	INSPECT: [KEY_F],
 	INTERACT: [KEY_E],
 	PAUSE: [KEY_ESCAPE],
+	UPGRADES: [KEY_TAB],
 }
 const DEFAULT_BUTTONS := {
 	USE_HAND: [MOUSE_BUTTON_LEFT],
