@@ -278,8 +278,10 @@ func _build_pendants() -> void:
 		_add_cylinder(Vector3(at.x, (cord_top + shade_top) / 2, at.z), 0.004, 0.004, cord_top - shade_top, _fixture_material)
 		# The shade: a short neck flaring to a wide rim, painted inside.
 		_add_cylinder(Vector3(at.x, shade_top - 0.03, at.z), 0.03, 0.03, 0.06, _fixture_material)
-		_add_cylinder(Vector3(at.x, PENDANT_HEIGHT + 0.07, at.z), 0.05, 0.23, 0.14, _fixture_material, self, true)
+		var shade := _add_cylinder(Vector3(at.x, PENDANT_HEIGHT + 0.07, at.z), 0.05, 0.23, 0.14, _fixture_material, self, true)
 		_add_cylinder(Vector3(at.x, PENDANT_HEIGHT + 0.07, at.z), 0.048, 0.228, 0.14, inside_material, self, true)
+		# The bulb sits inside, so the shade's inner faces must block light too.
+		shade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
 		var bulb := MeshInstance3D.new()
 		var bulb_mesh := SphereMesh.new()
 		bulb_mesh.radius = 0.04
@@ -300,14 +302,17 @@ func _build_pendants() -> void:
 		light.shadow_enabled = true
 		light.shadow_blur = 2.0
 		add_child(light)
-		# Lights the inside of the shade, and fades out on its way to the table
-		# and ceiling: a stand-in for the light that would bounce off them.
+		# Lights the inside of the shade and fades out on its way to the table:
+		# a stand-in for bounce light. It casts shadows so the shade blocks it
+		# from the ceiling; its short range means only the lamp is in its map.
 		var fill := OmniLight3D.new()
 		fill.position = Vector3(at.x, PENDANT_HEIGHT + 0.06, at.z)
 		fill.light_color = FIXTURE_LIGHT
 		fill.light_energy = 0.3
 		fill.omni_range = 1.3
 		fill.omni_attenuation = 2.0
+		fill.shadow_enabled = true
+		fill.shadow_normal_bias = 0.2
 		add_child(fill)
 
 
