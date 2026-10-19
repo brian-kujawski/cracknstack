@@ -220,7 +220,8 @@ func _build_windows() -> void:
 		rod.position = Vector3(x, rod_y, DEPTH - CURTAIN_Z)
 		add_child(rod)
 		var curtain_width := size.x / 2 + 0.2
-		var drop := rod_y - (WINDOW_SILL - 0.12)
+		# The curtains stop just clear of the sill.
+		var drop := rod_y - (WINDOW_SILL + 0.025)
 		for side in [-1, 1]:
 			var curtain := MeshInstance3D.new()
 			curtain.mesh = _curtain_mesh(curtain_width, drop)

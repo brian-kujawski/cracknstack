@@ -47,12 +47,17 @@ const PAGE_FLASH_GLOW := Color(1.0, 0.8, 0.35, 0.6)
 
 ## The look of a closed binder: two stiff leather covers a little larger than
 ## the pages, a rounded spine with two raised bands, a stack of sleeve pages,
-## and three metal rings by the spine. Details past this distance are hidden.
+## and three metal rings by the spine.
 const COVER_BOARD := 0.004
 const PAGE_INSET := Vector2(0.007, 0.008) # page edge to cover edge (x, y)
 const RING_X := -COVER.x / 2 + 0.021
 const RING_ZS := [-0.1, 0.0, 0.1]
-const DETAIL_RANGE := 3.0
+## How far away the pages, rings and stitching stop being drawn; 0 draws
+## them at any distance. A cut-off (around 3 m) saves a draw call per binder
+## out of range but pops visibly as you walk, so it's off by default. It
+## belongs in a future low-quality graphics option for players short on
+## frame rate.
+const DETAIL_RANGE := 0.0
 
 ## Shared by every binder: the leather (one per-binder material) and the
 ## details (pages, rings, stitching; shared materials). Built on first use.
