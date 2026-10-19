@@ -52,7 +52,7 @@ const COVER_BOARD := 0.004
 const PAGE_INSET := Vector2(0.007, 0.008) # page edge to cover edge (x, y)
 const RING_X := -COVER.x / 2 + 0.021
 const RING_ZS := [-0.1, 0.0, 0.1]
-const DETAIL_RANGE := 5.0
+const DETAIL_RANGE := 3.0
 
 ## Shared by every binder: the leather (one per-binder material) and the
 ## details (pages, rings, stitching; shared materials). Built on first use.
