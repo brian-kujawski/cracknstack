@@ -20,6 +20,11 @@ func _ready() -> void:
 	_pile.spawn_binders(PILE_SEED)
 	print("Pile built: %d cards in %d ms" % [CardDatabase.card_count(), Time.get_ticks_msec() - started])
 	_hands.pile = _pile
+	var day := DayCycle.new()
+	day.name = "DayCycle"
+	add_child(day)
+	day.setup($WorldEnvironment.environment, _store.window_lights, _store.curtain_material, _store.sky_material)
+	$PauseMenu.day_cycle = day
 	_hands.shown_card_changed.connect(_on_shown_card_changed)
 	_hands.hint_changed.connect(func(text: String) -> void: _hint.text = text)
 	_on_shown_card_changed(null)

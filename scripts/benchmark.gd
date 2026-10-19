@@ -6,7 +6,7 @@ extends Node
 
 const WARMUP := 2.0
 const DURATION := 20.0
-## Eye-height waypoints (x, z): a lap of the room past all three shelves,
+## Eye-height waypoints (x, z): a lap of the room past the shelf and along the walls,
 ## then through the middle between the tables.
 const PATH := [
 	Vector2(6, 7.3), Vector2(1.4, 6.6), Vector2(1.4, 1.2), Vector2(6, 1.2), Vector2(10.6, 1.2),
