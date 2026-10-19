@@ -3,8 +3,7 @@ extends CanvasLayer
 ## The upgrade menu: Tab (Controls.UPGRADES) stops the game and shows every
 ## unlock, one column per colour in buying order. Only each colour's next
 ## unlock can be bought; hovering one says what it does. Tab or Esc goes
-## back in. A stand-in until the shop moves to the front counter; nothing
-## bought does anything yet.
+## back in. A stand-in until the shop moves to the front counter.
 
 const BACKDROP := Color(0.07, 0.05, 0.04, 0.92)
 const COLOUR_TINTS := [

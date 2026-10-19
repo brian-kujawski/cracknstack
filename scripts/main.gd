@@ -3,6 +3,15 @@ extends Node3D
 ## dumped on its floor, and the player.
 
 const PILE_SEED := 1993
+## Sorceries in key order, each with the action that casts it. Only learned
+## ones show, under the Mana total.
+const SORCERIES := [
+	["Tithe", Controls.CAST_TITHE],
+	["Teleport", Controls.CAST_TELEPORT],
+	["Demonic Tutor", Controls.CAST_DEMONIC_TUTOR],
+	["Chain Lightning", Controls.CAST_CHAIN_LIGHTNING],
+	["Abundance", Controls.CAST_ABUNDANCE],
+]
 
 @onready var _store: Node3D = $Store
 @onready var _pile: PileWorld = $Pile
@@ -27,8 +36,10 @@ func _ready() -> void:
 	$PauseMenu.day_cycle = day
 	_hands.shown_card_changed.connect(_on_shown_card_changed)
 	_hands.hint_changed.connect(func(text: String) -> void: _hint.text = text)
-	_on_shown_card_changed(null)
+	_on_shown_card_changed(null, false)
 	Progression.mana_changed.connect(func(_mana: int) -> void: _update_stats())
+	Progression.unlocked.connect(func(_colour: int, _step: int) -> void: _update_stats())
+	Progression.sorceries_changed.connect(_update_stats)
 	_update_stats()
 
 
@@ -45,6 +56,8 @@ func _process(delta: float) -> void:
 func _update_stats() -> void:
 	var text := "Cards Organized: %d/%d\nMana: %d" % [
 		cards_organized(_pile.binders), CardDatabase.card_count(), Progression.mana]
+	for line in sorcery_lines():
+		text += "\n" + line
 	if OS.is_debug_build():
 		var debug := "%d fps · %d draw calls" % [
 			Engine.get_frames_per_second(),
@@ -63,8 +76,36 @@ static func cards_organized(binders: Array[Binder]) -> int:
 	return count
 
 
-func _on_shown_card_changed(card: CardData) -> void:
-	_held.text = "" if card == null else card_details(card)
+## One line per learned sorcery: its key and name, and while it recharges,
+## the seconds left, or "armed" while it waits to go off.
+## "3: Demonic Tutor (42 s)"
+static func sorcery_lines() -> PackedStringArray:
+	var lines := PackedStringArray()
+	for entry in SORCERIES:
+		if Progression.rank(entry[0]) == 0:
+			continue
+		var line := "%s: %s" % [Controls.label(entry[1]), entry[0]]
+		var left := Progression.recharge_left(entry[0])
+		if Progression.is_armed(entry[0]):
+			line += " (armed)"
+		elif left > 0.0:
+			line += " (%d s)" % ceili(left)
+		lines.append(line)
+	return lines
+
+
+func _on_shown_card_changed(card: CardData, set_only: bool) -> void:
+	if card == null:
+		_held.text = ""
+	else:
+		_held.text = set_details(card) if set_only else card_details(card)
+
+
+## All you know of a card from its set (Enlightened Tutor): the set's name,
+## then its code with the number still unknown, "KTK #???".
+static func set_details(card: CardData) -> String:
+	var set_data := CardDatabase.get_set(card.set_code)
+	return "%s\n%s #???" % [set_data.name, set_data.code]
 
 
 ## A card's details as shown in the corner: name, set, number and rarity.

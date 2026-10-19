@@ -3,11 +3,18 @@ extends Node
 ## into its own pocket pays 1 Mana; finishing a binder, standing a binder in
 ## its own shelf space and lighting up a shelf pay bonuses, each once. Mana
 ## is spent on the upgrade tree in /mnt/project-files/plan/m7-upgrade-tree.md:
-## five colours, each a row of seven unlocks bought in order. Unlocks are
-## recorded here but do nothing yet; each gets built one at a time.
+## five colours, each a row of seven unlocks bought in order. Code that an
+## unlock changes asks rank() for it. Unlocks get built a step at a time
+## across the colours; ones not built yet are bought but do nothing.
+##
+## Sorceries also recharge here. A cast starts its cooldown; every card you
+## file by hand takes a little off every recharge, but never below a minimum
+## share of the cooldown, so sorceries can't feed each other into a spiral.
 
 signal mana_changed(mana: int)
 signal unlocked(colour: int, step: int)
+## A sorcery was cast or finished recharging.
+signal sorceries_changed
 
 const CARD_LOCKED := 1
 ## Finishing a binder pays this share of its card count (rounded up).
@@ -65,6 +72,20 @@ const COLOURS := [
 
 const NUMERALS := ["", "I", "II", "III"]
 
+## Each sorcery's cooldown in seconds, by rank (I, II, III). Tuning guesses.
+const COOLDOWNS := {
+	"Tithe": [20.0, 20.0, 20.0],
+	"Teleport": [30.0, 30.0],
+	"Demonic Tutor": [60.0, 40.0, 20.0],
+	"Chain Lightning": [60.0, 45.0, 30.0],
+	"Abundance": [45.0, 30.0, 20.0],
+}
+## Seconds each card filed by hand takes off every recharge in progress.
+const FILING_SPEEDUP := 2.0
+## No recharge, however much you file, finishes sooner than this share of
+## its cooldown.
+const MIN_RECHARGE_SHARE := 0.5
+
 var mana := 0
 ## Debug builds can buy past what they can afford, into negative Mana, so
 ## every unlock can be tried while testing.
@@ -75,6 +96,12 @@ var _bought: Array[int] = []
 ## Bonuses already paid, so none can be farmed by taking a binder down and
 ## putting it back.
 var _paid := {}
+## Sorceries recharging: node -> [seconds left, seconds before filing can't
+## cut it any shorter].
+var _recharging := {}
+## Sorceries cast and waiting for something to set them off (Chain
+## Lightning waits for your next lock-in).
+var _armed := {}
 
 
 func _init() -> void:
@@ -86,7 +113,27 @@ func reset() -> void:
 	mana = 0
 	_bought.assign(COLOURS.map(func(_c) -> int: return 0))
 	_paid.clear()
+	_recharging.clear()
+	_armed.clear()
 	mana_changed.emit(mana)
+	sorceries_changed.emit()
+
+
+func _process(delta: float) -> void:
+	tick(delta)
+
+
+## Runs every recharge on by `seconds`. Stops with the game while paused.
+func tick(seconds: float) -> void:
+	if _recharging.is_empty():
+		return
+	for node in _recharging.keys():
+		var timer: Array = _recharging[node]
+		timer[0] -= seconds
+		timer[1] -= seconds
+		if timer[0] <= 0.0:
+			_recharging.erase(node)
+			sorceries_changed.emit()
 
 
 func earn(amount: int) -> void:
@@ -153,3 +200,54 @@ func rank(node: String) -> int:
 			if steps[step][0] == node:
 				owned = maxi(owned, maxi(steps[step][1], 1))
 	return owned
+
+
+## Whether a sorcery has been learned and is ready to cast.
+func can_cast(node: String) -> bool:
+	return rank(node) > 0 and not _recharging.has(node)
+
+
+## Seconds until a sorcery can be cast again (0 when ready).
+func recharge_left(node: String) -> float:
+	return maxf(_recharging[node][0], 0.0) if _recharging.has(node) else 0.0
+
+
+## Spends a cast: the sorcery starts recharging. Returns false if it can't be
+## cast now.
+func cast(node: String) -> bool:
+	if not can_cast(node):
+		return false
+	var cooldown: float = COOLDOWNS[node][rank(node) - 1]
+	_recharging[node] = [cooldown, cooldown * MIN_RECHARGE_SHARE]
+	sorceries_changed.emit()
+	return true
+
+
+## A card filed by your own hand (not by a sorcery) speeds every recharge.
+func card_filed_by_hand() -> void:
+	for node in _recharging.keys():
+		var timer: Array = _recharging[node]
+		timer[0] = maxf(timer[0] - FILING_SPEEDUP, timer[1])
+	tick(0.0)
+
+
+## Casts a sorcery that waits for a trigger: it starts recharging now and
+## stays armed until fire() is called. Returns false if it can't be cast.
+func arm(node: String) -> bool:
+	if not cast(node):
+		return false
+	_armed[node] = true
+	sorceries_changed.emit()
+	return true
+
+
+func is_armed(node: String) -> bool:
+	return _armed.has(node)
+
+
+## Sets off an armed sorcery. Returns whether it was armed.
+func fire(node: String) -> bool:
+	if not _armed.erase(node):
+		return false
+	sorceries_changed.emit()
+	return true
