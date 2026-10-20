@@ -17,6 +17,16 @@ const WALL_THICKNESS := 0.2
 const BACK_SHELF := Vector2(2.0, 10.0)
 const TABLE_SIZE := Vector3(1.3, 1.0, 1.3)
 const TABLE_CENTERS := [Vector2(4.6, 2.9), Vector2(7.4, 2.9), Vector2(4.6, 5.3), Vector2(7.4, 5.3)]
+## How far past a table's edge a standing player can step, so that with no
+## body drawn it looks like leaning over the table. It gets the eyes, and the
+## held card, far enough under the pendant for its light to reach the card.
+const TABLE_LEAN := 0.45
+## Table tops (and their aprons) are in this group. The player passes through
+## them and is stopped by a smaller block on LEAN_STOP_LAYER instead.
+const TABLE_TOPS := &"table_tops"
+## Collision layer only the player collides with: the block under each table
+## top that stops a lean, set high enough that crouching still gets you under.
+const LEAN_STOP_LAYER := 16
 ## Windows on the front wall, either side of the door: centres along x, and
 ## the opening's size and sill height.
 const WINDOW_XS := [2.9, 9.1]
@@ -113,11 +123,15 @@ func _build_table(center: Vector2) -> void:
 	add_child(body)
 	var size := Vector2(TABLE_SIZE.x, TABLE_SIZE.z)
 	var top_y := TABLE_SIZE.y
+	# The top and apron are their own body, so the player can lean over them.
+	var top := StaticBody3D.new()
+	top.add_to_group(TABLE_TOPS)
+	body.add_child(top)
 
-	_add_part(body, Vector3(size.x, TOP - EDGE_STEP, size.y), Vector3(0, top_y - (TOP - EDGE_STEP) / 2, 0), _table_material, true)
-	_add_part(body, Vector3(size.x - 2 * EDGE_STEP, EDGE_STEP, size.y - 2 * EDGE_STEP),
+	_add_part(top, Vector3(size.x, TOP - EDGE_STEP, size.y), Vector3(0, top_y - (TOP - EDGE_STEP) / 2, 0), _table_material, true)
+	_add_part(top, Vector3(size.x - 2 * EDGE_STEP, EDGE_STEP, size.y - 2 * EDGE_STEP),
 		Vector3(0, top_y - TOP + EDGE_STEP / 2, 0), _table_material, true)
-	_add_part(body, Vector3(size.x - 2 * FELT_BORDER, 0.001, size.y - 2 * FELT_BORDER),
+	_add_part(top, Vector3(size.x - 2 * FELT_BORDER, 0.001, size.y - 2 * FELT_BORDER),
 		Vector3(0, top_y + 0.0005, 0), _felt_material, false)
 
 	var leg_half := size / 2 - Vector2.ONE * (LEG_INSET + LEG_TOP / 2)
@@ -137,8 +151,18 @@ func _build_table(center: Vector2) -> void:
 	var apron_y := top_y - TOP - APRON_HEIGHT / 2
 	var rail_offset := leg_half + Vector2.ONE * (LEG_TOP / 2 - APRON_THICKNESS / 2 - 0.008)
 	for side in [-1, 1]:
-		_add_part(body, Vector3(2 * leg_half.x, APRON_HEIGHT, APRON_THICKNESS), Vector3(0, apron_y, side * rail_offset.y), _table_material, true)
-		_add_part(body, Vector3(APRON_THICKNESS, APRON_HEIGHT, 2 * leg_half.y), Vector3(side * rail_offset.x, apron_y, 0), _table_material, true)
+		_add_part(top, Vector3(2 * leg_half.x, APRON_HEIGHT, APRON_THICKNESS), Vector3(0, apron_y, side * rail_offset.y), _table_material, true)
+		_add_part(top, Vector3(APRON_THICKNESS, APRON_HEIGHT, 2 * leg_half.y), Vector3(side * rail_offset.x, apron_y, 0), _table_material, true)
+
+	# What stops a lean: TABLE_LEAN in from the edge, under the top, and above
+	# a crouched body so you can still crawl underneath.
+	const LEAN_STOP_BOTTOM := 0.65
+	var lean_stop := StaticBody3D.new()
+	lean_stop.collision_layer = LEAN_STOP_LAYER
+	lean_stop.collision_mask = 0
+	body.add_child(lean_stop)
+	var stop_height := top_y - TOP - LEAN_STOP_BOTTOM
+	_add_shape(lean_stop, Vector3(size.x - 2 * TABLE_LEAN, stop_height, size.y - 2 * TABLE_LEAN), Vector3(0, LEAN_STOP_BOTTOM + stop_height / 2, 0))
 
 
 ## A square leg standing on the floor, `top` wide under the table and

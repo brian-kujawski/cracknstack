@@ -5,6 +5,14 @@ extends CharacterBody3D
 ## Crouching shrinks the body as well as lowering the eyes, so you can get
 ## under the work tables. You can't stand up while something's over your head:
 ## you stay crouched until there's room.
+##
+## Standing, you can step a little way into a work table (StoreBuilder's
+## TABLE_LEAN): with no body drawn, that reads as leaning over it, and the
+## eyes dip a touch the further in you lean.
+##
+## Binders don't collide with you, so you wade through them on the floor.
+
+const Store := preload("res://scripts/store/store_builder.gd")
 
 @export var walk_speed := 3.5
 @export var crouch_speed := 1.6
@@ -16,6 +24,8 @@ extends CharacterBody3D
 ## Body (capsule) height standing and crouched. Crouched fits under a table.
 @export var stand_body_height := 1.8
 @export var crouch_body_height := 0.6
+## How far the eyes drop leaning all the way over a table.
+@export var lean_eye_dip := 0.12
 ## How fast the camera moves between standing and crouching heights.
 @export var crouch_lerp_speed := 10.0
 ## Crouch key: hold to crouch (default), or press to toggle. A setting in the
@@ -36,6 +46,12 @@ func _ready() -> void:
 	# Our own copy, since crouching resizes it.
 	_body.shape = _body.shape.duplicate()
 	_set_body_height(stand_body_height)
+	collision_mask |= Store.LEAN_STOP_LAYER
+	# Nothing collides with you: you walk through binders rather than kick
+	# them about, or push one off a table you lean over.
+	collision_layer = 0
+	# Once the store has built its tables.
+	_lean_over_tables.call_deferred()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -50,7 +66,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	var wants_crouch := _crouch_toggled if crouch_toggle else Input.is_action_pressed(Controls.CROUCH)
 	set_crouched(wants_crouch)
-	var target_eye := crouch_eye_height if _crouched else stand_eye_height
+	var target_eye := crouch_eye_height if _crouched else stand_eye_height - lean_eye_dip * lean()
 	_camera.position.y = lerpf(_camera.position.y, target_eye, minf(1.0, crouch_lerp_speed * delta))
 
 	if not is_on_floor():
@@ -74,6 +90,25 @@ func is_crouched() -> bool:
 	return _crouched
 
 
+## How far over a table you're leaning: 0 where its edge used to stop the
+## body, 1 all the way in.
+func lean() -> float:
+	var radius: float = (_body.shape as CapsuleShape3D).radius
+	var half := Vector2(Store.TABLE_SIZE.x, Store.TABLE_SIZE.z) / 2
+	var amount := 0.0
+	for top: Node3D in get_tree().get_nodes_in_group(Store.TABLE_TOPS):
+		var offset := (global_position - top.global_position).abs()
+		var outside := maxf(offset.x - half.x, offset.z - half.y)
+		amount = maxf(amount, clampf((radius - outside) / Store.TABLE_LEAN, 0.0, 1.0))
+	return amount
+
+
+## Table tops don't stop you; the smaller block under each one does.
+func _lean_over_tables() -> void:
+	for top in get_tree().get_nodes_in_group(Store.TABLE_TOPS):
+		add_collision_exception_with(top)
+
+
 ## Crouches, or stands up if there's room overhead (otherwise stays down).
 func set_crouched(crouched: bool) -> void:
 	if crouched == _crouched or (not crouched and not can_stand()):
@@ -94,7 +129,11 @@ func can_stand() -> bool:
 	query.shape = room
 	query.transform = Transform3D(Basis(), global_position + Vector3.UP * (crouch_body_height + room.height / 2))
 	query.collision_mask = collision_mask
-	query.exclude = [get_rid()]
+	# Nor the table tops you can lean over.
+	var exclude: Array[RID] = [get_rid()]
+	for body in get_collision_exceptions():
+		exclude.append(body.get_rid())
+	query.exclude = exclude
 	return get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty()
 
 
