@@ -50,6 +50,10 @@ const CABINET_ZS := [2.9, 5.3]
 ## metres of real wood one copy of its texture covers.
 const TABLE_WOOD := "table_wood"
 const TABLE_WOOD_SIZE := 0.6
+## The green baize on the tables' playing surface and lining the cabinets'
+## backs (assets/store/felt), and how many metres one copy of it covers.
+const FELT := "felt"
+const FELT_SIZE := 0.3
 
 ## Floor footprints nothing on the floor may overlap (the shelves and the
 ## table legs), as x/z rectangles. The space under a table top is open:
@@ -71,7 +75,7 @@ var _table_material := _textured(TABLE_WOOD, TABLE_WOOD_SIZE)
 ## The same wood for the legs, mapped by the legs' own UVs so the grain runs
 ## up them (world mapping would lay it across, like the top's).
 var _leg_material := _by_uv(_table_material)
-var _felt_material := _material(Color(0.1, 0.24, 0.17))
+var _felt_material := _textured(FELT, FELT_SIZE)
 var _fixture_material := _metal(Color(0.12, 0.13, 0.12), 0.45)
 var _brass_material := _metal(Color(0.75, 0.6, 0.35), 0.35)
 
@@ -233,7 +237,7 @@ func _build_display_cabinets() -> void:
 	for i in CABINET_ZS.size():
 		var cabinet := DisplayCabinet.new()
 		cabinet.name = "DisplayCabinet%d" % (i + 1)
-		cabinet.build(_table_material, FIXTURE_LIGHT)
+		cabinet.build(_table_material, _felt_material, FIXTURE_LIGHT)
 		cabinet.position = Vector3(WIDTH - DisplayCabinet.DEPTH / 2, 0, CABINET_ZS[i])
 		cabinet.rotation.y = -PI / 2
 		add_child(cabinet)

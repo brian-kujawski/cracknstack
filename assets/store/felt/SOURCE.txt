@@ -1,0 +1,5 @@
+Fabric037 by ambientCG
+https://ambientcg.com/view?id=Fabric037
+Licence: CC0 1.0 (https://docs.ambientcg.com/license/)
+Downloaded 2026-10-20, 1K-JPG. Files renamed: Color -> albedo, NormalGL -> normal, Roughness -> roughness.
+Used for: the table tops' playing surface and the display cabinets' back lining (store_builder.gd FELT).

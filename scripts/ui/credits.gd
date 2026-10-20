@@ -11,6 +11,7 @@ const DISCLAIMER := "Pickup is unofficial Fan Content permitted under the Fan Co
 ## details). They're CC0, so crediting them is a courtesy.
 const TEXTURES := [
 	"Table and cabinet wood: Wood066 by ambientCG (ambientcg.com), CC0.",
+	"Table and cabinet baize: Fabric037 by ambientCG (ambientcg.com), CC0.",
 ]
 
 
