@@ -5,6 +5,9 @@ extends StaticBody3D
 ## on the floor at the middle of the doorway, against the wall, and it faces
 ## local +Z.
 
+## The whole door is drawn this much bigger than the sizes below, so it
+## reads as a full-size door next to the player.
+const SCALE := 1.2
 ## The door slab, and the frame (casing) round it.
 const LEAF_SIZE := Vector2(1.0, 2.1)
 const LEAF_DEPTH := 0.04
@@ -64,9 +67,13 @@ func build() -> void:
 	knob.position = Vector3(knob_x, KNOB_HEIGHT, LEAF_FRONT + 0.055)
 	add_child(knob)
 
+	for child in get_children():
+		child.position *= SCALE
+		child.scale *= SCALE
+
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(LEAF_SIZE.x + 2 * (JAMB + CASING_WIDTH), top + JAMB + CASING_WIDTH, FRAME_DEPTH + CASING_DEPTH)
+	box.size = Vector3(LEAF_SIZE.x + 2 * (JAMB + CASING_WIDTH), top + JAMB + CASING_WIDTH, FRAME_DEPTH + CASING_DEPTH) * SCALE
 	shape.shape = box
 	shape.position = box.size / 2 * Vector3(0, 1, 1)
 	add_child(shape)
@@ -75,7 +82,7 @@ func build() -> void:
 ## The floor footprint (x across, z out from the wall), in local metres.
 static func footprint() -> Rect2:
 	var width := LEAF_SIZE.x + 2 * (JAMB + CASING_WIDTH)
-	return Rect2(-width / 2, 0, width, FRAME_DEPTH + CASING_DEPTH)
+	return Rect2(-width / 2 * SCALE, 0, width * SCALE, (FRAME_DEPTH + CASING_DEPTH) * SCALE)
 
 
 func _box(size: Vector3, center: Vector3, material: Material) -> MeshInstance3D:
