@@ -13,6 +13,12 @@ const CARD_SIZE := Vector2(0.063, 0.088) # metres, real card size
 ## Three times a real card (about 0.3 mm): real thickness is too thin for a
 ## pile to read as a pile.
 const CARD_THICKNESS := 0.0018
+## Corner radii in metres: every set's, and Alpha's deeper cut (see
+## CardData.has_alpha_corners). Keep in step with card_face.gdshaderinc.
+const CORNER_RADIUS := 0.003
+const ALPHA_CORNER_RADIUS := 0.0043
+## Flat segments per rounded corner of the card mesh.
+const CORNER_SEGMENTS := 3
 const CHUNK_SIZE := 2.0
 ## Picking grid: each card is filed under the cell holding its centre. Cells
 ## are wider than half a card's diagonal, so a 3×3 query finds every card
@@ -411,7 +417,7 @@ func _allocate(count: int) -> void:
 
 	_chunk_columns = ceili(bounds.size.x / CHUNK_SIZE)
 	var chunk_rows := ceili(bounds.size.y / CHUNK_SIZE)
-	_mesh = _card_mesh()
+	_mesh = card_mesh(false)
 	_material = ShaderMaterial.new()
 	_material.shader = preload("res://shaders/floor_card.gdshader")
 	if CardDatabase.face_atlas != null:
@@ -526,35 +532,73 @@ func _update_surface() -> void:
 			binder.sleeping = false
 
 
-## A card with thickness: the face on top (a PlaneMesh, so floor_card's UVs
-## still apply) and four edges running down CARD_THICKNESS below it. Edge
-## vertices get UV (-1, -1) so the shader can paint them as card edge.
-static func _card_mesh() -> ArrayMesh:
-	var plane := PlaneMesh.new()
-	plane.size = CARD_SIZE
-	var arrays := plane.get_mesh_arrays()
-	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
-	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
-	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
-	var half := CARD_SIZE / 2
-	var corners := [Vector3(-half.x, 0, -half.y), Vector3(half.x, 0, -half.y), Vector3(half.x, 0, half.y), Vector3(-half.x, 0, half.y)]
+## A card with thickness: the face on top and edges running down
+## CARD_THICKNESS below it, its corners rounded with Alpha's cut or the usual
+## one. The face's UVs read like a PlaneMesh's (u along +x, v along +z);
+## edge vertices get UV (-1, -1) so floor_card can paint them as card edge.
+## UV2 holds each vertex's x/z with Alpha's corners, so floor_card can
+## recut a usual card for Alpha without a second mesh.
+static func card_mesh(alpha_corners: bool) -> ArrayMesh:
+	var index := 1 if alpha_corners else 0
+	if _card_meshes[index] == null:
+		var outline := _card_outline(ALPHA_CORNER_RADIUS if alpha_corners else CORNER_RADIUS)
+		_card_meshes[index] = _build_card_mesh(outline, _card_outline(ALPHA_CORNER_RADIUS))
+	return _card_meshes[index]
+
+
+static var _card_meshes: Array[ArrayMesh] = [null, null]
+
+
+## The card's outline seen from above, clockwise from the top-left corner.
+## Each corner's flat segments sit just outside the true curve, so the
+## shaders can round the face off exactly inside them.
+static func _card_outline(radius: float) -> PackedVector2Array:
+	var outline := PackedVector2Array()
+	var half := CARD_SIZE / 2 - Vector2(radius, radius)
+	var step := PI / 2 / CORNER_SEGMENTS
+	var reach := radius / cos(step / 2)
+	for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		var start := PI + outline.size() / CORNER_SEGMENTS * PI / 2
+		for k in CORNER_SEGMENTS:
+			var angle := start + (k + 0.5) * step
+			outline.append(corner * half + Vector2(cos(angle), sin(angle)) * reach)
+	return outline
+
+
+static func _build_card_mesh(outline: PackedVector2Array, alpha_outline: PackedVector2Array) -> ArrayMesh:
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
+	var indices := PackedInt32Array()
+	var count := outline.size()
+	for i in count:
+		vertices.append(Vector3(outline[i].x, 0, outline[i].y))
+		normals.append(Vector3.UP)
+		uvs.append(outline[i] / CARD_SIZE + Vector2(0.5, 0.5))
+		uv2s.append(alpha_outline[i])
+	for i in range(1, count - 1):
+		indices.append_array([0, i, i + 1])
 	var down := Vector3(0, -CARD_THICKNESS, 0)
-	for i in 4:
-		var a: Vector3 = corners[i]
-		var b: Vector3 = corners[(i + 1) % 4]
-		var normal := Vector3(a.x + b.x, 0, a.z + b.z).normalized()
+	for i in count:
+		var j := (i + 1) % count
+		var a := Vector3(outline[i].x, 0, outline[i].y)
+		var b := Vector3(outline[j].x, 0, outline[j].y)
+		var along := (b - a).normalized()
+		var normal := Vector3(along.z, 0, -along.x)
 		var first := vertices.size()
 		for v in [a, b, b + down, a + down]:
 			vertices.append(v)
 			normals.append(normal)
 			uvs.append(Vector2(-1, -1))
-		indices.append_array([first, first + 1, first + 2, first, first + 2, first + 3])
+		uv2s.append_array([alpha_outline[i], alpha_outline[j], alpha_outline[j], alpha_outline[i]])
+		indices.append_array([first, first + 2, first + 1, first, first + 3, first + 2])
 	var surface := []
 	surface.resize(Mesh.ARRAY_MAX)
 	surface[Mesh.ARRAY_VERTEX] = vertices
 	surface[Mesh.ARRAY_NORMAL] = normals
 	surface[Mesh.ARRAY_TEX_UV] = uvs
+	surface[Mesh.ARRAY_TEX_UV2] = uv2s
 	surface[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface)
@@ -651,7 +695,8 @@ func _card_transform(id: int) -> Transform3D:
 
 func _instance_custom(id: int) -> Color:
 	var card := CardDatabase.get_card(id)
-	var flags := float(card.rarity) + (4.0 if id == _highlighted else 0.0) + (8.0 if _glowing.has(id) else 0.0)
+	var flags := float(card.rarity) + (4.0 if id == _highlighted else 0.0) + (8.0 if _glowing.has(id) else 0.0) \
+		+ (16.0 if card.has_alpha_corners() else 0.0)
 	return Color(card.collector_number, _set_numbers[id], flags, _face_up[id])
 
 

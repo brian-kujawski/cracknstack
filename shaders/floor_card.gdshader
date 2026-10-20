@@ -1,7 +1,8 @@
 // Cards lying on the floor, drawn with one MultiMesh per chunk. Each card
-// is a face plus four thin edges (see PileWorld._card_mesh).
+// is a face plus thin edges, corners rounded (see PileWorld.card_mesh).
 // Per instance:  COLOR = (set accent colour, face atlas index or -1)
-//                CUSTOM = (collector number, set number, rarity + 4 * highlighted + 8 * glowing, face up)
+//                CUSTOM = (collector number, set number,
+//                          rarity + 4 * highlighted + 8 * glowing + 16 * Alpha corners, face up)
 // With real data the face comes from the atlas (FaceAtlas); with a face
 // index of -1 the placeholder face is drawn instead.
 shader_type spatial;
@@ -21,6 +22,14 @@ void vertex() {
 	accent = COLOR.rgb;
 	face_index = COLOR.a;
 	card = INSTANCE_CUSTOM;
+	// The mesh is cut with the usual corners; UV2 holds where each vertex
+	// goes for Alpha's deeper cut.
+	if (int(card.z + 0.5) >= 16) {
+		if (UV.x > -0.5) {
+			UV += (UV2 - VERTEX.xz) / CARD_SIZE;
+		}
+		VERTEX.xz = UV2;
+	}
 }
 
 // Card edge colour: dark, so each layer of a stack shows as a line.
@@ -29,7 +38,8 @@ const vec3 EDGE = vec3(0.2, 0.18, 0.16);
 void fragment() {
 	int flags = int(card.z + 0.5);
 	bool highlighted = (flags / 4) % 2 == 1;
-	bool glowing = flags >= 8;
+	bool glowing = (flags / 8) % 2 == 1;
+	bool alpha_corners = flags >= 16;
 	// PlaneMesh UVs already read the right way round from above (u along
 	// +x, v along +z), so faces are sampled as they are.
 	vec2 uv = UV;
@@ -47,9 +57,9 @@ void fragment() {
 	} else {
 		int rarity = int(card.z + 0.5) % 4;
 		vec3 front = face_index > -0.5
-			? real_face(atlas_face, uv)
+			? real_face(atlas_face, uv, alpha_corners)
 			: card_face(uv, accent, int(card.y + 0.5), int(card.x + 0.5), rarity);
-		ALBEDO = card.w > 0.5 ? front : back_of_card(uv);
+		ALBEDO = card.w > 0.5 ? front : back_of_card(uv, alpha_corners);
 		ROUGHNESS = 0.6;
 	}
 	if (highlighted) {

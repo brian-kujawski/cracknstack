@@ -12,13 +12,18 @@ uniform int rarity = 0;
 // The card's large image, when real data is loaded.
 uniform bool has_face = false;
 uniform sampler2D face_texture : source_color, filter_linear_mipmap, repeat_disable;
+// Cut by Alpha's die (see cut_away()).
+uniform bool alpha_corners = false;
 // rgb colour, a strength (0 = no glow).
 uniform vec4 glow = vec4(0.0);
 
 void fragment() {
+	if (cut_away(UV, alpha_corners)) {
+		discard;
+	}
 	vec3 color = FRONT_FACING
-		? (has_face ? real_face(texture(face_texture, UV).rgb, UV) : card_face(UV, accent, set_number, collector_number, rarity))
-		: back_of_card(vec2(1.0 - UV.x, UV.y)); // Seen from behind, so u runs the other way.
+		? (has_face ? real_face(texture(face_texture, UV).rgb, UV, alpha_corners) : card_face(UV, accent, set_number, collector_number, rarity))
+		: back_of_card(vec2(1.0 - UV.x, UV.y), alpha_corners); // Seen from behind, so u runs the other way.
 	float edge = min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y) * 0.72);
 	float band = 1.0 - smoothstep(0.0, 0.1, edge);
 	// Paint the edge in the glow colour too, so it reads even without bloom.
