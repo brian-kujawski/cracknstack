@@ -9,6 +9,8 @@ extends CharacterBody3D
 ## Standing, you can step a little way into a work table (StoreBuilder's
 ## TABLE_LEAN): with no body drawn, that reads as leaning over it, and the
 ## eyes dip a touch the further in you lean.
+##
+## Binders don't collide with you, so you wade through them on the floor.
 
 const Store := preload("res://scripts/store/store_builder.gd")
 
@@ -45,6 +47,9 @@ func _ready() -> void:
 	_body.shape = _body.shape.duplicate()
 	_set_body_height(stand_body_height)
 	collision_mask |= Store.LEAN_STOP_LAYER
+	# Nothing collides with you: you walk through binders rather than kick
+	# them about, or push one off a table you lean over.
+	collision_layer = 0
 	# Once the store has built its tables.
 	_lean_over_tables.call_deferred()
 

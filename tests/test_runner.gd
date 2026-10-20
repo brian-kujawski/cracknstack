@@ -1402,6 +1402,7 @@ func _test_lean_over_table() -> void:
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	_check(is_zero_approx(player.lean()), "not leaning away from a table")
+	_check(player.collision_layer & Binder.PHYSICS_MASK == 0, "binders don't collide with the player")
 
 	# Walk straight at the table's middle until something stops you.
 	for i in 120:
