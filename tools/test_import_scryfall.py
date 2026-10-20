@@ -1,5 +1,5 @@
 """Offline checks for import_scryfall.py: the base-version filter, the card
-file format and atlas packing. No network. Run from the project root:
+file format, the per-set cache and atlas packing. No network. Run from the project root:
 
   python3 -m unittest discover -s tools -p "test_*.py"
 """
@@ -109,6 +109,68 @@ class Atlas(unittest.TestCase):
                 self.assertAlmostEqual(page.getpixel((w + w // 2, h + h // 2))[0], 17 * 7, delta=3)
             with Image.open(out / faces["pages"][1]) as page:
                 self.assertAlmostEqual(page.getpixel((importer.SLOT_SIZE[0] + 5, 5))[0], (per_page + 1) * 7 % 256, delta=3)
+
+            # Packing the same cards again leaves the pages alone; fewer cards drop the spare page.
+            stamp = (out / faces["pages"][0]).stat().st_mtime_ns
+            importer.pack_atlas(cards, out)
+            self.assertEqual((out / faces["pages"][0]).stat().st_mtime_ns, stamp)
+            self.assertEqual(importer.pack_atlas(cards[:per_page], out)["pages"], ["faces/page_0.png"])
+            self.assertFalse((out / "faces/page_1.png").exists())
+
+
+class Collection(unittest.TestCase):
+    """The per-set cache that lets sets be imported one run at a time."""
+
+    def cache(self, out, code, released, size, numbers):
+        cards = [printing(n, set=code) for n in numbers]
+        cached = {"set": importer.set_entry({"code": code, "name": code.upper(), "released_at": released}),
+                  "size": size, "printings": [importer.trim_card(c) for c in cards]}
+        path = importer.set_cache_path(out, code)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(cached), encoding="utf-8")
+        return cards
+
+    def test_sets_join_oldest_first_and_unusable_ones_stay_out(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            self.cache(out, "new", "2020-01-01", 2, [1, 2])
+            self.cache(out, "old", "1999-01-01", 1, [1])
+            self.cache(out, "gap", "2005-01-01", 3, [1, 3])
+            sets, cards = importer.collection(out, with_images=False)
+        self.assertEqual([s["code"] for s in sets], ["OLD", "NEW"])
+        self.assertEqual([importer.card_row(c)[:2] for c in cards], [["OLD", 1], ["NEW", 1], ["NEW", 2]])
+
+    def test_a_set_waits_for_all_its_images(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            cards = self.cache(out, "tst", "2014-09-26", 2, [1, 2])
+            path = out / importer.image_path(cards[0])
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"jpeg")
+            self.assertEqual(importer.collection(out)[0], [])
+            self.assertEqual(importer.set_status(out, "tst"), "1 images to go")
+            (out / importer.image_path(cards[1])).write_bytes(b"jpeg")
+            self.assertEqual(len(importer.collection(out)[1]), 2)
+            self.assertEqual(importer.set_status(out, "tst"), "in game")
+
+    def test_cached_set_is_not_fetched_again(self):
+        class Offline:
+            def get_json(self, url):
+                raise AssertionError("no network expected: " + url)
+
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            self.cache(out, "tst", "2014-09-26", 1, [1])
+            self.assertEqual(importer.fetch_set(Offline(), "tst", out)["size"], 1)
+
+    def test_trimmed_card_keeps_what_the_game_needs(self):
+        card = printing(1, prices={"usd": "1.00"}, oracle_text="Long text", card_faces=[
+            {"type_line": "A", "colors": ["W"], "artist": "X", "image_uris": {"normal": "u", "large": "v"}, "flavor_text": "f"}])
+        trimmed = importer.trim_card(card)
+        self.assertNotIn("prices", trimmed)
+        self.assertEqual(trimmed["card_faces"], [{"type_line": "A", "colors": ["W"], "artist": "X", "image_uris": {"normal": "u"}}])
+        self.assertEqual(importer.card_row(trimmed), importer.card_row(card))
+        self.assertEqual(importer.image_url(trimmed), importer.image_url(card))
 
 
 class CardBack(unittest.TestCase):
