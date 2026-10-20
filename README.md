@@ -51,16 +51,20 @@ The target is 60 fps on a mid-range laptop.
 
 All game code reads cards through the `CardDatabase` autoload (`scripts/data/card_database.gd`). It loads real cards from `data/real/cards.json` when that file exists, and otherwise falls back to the placeholder collection (150 fake sets, about 30,000 cards) with a note in the corner of the screen.
 
-### Real cards: Khans of Tarkir
+### Real cards from Scryfall
 
-The first real build is Khans of Tarkir only: its 269 cards and one binder. Card data and images come from [Scryfall](https://scryfall.com) and stay out of git (`data/real/` is ignored), so import them once:
+Card data and images come from [Scryfall](https://scryfall.com) and stay out of git (`data/real/` is ignored). The importer adds one set at a time, so a metered connection can take it in steps:
 
 ```sh
-python3 -m pip install pillow           # once, for packing the face atlas
-python3 tools/import_scryfall.py        # Khans of Tarkir (about 270 requests, under a minute)
+python3 -m pip install pillow                   # once, for packing the face atlas
+python3 tools/import_scryfall.py --list         # every core and expansion set, its size and estimated download
+python3 tools/import_scryfall.py ktk --dry-run  # fetch one set's card data (a few hundred KB) and price its images
+python3 tools/import_scryfall.py ktk            # import it; asks before downloading the images
 ```
 
-That writes `data/real/cards.json`, the small faces packed into atlas pages (`data/real/faces/`), and a large image per card for the hand and the binders (`data/real/images/ktk/`, about 40 MB), and the card back (`data/real/back.jpg`). It keeps only each card's base printing, numbered 1 to the set's printed size, and stops if any number is missing. Re-running only downloads images that aren't there yet. Other sets work the same way (`python3 tools/import_scryfall.py ktk frf`); for many sets, pass Scryfall's Default Cards bulk file with `--bulk`.
+Each import fetches a set's card data once (cached in `data/real/sets/`), downloads the large face images it doesn't already have (`data/real/images/<set>/`, about 135 KB a card, 40 MB for Khans of Tarkir), then rebuilds `data/real/cards.json`, the small faces packed into atlas pages (`data/real/faces/`) and the card back (`data/real/back.jpg`) from every set imported so far, oldest first. Every run ends with the bytes and time it actually used. An interrupted download keeps what it finished; run the same command to carry on. Running with no set code rebuilds the game files without touching the network.
+
+Only each set's main run is kept: one printing per collector number, from 1 to the set's printed size (or, when Scryfall doesn't know it, to where the showcase, borderless and other extra versions start). A plain printing wins over an alternate art (1 over 1a) and a lettered one over a special version. A set with a hole inside that run is reported and left out of the game; `--list` marks it. Cards printed only in another language, like Neon Dynasty's Japanese basics and All Will Be One's Phyrexian ones, are kept in that language (one extra small request for those sets). `--list --types all` shows every set type, `--yes` skips the question, and `--no-images` writes card data only. To drop a set from the game, delete its file in `data/real/sets/` and run the importer with no set code.
 
 To play with the placeholders again, delete `data/real/` or run with `-- --placeholder`.
 
