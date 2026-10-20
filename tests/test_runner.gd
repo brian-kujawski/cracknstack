@@ -46,6 +46,7 @@ func _ready() -> void:
 	await _test_steps_five_to_seven()
 	_test_day_cycle()
 	await _test_crouch()
+	await _test_lean_over_table()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -1383,3 +1384,56 @@ func _test_crouch() -> void:
 	player.set_crouched(false)
 	_check(not player.is_crouched() and is_equal_approx(shape.height, player.stand_body_height), "standing up restores the body")
 	player.free()
+
+
+func _test_lean_over_table() -> void:
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var store: Node3D = store_script.new()
+	add_child(store)
+	var player: CharacterBody3D = load("res://scenes/player/player.tscn").instantiate()
+	add_child(player)
+	# Driven by hand below; disabling the node would take it out of physics.
+	player.set_physics_process(false)
+	player.set_process_unhandled_input(false)
+	var center: Vector2 = store_script.TABLE_CENTERS[0]
+	var half: float = store_script.TABLE_SIZE.z / 2
+	var radius: float = (player.get_node("CollisionShape3D").shape as CapsuleShape3D).radius
+	player.global_position = Vector3(center.x, 0, center.y + half + 0.6)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_check(is_zero_approx(player.lean()), "not leaning away from a table")
+
+	# Walk straight at the table's middle until something stops you.
+	for i in 120:
+		player.velocity = Vector3(0, 0, -2.0)
+		player.move_and_slide()
+		await get_tree().physics_frame
+	var outside := player.global_position.z - center.y - half
+	_check(outside < radius - store_script.TABLE_LEAN + 0.02, "standing, you step in over the table top (%.2f m outside its edge)" % outside)
+	_check(outside > radius - store_script.TABLE_LEAN - 0.02, "but no further than a lean")
+	_check(player.lean() > 0.95, "leaning all the way in")
+	_check(player.can_stand(), "room to stand leaning over a table")
+
+	# Crouched, you still get under it, and can't stand up in the middle.
+	player.set_crouched(true)
+	for i in 120:
+		player.velocity = Vector3(0, 0, -2.0)
+		player.move_and_slide()
+		if player.global_position.z < center.y:
+			break
+		await get_tree().physics_frame
+	_check(player.global_position.z < center.y, "crouched, you get under the table")
+	_check(not player.can_stand(), "no room to stand under the middle of a table")
+
+	# Aiming down at the table from over it hits the table top.
+	var hands: Node = player.get_node("Hands")
+	player.set_crouched(false)
+	player.global_position = Vector3(center.x, 0, center.y + half + radius - store_script.TABLE_LEAN)
+	var camera: Camera3D = player.get_node("Camera3D")
+	camera.position.y = player.stand_eye_height
+	camera.rotation.x = -PI / 2 + 0.05
+	await get_tree().physics_frame
+	hands._update_aim()
+	_check(hands._aim == hands.Aim.SURFACE and absf(hands._aim_point.y - store_script.TABLE_SIZE.y) < 0.01, "you aim at the table top, not what stops the lean")
+	player.free()
+	store.free()

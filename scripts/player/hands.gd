@@ -919,8 +919,9 @@ func _update_aim() -> void:
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.exclude = [(get_parent() as CollisionObject3D).get_rid()]
 	# The pile's surface collider is only for binders to rest on; aim at the
-	# cards through it.
-	query.collision_mask = ~PileWorld.SURFACE_LAYER
+	# cards through it. The block that stops you leaning over a table is
+	# only for the player's body.
+	query.collision_mask = ~(PileWorld.SURFACE_LAYER | preload("res://scripts/store/store_builder.gd").LEAN_STOP_LAYER)
 	var hit := _camera.get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		return
