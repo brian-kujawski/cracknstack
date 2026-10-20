@@ -57,14 +57,15 @@ Card data and images come from [Scryfall](https://scryfall.com) and stay out of 
 
 ```sh
 python3 -m pip install pillow                   # once, for packing the face atlas
-python3 tools/import_scryfall.py --list         # every core and expansion set, its size and estimated download
+python3 tools/import_scryfall.py --list         # core and expansion sets not yet added, their size and estimated download
+python3 tools/import_scryfall.py --listadded    # sets already in the game (--listall shows both)
 python3 tools/import_scryfall.py ktk --dry-run  # fetch one set's card data (a few hundred KB) and price its images
 python3 tools/import_scryfall.py ktk            # import it; asks before downloading the images
 ```
 
 Each import fetches a set's card data once (cached in `data/real/sets/`), downloads the large face images it doesn't already have (`data/real/images/<set>/`, about 135 KB a card, 40 MB for Khans of Tarkir), then rebuilds `data/real/cards.json`, the small faces packed into atlas pages (`data/real/faces/`) and the card back (`data/real/back.jpg`) from every set imported so far, oldest first. Every run ends with the bytes and time it actually used. An interrupted download keeps what it finished; run the same command to carry on. Running with no set code rebuilds the game files without touching the network.
 
-Only each set's main run is kept: one printing per collector number, from 1 to the set's printed size (or, when Scryfall doesn't know it, to where the showcase, borderless and other extra versions start). A plain printing wins over an alternate art (1 over 1a) and a lettered one over a special version. A set with a hole inside that run is reported and left out of the game; `--list` marks it. Cards printed only in another language, like Neon Dynasty's Japanese basics and All Will Be One's Phyrexian ones, are kept in that language (one extra small request for those sets). `--list --types all` shows every set type, `--yes` skips the question, and `--no-images` writes card data only. To drop a set from the game, delete its file in `data/real/sets/` and run the importer with no set code.
+Only each set's main run is kept: one printing per collector number, from 1 to the set's printed size (or, when Scryfall doesn't know it, to where the showcase, borderless and other extra versions start). A plain printing wins over an alternate art (1 over 1a) and a lettered one over a special version. A set with a hole inside that run is reported and left out of the game; `--list` and `--listall` mark it. Cards printed only in another language, like Neon Dynasty's Japanese basics and All Will Be One's Phyrexian ones, are kept in that language (one extra small request for those sets). `--types all` with any of the lists shows every set type, `--yes` skips the question, and `--no-images` writes card data only. To drop a set from the game, delete its file in `data/real/sets/` and run the importer with no set code.
 
 To play with the placeholders again, delete `data/real/` or run with `-- --placeholder`.
 
