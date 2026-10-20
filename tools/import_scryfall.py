@@ -19,7 +19,9 @@ don't run 1..N with no gaps is reported and left out.
 Usage, from the project root:
 
   python3 -m pip install pillow                  # once, for packing the atlas
-  python3 tools/import_scryfall.py --list        # every set, its size and estimated download
+  python3 tools/import_scryfall.py --list        # sets not yet added, their size and estimated download
+  python3 tools/import_scryfall.py --listadded   # sets already in the game
+  python3 tools/import_scryfall.py --listall     # both
   python3 tools/import_scryfall.py ktk --dry-run # card data only, then what the images would cost
   python3 tools/import_scryfall.py ktk           # import one set (asks before downloading images)
   python3 tools/import_scryfall.py               # rebuild cards.json and the atlas, no network
@@ -96,9 +98,15 @@ FACE_FIELDS = ("type_line", "colors", "artist")
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("sets", nargs="*", help="Scryfall set codes to add, e.g. ktk")
-    parser.add_argument("--list", action="store_true", help="list sets with their size and estimated download, then stop")
+    listing = parser.add_mutually_exclusive_group()
+    listing.add_argument("--list", dest="listing", action="store_const", const="todo",
+                         help="list the sets not yet added, with their size and estimated download, then stop")
+    listing.add_argument("--listadded", dest="listing", action="store_const", const="added",
+                         help="list the sets already added, then stop")
+    listing.add_argument("--listall", dest="listing", action="store_const", const="all",
+                         help="list every set, added or not, then stop")
     parser.add_argument("--types", default=",".join(DEFAULT_LIST_TYPES),
-                        help="set types for --list, comma separated, or 'all' (default: core,expansion)")
+                        help="set types for the lists, comma separated, or 'all' (default: core,expansion)")
     parser.add_argument("--dry-run", action="store_true", help="fetch card data only and say what the images would cost")
     parser.add_argument("--yes", action="store_true", help="download without asking first")
     parser.add_argument("--refetch", action="store_true", help="fetch card data again even if it is cached")
@@ -111,8 +119,8 @@ def main(argv=None):
     client = Scryfall()
     started = time.monotonic()
 
-    if args.list:
-        list_sets(client, out, args.types, args.refetch)
+    if args.listing:
+        list_sets(client, out, args.types, args.refetch, args.listing)
         print(usage_line(client, started))
         return 0
 
@@ -591,7 +599,8 @@ def set_status(out, code):
     return f"{absent} images to go" if absent else "in game"
 
 
-def list_sets(client, out, types, refetch=False):
+def list_sets(client, out, types, refetch=False, show="all"):
+    """Prints the sets to add ("todo"), the sets in the game ("added"), or both ("all")."""
     wanted = None if types == "all" else {t.strip() for t in types.split(",")}
     today = time.strftime("%Y-%m-%d")
     sets = [s for s in fetch_set_list(client, out, refetch)
@@ -599,20 +608,32 @@ def list_sets(client, out, types, refetch=False):
             and (s["released_at"] or "9999") <= today]
     sets.sort(key=lambda s: (s["released_at"], s["code"]))
     per_image = average_image_bytes(out)
-    total_cards = total_bytes = 0
+    shown = added = total_cards = total_bytes = 0
     print(f"{'code':<6} {'released':<10} {'type':<16} {'cards':>5} {'download':>9}  name")
     for s in sets:
         cached = load_cached_set(out, s["code"])
         kept = base_cards_of(cached)[0] if cached else None
         size = len(kept) if kept else s["printed_size"] or s["card_count"]
         status = set_status(out, s["code"])
-        if status != "in game":
+        in_game = status == "in game"
+        added += in_game
+        if show == "todo" and in_game or show == "added" and not in_game:
+            continue
+        shown += 1
+        if in_game:
+            # What it actually took, from the images on disk.
+            size_bytes = sum((out / image_path(card)).stat().st_size for card in kept)
+        else:
+            size_bytes = size * per_image
             total_cards += size
-            total_bytes += size * per_image
-        note = f"  [{status}]" if status else ""
-        print(f"{s['code']:<6} {s['released_at']:<10} {s['set_type']:<16} {size:>5} {megabytes(size * per_image):>9}  {s['name']}{note}")
-    print(f"{len(sets)} sets. Not yet in the game: {total_cards} cards, about {megabytes(total_bytes)} of images"
-          f" (at {per_image // 1000} KB each). Some old sets may turn out to have numbering gaps; --dry-run tells.")
+            total_bytes += size_bytes
+        note = f"  [{status}]" if status and show != "added" else ""
+        print(f"{s['code']:<6} {s['released_at']:<10} {s['set_type']:<16} {size:>5} {megabytes(size_bytes):>9}  {s['name']}{note}")
+    if show == "added":
+        print(f"{added} of {len(sets)} sets in the game.")
+    else:
+        print(f"{shown} sets shown, {added} of {len(sets)} in the game. Still to add: {total_cards} cards,"
+              f" about {megabytes(total_bytes)} of images (at {per_image // 1000} KB each).")
 
 
 def megabytes(n):
