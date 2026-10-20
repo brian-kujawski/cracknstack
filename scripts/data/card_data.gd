@@ -21,6 +21,12 @@ var face_index: int = -1
 var image_large: String = ""
 
 
+## Alpha (LEA) was cut with a die that rounded the corners deeper than every
+## set printed since.
+func has_alpha_corners() -> bool:
+	return set_code == "LEA"
+
+
 static func rarity_from_string(value: String) -> Rarity:
 	match value:
 		"uncommon":

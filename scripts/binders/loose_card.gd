@@ -25,13 +25,11 @@ func setup(id: int, point: Vector3, yaw: float) -> void:
 	add_child(collision)
 
 	var side := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(PileWorld.CARD_SIZE.x, PileWorld.CARD_THICKNESS, PileWorld.CARD_SIZE.y)
-	side.mesh = box
+	side.mesh = PileWorld.card_mesh(CardDatabase.get_card(id).has_alpha_corners())
 	var side_material := StandardMaterial3D.new()
 	side_material.albedo_color = Color(0.85, 0.83, 0.78)
 	side.material_override = side_material
-	side.position.y = PileWorld.CARD_THICKNESS / 2
+	side.position.y = PileWorld.CARD_THICKNESS
 	add_child(side)
 
 	_top = MeshInstance3D.new()

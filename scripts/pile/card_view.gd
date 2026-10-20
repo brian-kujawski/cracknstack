@@ -20,6 +20,7 @@ static func apply(material: ShaderMaterial, id: int) -> void:
 	material.set_shader_parameter("set_number", CardDatabase.sets_in_shelf_order().find(set_data) + 1)
 	material.set_shader_parameter("collector_number", card.collector_number)
 	material.set_shader_parameter("rarity", card.rarity)
+	material.set_shader_parameter("alpha_corners", card.has_alpha_corners())
 	var face := large_face(card)
 	material.set_shader_parameter("has_face", face != null)
 	material.set_shader_parameter("face_texture", face)

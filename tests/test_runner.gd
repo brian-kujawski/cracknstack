@@ -27,6 +27,7 @@ func _ready() -> void:
 	_test_binder_pockets()
 	_test_shelving()
 	_test_loose_card()
+	_test_card_corners()
 	_test_real_data_format()
 	_test_credits()
 	_test_inspect_tilt()
@@ -518,6 +519,36 @@ func _write_fixture(with_pages := true) -> String:
 	file.store_string(JSON.stringify(data))
 	file.close()
 	return path
+
+
+func _test_card_corners() -> void:
+	var alpha := CardData.new()
+	alpha.set_code = "LEA"
+	var beta := CardData.new()
+	beta.set_code = "LEB"
+	_check(alpha.has_alpha_corners() and not beta.has_alpha_corners(), "only Alpha has Alpha's corners")
+	for alpha_corners in [false, true]:
+		var radius := PileWorld.ALPHA_CORNER_RADIUS if alpha_corners else PileWorld.CORNER_RADIUS
+		var arrays := PileWorld.card_mesh(alpha_corners).surface_get_arrays(0)
+		var half := PileWorld.CARD_SIZE / 2
+		var inside := true
+		var covers := true
+		var rounded := 0
+		for v: Vector3 in arrays[Mesh.ARRAY_VERTEX]:
+			var p := Vector2(absf(v.x), absf(v.z))
+			inside = inside and p.x <= half.x + 1e-6 and p.y <= half.y + 1e-6
+			var into_corner := p - (half - Vector2(radius, radius))
+			if into_corner.x > 1e-6 and into_corner.y > 1e-6:
+				rounded += 1
+				covers = covers and into_corner.length() >= radius - 1e-6
+		_check(inside, "the card mesh stays within the card's size")
+		_check(rounded > 0 and covers, "the card mesh's corners are rounded and cover the true curve")
+	var usual := PileWorld.card_mesh(false).surface_get_arrays(0)
+	var corner_vertex: Vector3 = usual[Mesh.ARRAY_VERTEX][0]
+	var alpha_vertex: Vector2 = usual[Mesh.ARRAY_TEX_UV2][0]
+	_check(alpha_vertex.length() < Vector2(corner_vertex.x, corner_vertex.z).length(),
+		"the floor mesh carries Alpha's deeper cut for the shader")
+	_check(PileWorld.card_mesh(false).get_faces().size() / 3 <= 40, "a floor card stays cheap to draw")
 
 
 func _test_real_data_format() -> void:

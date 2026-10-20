@@ -88,13 +88,25 @@ vec3 card_face(vec2 uv, vec3 accent, int set_number, int collector_number, int r
 	return color;
 }
 
-// A real card image (sampled at uv) with its corners rounded off like a
-// real card's, so the scan's corner background doesn't show.
-const vec2 CORNER_RADIUS = vec2(0.048, 0.034); // ~3 mm on a 63 × 88 mm card
+// Real cards have rounded corners, cut by a die. Alpha's die cut them
+// deeper than every set since (measured from scans of LEA and LEB #1).
+// Keep in step with PileWorld.CORNER_RADIUS and ALPHA_CORNER_RADIUS.
+const vec2 CARD_SIZE = vec2(0.063, 0.088);
+const float CORNER_RADIUS = 0.003;
+const float ALPHA_CORNER_RADIUS = 0.0043;
 
-vec3 real_face(vec3 sampled, vec2 uv) {
-	vec2 into_corner = max(abs(uv - 0.5) - (0.5 - CORNER_RADIUS), 0.0) / CORNER_RADIUS;
-	return length(into_corner) > 1.0 ? vec3(0.02) : sampled;
+// Whether uv lies in the bit a corner cut takes off the card.
+bool cut_away(vec2 uv, bool alpha_corners) {
+	vec2 radius = vec2(alpha_corners ? ALPHA_CORNER_RADIUS : CORNER_RADIUS) / CARD_SIZE;
+	vec2 into_corner = max(abs(uv - 0.5) - (0.5 - radius), 0.0) / radius;
+	return dot(into_corner, into_corner) > 1.0;
+}
+
+// A real card image (sampled at uv) with its corners rounded off like a
+// real card's, so the scan's corner background doesn't show where the card
+// mesh is a touch bigger than the true curve.
+vec3 real_face(vec3 sampled, vec2 uv, bool alpha_corners) {
+	return cut_away(uv, alpha_corners) ? vec3(0.02) : sampled;
 }
 
 // The real card back, one image for every card, when real data is loaded.
@@ -102,6 +114,6 @@ uniform bool has_back = false;
 uniform sampler2D back_texture : source_color, filter_linear_mipmap, repeat_disable;
 
 // The back of a card, with uv reading the right way round as you look at it.
-vec3 back_of_card(vec2 uv) {
-	return has_back ? real_face(texture(back_texture, uv).rgb, uv) : card_back(uv);
+vec3 back_of_card(vec2 uv, bool alpha_corners) {
+	return has_back ? real_face(texture(back_texture, uv).rgb, uv, alpha_corners) : card_back(uv);
 }
