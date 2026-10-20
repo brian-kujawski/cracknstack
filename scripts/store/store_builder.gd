@@ -2,7 +2,8 @@ extends Node3D
 ## Builds the graybox store: one small room, cluttered on purpose. A closed
 ## door in the front wall, one wall-length binder shelf on the back wall, and
 ## four work tables in the middle for setting binders down and stacking cards.
-## The side walls are left open for store dressing later.
+## On the right-hand wall (seen from the door) stand two glass display
+## cabinets for the rare cards; the left wall is open for store dressing later.
 ##
 ## Everything is plain boxes so the layout is cheap to change. Coordinates are
 ## metres: x runs 0..WIDTH left to right as you face the back wall, z runs from
@@ -41,6 +42,10 @@ const PENDANT_HEIGHT := 2.3
 const TRACK_Z := 1.15
 const TRACK_HEADS := 7
 const FIXTURE_LIGHT := Color(1.0, 0.82, 0.6)
+## The display cabinets stand against the right-hand wall (x = WIDTH), facing
+## into the room, centred at these z, back one first. They line up with the
+## table rows.
+const CABINET_ZS := [2.9, 5.3]
 
 ## Floor footprints nothing on the floor may overlap (the shelves and the
 ## table legs), as x/z rectangles. The space under a table top is open:
@@ -51,6 +56,9 @@ var obstacles: Array[Rect2] = []
 var window_lights: Array[Light3D] = []
 var curtain_material := _material(Color(0.86, 0.8, 0.68))
 var sky_material := StandardMaterial3D.new()
+## Every shadow box in the display cabinets, back cabinet first, each
+## cabinet's top row first, left to right as you face it.
+var display_slots: Array[Marker3D] = []
 
 var _wall_material := _material(Color(0.86, 0.84, 0.8))
 var _floor_material := _material(Color(0.55, 0.5, 0.45))
@@ -70,6 +78,7 @@ func _ready() -> void:
 	_build_shell()
 	_build_binder_shelves()
 	_build_tables()
+	_build_display_cabinets()
 	_build_windows()
 	_build_door()
 	_build_pendants()
@@ -204,6 +213,23 @@ func _add_shape(body: StaticBody3D, size: Vector3, center: Vector3) -> void:
 	shape.shape = box
 	shape.position = center
 	body.add_child(shape)
+
+
+## Two oak and glass display cabinets on the right-hand wall, their backs to
+## the wall, holding an empty shadow box for each rare card.
+func _build_display_cabinets() -> void:
+	for i in CABINET_ZS.size():
+		var cabinet := DisplayCabinet.new()
+		cabinet.name = "DisplayCabinet%d" % (i + 1)
+		cabinet.build(_table_material, FIXTURE_LIGHT)
+		cabinet.position = Vector3(WIDTH - DisplayCabinet.DEPTH / 2, 0, CABINET_ZS[i])
+		cabinet.rotation.y = -PI / 2
+		add_child(cabinet)
+		display_slots.append_array(cabinet.slots)
+		# Turned a quarter, the footprint's across becomes z and its out-from-the-wall -x.
+		var footprint := DisplayCabinet.footprint()
+		obstacles.append(Rect2(Vector2(WIDTH - DisplayCabinet.DEPTH / 2 - footprint.end.y, CABINET_ZS[i] + footprint.position.x),
+			Vector2(footprint.size.y, footprint.size.x)))
 
 
 ## Each window is a framed opening with a deep sill, the sky behind it, and

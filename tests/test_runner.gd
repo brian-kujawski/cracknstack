@@ -45,6 +45,7 @@ func _ready() -> void:
 	await _test_step_four_upgrades()
 	await _test_steps_five_to_seven()
 	_test_day_cycle()
+	_test_display_cabinets()
 	await _test_crouch()
 	await _test_lean_over_table()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
@@ -1334,6 +1335,36 @@ func _land_tossed(pile: PileWorld) -> void:
 			while not child.is_queued_for_deletion() and steps < 600:
 				child._physics_process(1.0 / 60.0)
 				steps += 1
+func _test_display_cabinets() -> void:
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var store: Node3D = store_script.new()
+	add_child(store)
+	var slots: Array[Marker3D] = store.display_slots
+	_check(slots.size() == 36, "36 shadow boxes across the display cabinets (%d)" % slots.size())
+	var wall: float = store_script.WIDTH
+	for slot in slots:
+		var at := slot.global_position
+		# From the door (facing -z), the right-hand wall is x = WIDTH.
+		if at.x < wall - DisplayCabinet.DEPTH or at.x > wall or at.y < DisplayCabinet.BASE_HEIGHT or at.y > DisplayCabinet.CASE_TOP:
+			_check(false, "slot %s inside a cabinet on the right-hand wall (%s)" % [slot.name, at])
+			break
+		if not slot.global_basis.z.is_equal_approx(Vector3.LEFT):
+			_check(false, "slot %s faces into the room" % slot.name)
+			break
+	# Slots read left to right facing the wall: towards the door, along +z.
+	_check(slots[0].global_position.z < slots[1].global_position.z, "slots run left to right")
+	_check(slots[0].global_position.y > slots[DisplayCabinet.COLUMNS].global_position.y, "top row first")
+	_check(slots[DisplayCabinet.SLOTS].global_position.z > slots[DisplayCabinet.SLOTS - 1].global_position.z, "back cabinet first")
+	# Nothing on the floor lands in a cabinet.
+	for z in store_script.CABINET_ZS:
+		var blocked := false
+		for rect in store.obstacles:
+			if rect.has_point(Vector2(wall - 0.05, z + DisplayCabinet.WIDTH / 2 - 0.02)) and rect.has_point(Vector2(wall - DisplayCabinet.DEPTH + 0.02, z - DisplayCabinet.WIDTH / 2)):
+				blocked = true
+		_check(blocked, "the floor under the cabinet at z %.1f is kept clear" % z)
+	store.free()
+
+
 func _test_day_cycle() -> void:
 	var noon := DayCycle.daylight_at(12.5)
 	var midnight := DayCycle.daylight_at(0.0)
