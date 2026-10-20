@@ -236,8 +236,7 @@ func _build_windows() -> void:
 		window_lights.append(light)
 
 
-## The shop door, centred on the front wall and facing into the room, with
-## the same sky as the windows showing through the glass between the flyers.
+## The shop door, centred on the front wall and facing into the room.
 func _build_door() -> void:
 	var door := ShopDoor.new()
 	door.name = "ShopDoor"
@@ -245,8 +244,6 @@ func _build_door() -> void:
 	door.position = Vector3(WIDTH / 2, 0, DEPTH)
 	door.rotation.y = PI
 	add_child(door)
-	var opening := ShopDoor.LEAF_SIZE
-	_add_part(self, Vector3(opening.x, opening.y, 0.01), Vector3(WIDTH / 2, opening.y / 2, DEPTH - 0.005), sky_material, false)
 	var footprint := ShopDoor.footprint()
 	obstacles.append(Rect2(Vector2(WIDTH / 2 + footprint.position.x, DEPTH - footprint.end.y), footprint.size))
 
