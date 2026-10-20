@@ -54,6 +54,10 @@ const TABLE_WOOD_SIZE := 0.6
 ## backs (assets/store/felt), and how many metres one copy of it covers.
 const FELT := "felt"
 const FELT_SIZE := 0.3
+## The shop's carpet (assets/store/carpet), and how many metres one copy
+## of it covers.
+const CARPET := "carpet"
+const CARPET_SIZE := 0.5
 
 ## Floor footprints nothing on the floor may overlap (the shelves and the
 ## table legs), as x/z rectangles. The space under a table top is open:
@@ -69,7 +73,7 @@ var sky_material := StandardMaterial3D.new()
 var display_slots: Array[Marker3D] = []
 
 var _wall_material := _material(Color(0.86, 0.84, 0.8))
-var _floor_material := _material(Color(0.55, 0.5, 0.45))
+var _floor_material := _textured(CARPET, CARPET_SIZE)
 var _shelf_material := _material(Color(0.62, 0.48, 0.34))
 var _table_material := _textured(TABLE_WOOD, TABLE_WOOD_SIZE)
 ## The same wood for the legs, mapped by the legs' own UVs so the grain runs
