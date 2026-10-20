@@ -31,26 +31,59 @@ class SelectBaseCards(unittest.TestCase):
 
     def test_drops_variants_promos_and_extras(self):
         printings = [printing(n) for n in range(1, 4)] + [
-            printing("2a"), printing("★3"), printing(4),  # suffixed, starred, past the printed size
+            printing("2a"), printing("★3"), printing(4),  # lettered, starred, past the printed size
             printing(1, promo=True), printing(2, variation=True), printing(3, border_color="borderless"),
             printing(1, frame_effects=["showcase"]), printing(2, lang="ja"), printing(3, digital=True),
         ]
         kept, report = importer.select_base_cards(printings, 3)
         self.assertEqual(len(kept), 3)
-        self.assertTrue(all(not c.get("promo") and not c.get("variation") for c in kept))
+        self.assertTrue(all(importer.is_plain(c) and c["lang"] == "en" for c in kept))
         self.assertIn("kept 3 base cards of 12 printings", report)
 
     def test_variant_listed_first_does_not_win(self):
         kept, _ = importer.select_base_cards([printing(1, promo=True, name="Promo"), printing(1)], 1)
         self.assertEqual(kept[0]["name"], "Card 1")
 
+    def test_lettered_cards_fill_their_number(self):
+        # Fallen Empires style: every number 2 is an alternate art, 2a to 2c.
+        printings = [printing(1), printing("2c", name="C"), printing("2a", name="A"), printing("2b", name="B")]
+        kept, _ = importer.select_base_cards(printings, 2)
+        self.assertEqual([c["name"] for c in kept], ["Card 1", "A"])
+        self.assertEqual(importer.card_row(kept[1])[1], 2)
+        self.assertEqual(importer.image_path(kept[1]), "images/tst/2.jpg")
+
+    def test_special_version_inside_the_main_run_is_kept(self):
+        # Full-art basics and the odd borderless main-set card have no plain printing.
+        kept, _ = importer.select_base_cards([printing(1), printing(2, border_color="borderless", frame_effects=["inverted"])], 2)
+        self.assertEqual(len(kept), 2)
+
     def test_gap_stops_the_import(self):
-        with self.assertRaisesRegex(ValueError, "1 of 3 collector numbers have no base printing: 2"):
+        with self.assertRaisesRegex(ValueError, "1 of 3 collector numbers have no English printing: 2"):
             importer.select_base_cards([printing(1), printing(3)], 3)
 
-    def test_expected_size_prefers_printed_size(self):
-        self.assertEqual(importer.expected_size({"card_count": 280, "printed_size": 269}), 269)
-        self.assertEqual(importer.expected_size({"card_count": 269}), 269)
+
+class MainRun(unittest.TestCase):
+    def test_printed_size_wins(self):
+        self.assertEqual(importer.main_run_size([printing(n) for n in range(1, 6)], 4), 4)
+
+    def test_without_printed_size_the_extras_after_a_gap_are_cut(self):
+        printings = [printing(n) for n in range(1, 11)] + [
+            printing(n, border_color="borderless", promo_types=["boosterfun"]) for n in range(11, 20)] + [
+            printing(n) for n in range(25, 28)]  # plain-looking extras after the gap
+        self.assertEqual(importer.main_run_size(printings), 10)
+
+    def test_extras_numbered_straight_after_the_run_are_cut(self):
+        printings = [printing(n) for n in range(1, 11)] + [
+            printing(11, promo_types=["planeswalkerdeck"]), printing(12, promo=True, promo_types=["buyabox"]),
+            printing(13, promo_types=["starterdeck"])]
+        self.assertEqual(importer.main_run_size(printings), 10)
+
+    def test_numbers_with_no_english_printing_at_the_end_are_cut(self):
+        # Kamigawa: Neon Dynasty's last basics exist only in Japanese.
+        printings = [printing(n) for n in range(1, 4)] + [printing(n, lang="ja") for n in range(4, 6)]
+        kept, report = importer.select_base_cards(printings, 5)
+        self.assertEqual(len(kept), 3)
+        self.assertIn("numbers 4-5 have no English printing", report)
 
 
 class CardFile(unittest.TestCase):
@@ -124,7 +157,7 @@ class Collection(unittest.TestCase):
     def cache(self, out, code, released, size, numbers):
         cards = [printing(n, set=code) for n in numbers]
         cached = {"set": importer.set_entry({"code": code, "name": code.upper(), "released_at": released}),
-                  "size": size, "printings": [importer.trim_card(c) for c in cards]}
+                  "version": importer.CACHE_VERSION, "printed_size": size, "printings": [importer.trim_card(c) for c in cards]}
         path = importer.set_cache_path(out, code)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(cached), encoding="utf-8")
@@ -161,7 +194,7 @@ class Collection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)
             self.cache(out, "tst", "2014-09-26", 1, [1])
-            self.assertEqual(importer.fetch_set(Offline(), "tst", out)["size"], 1)
+            self.assertEqual(importer.fetch_set(Offline(), "tst", out)["printed_size"], 1)
 
     def test_trimmed_card_keeps_what_the_game_needs(self):
         card = printing(1, prices={"usd": "1.00"}, oracle_text="Long text", card_faces=[

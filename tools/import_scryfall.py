@@ -77,13 +77,19 @@ SET_ACCENTS = {
     "ktk": "#a8783c",  # Tarkir's desert sand
 }
 
-# Frames that mark a card as a variant rather than the base version.
-VARIANT_FRAME_EFFECTS = {"showcase", "extendedart", "etched", "inverted"}
+# Frames and promo types that mark a printing as an extra version rather than
+# part of the set's main run. ("inverted" isn't one: full-art lands use it.)
+VARIANT_FRAME_EFFECTS = {"showcase", "extendedart", "etched"}
+EXTRA_PROMO_TYPES = {"boosterfun", "planeswalkerdeck", "starterdeck", "buyabox", "bundle", "serialized", "promopack"}
+# Without a printed size from Scryfall, a set's main run ends at the last
+# plain printing before a gap of at least this many numbers.
+MAIN_RUN_GAP = 3
 COLOR_ORDER = "WUBRG"
 
 # The parts of a Scryfall card object the importer uses; the rest isn't cached.
 CARD_FIELDS = ("set", "collector_number", "name", "lang", "digital", "games", "promo", "variation",
-               "oversized", "border_color", "frame_effects", "rarity", "colors", "type_line", "artist")
+               "oversized", "border_color", "frame_effects", "promo_types", "rarity", "colors", "type_line", "artist")
+CACHE_VERSION = 2  # bumped when the cached fields change; older set files are fetched again
 FACE_FIELDS = ("type_line", "colors", "artist")
 
 
@@ -114,12 +120,12 @@ def main(argv=None):
     bulk = load_bulk(args.bulk, codes) if args.bulk and codes else None
     for code in codes:
         cached = fetch_set(client, code, out, bulk, args.refetch)
-        kept, problem = base_cards_of(cached)
-        if problem:
+        try:
+            _, report = select_base_cards(cached["printings"], cached.get("printed_size"))
+            print(f"{code.upper()} {cached['set']['name']}: {report}")
+        except ValueError as problem:
             failed.append(code)
             print(f"{code.upper()} {cached['set']['name']}: left out, {problem}")
-        else:
-            print(f"{code.upper()} {cached['set']['name']}: {len(kept)} base cards of {len(cached['printings'])} printings")
 
     wanted = [code for code in codes if code not in failed]
     if not args.no_images and wanted:
@@ -231,18 +237,24 @@ def fetch_set(client, code, out, bulk=None, refetch=False):
     """A set's info and printings, from the cache if there, else from Scryfall
     (about two requests and a few hundred KB, gzipped)."""
     cached = None if refetch else load_cached_set(out, code)
-    if cached:
+    if cached and cached.get("version") == CACHE_VERSION:
         return cached
     try:
         info = client.get_json(f"{API}/sets/{code}")
-        printings = bulk[code] if bulk is not None else client.search_set(code)
     except urllib.error.HTTPError as error:
         if error.code == 404:
             raise ValueError(f"Scryfall has no set '{code}' (see --list)")
         raise
+    try:
+        printings = bulk[code] if bulk is not None else client.search_set(code)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            raise ValueError(f"{info['name']} has no English cards")
+        raise
     cached = {
+        "version": CACHE_VERSION,
         "set": set_entry(info),
-        "size": expected_size(info),
+        "printed_size": info.get("printed_size"),
         "fetched": time.strftime("%Y-%m-%d"),
         "printings": [trim_card(card) for card in printings],
     }
@@ -270,44 +282,71 @@ def trim_card(card):
 def base_cards_of(cached):
     """(kept cards, None) for a usable set, or ([], what's wrong)."""
     try:
-        kept, _ = select_base_cards(cached["printings"], cached["size"])
+        kept, _ = select_base_cards(cached["printings"], cached.get("printed_size"))
         return kept, None
     except ValueError as error:
         return [], str(error)
 
 
-def expected_size(set_info):
-    """How many base cards the set should have: its printed size if Scryfall
-    knows it (card_count also counts extras), else its card count."""
-    return set_info.get("printed_size") or set_info["card_count"]
+def card_number(card):
+    """(number, letter) for "123" or "123a"; None for stars, dashes and the like."""
+    match = re.fullmatch(r"(\d+)([a-z]?)", card.get("collector_number", ""))
+    return (int(match.group(1)), match.group(2)) if match else None
 
 
-def is_base_version(card, size):
-    number = card.get("collector_number", "")
-    if not re.fullmatch(r"\d+", number) or not 1 <= int(number) <= size:
-        return False
-    if card.get("lang", "en") != "en" or card.get("digital") or "paper" not in card.get("games", ["paper"]):
-        return False
+def is_english_paper(card):
+    return card.get("lang", "en") == "en" and not card.get("digital") and "paper" in card.get("games", ["paper"])
+
+
+def is_plain(card):
+    """Not a promo, variant or special frame: how a main-run card looks."""
     if card.get("promo") or card.get("variation") or card.get("oversized"):
         return False
-    if card.get("border_color") == "borderless":
+    if card.get("border_color") == "borderless" or EXTRA_PROMO_TYPES.intersection(card.get("promo_types") or []):
         return False
-    return not VARIANT_FRAME_EFFECTS.intersection(card.get("frame_effects", []))
+    return not VARIANT_FRAME_EFFECTS.intersection(card.get("frame_effects") or [])
 
 
-def select_base_cards(printings, size):
-    """One base printing per collector number 1..size, in number order.
-    Raises ValueError if any number is missing."""
+def main_run_size(printings, printed_size=None):
+    """Where a set's main run ends. Scryfall's printed size when it has one,
+    else the last plain printing before a gap of MAIN_RUN_GAP numbers (the
+    showcase, borderless and other extra versions are numbered after the
+    main run). Numbers at the end with no English printing at all are cut."""
+    numbers = {card_number(c)[0] for c in printings if card_number(c) and is_english_paper(c)}
+    size = printed_size
+    if not size:
+        size = 0
+        for n in sorted({card_number(c)[0] for c in printings if card_number(c) and is_english_paper(c) and is_plain(c)}):
+            if n - size > MAIN_RUN_GAP:
+                break
+            size = n
+    while size and size not in numbers:
+        size -= 1
+    return size
+
+
+def select_base_cards(printings, printed_size=None):
+    """One printing per collector number of the set's main run, in number
+    order. A plain printing wins over a lettered one (1 over 1a, 1a over 1b)
+    and a lettered one over a special version. Raises ValueError if a number
+    inside the main run has no English printing at all."""
+    size = main_run_size(printings, printed_size)
     by_number = {}
     for card in printings:
-        if is_base_version(card, size):
-            by_number.setdefault(int(card["collector_number"]), card)
+        number = card_number(card)
+        if number and 1 <= number[0] <= size and is_english_paper(card):
+            by_number.setdefault(number[0], []).append(card)
     missing = [n for n in range(1, size + 1) if n not in by_number]
-    if missing:
+    if missing or not size:
         shown = ", ".join(str(n) for n in missing[:20]) + (" …" if len(missing) > 20 else "")
-        raise ValueError(f"{len(missing)} of {size} collector numbers have no base printing: {shown}")
-    kept = [by_number[n] for n in range(1, size + 1)]
-    return kept, f"kept {len(kept)} base cards of {len(printings)} printings (expected {size})"
+        raise ValueError(f"{len(missing)} of {size} collector numbers have no English printing: {shown}" if size
+                         else "no numbered English cards")
+    rank = lambda card: (not is_plain(card), card_number(card)[1])
+    kept = [min(by_number[n], key=rank) for n in range(1, size + 1)]
+    report = f"kept {len(kept)} base cards of {len(printings)} printings"
+    if printed_size and size < printed_size:
+        report += f" (numbers {size + 1}-{printed_size} have no English printing)"
+    return kept, report
 
 
 def set_entry(info):
@@ -340,7 +379,7 @@ def card_colors(card):
 def card_row(card):
     """[set_code, collector_number, name, rarity, colors, type_line]."""
     type_line = card.get("type_line") or " // ".join(f.get("type_line", "") for f in card.get("card_faces", []))
-    return [card["set"].upper(), int(card["collector_number"]), card["name"], card["rarity"], card_colors(card), type_line]
+    return [card["set"].upper(), card_number(card)[0], card["name"], card["rarity"], card_colors(card), type_line]
 
 
 def card_artists(card):
@@ -412,7 +451,7 @@ def rebuild(client, out, no_images=False):
 # --- Images ---
 
 def image_path(card):
-    return f"images/{card['set']}/{int(card['collector_number'])}.jpg"
+    return f"images/{card['set']}/{card_number(card)[0]}.jpg"
 
 
 def image_url(card):
@@ -539,7 +578,8 @@ def list_sets(client, out, types, refetch=False):
     print(f"{'code':<6} {'released':<10} {'type':<16} {'cards':>5} {'download':>9}  name")
     for s in sets:
         cached = load_cached_set(out, s["code"])
-        size = cached["size"] if cached else s["printed_size"] or s["card_count"]
+        kept = base_cards_of(cached)[0] if cached else None
+        size = len(kept) if kept else s["printed_size"] or s["card_count"]
         status = set_status(out, s["code"])
         if status != "in game":
             total_cards += size
