@@ -190,10 +190,10 @@ class Scryfall:
     def get_json(self, url):
         return json.loads(self.get(url))
 
-    def search_set(self, code):
+    def search_set(self, code, extra=" lang:en"):
         """Every English paper printing in a set, following Scryfall's pages."""
         query = urllib.parse.urlencode({
-            "q": f"e:{code} lang:en",
+            "q": f"e:{code}{extra}",
             "unique": "prints",
             "order": "set",
             "include_extras": "true",
@@ -251,6 +251,7 @@ def fetch_set(client, code, out, bulk=None, refetch=False):
         if error.code == 404:
             raise ValueError(f"{info['name']} has no English cards")
         raise
+    printings += fetch_other_languages(client, code, printings, info.get("printed_size"))
     cached = {
         "version": CACHE_VERSION,
         "set": set_entry(info),
@@ -262,6 +263,22 @@ def fetch_set(client, code, out, bulk=None, refetch=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     write_whole(path, json.dumps(cached, ensure_ascii=False).encode("utf-8"))
     return cached
+
+
+def fetch_other_languages(client, code, printings, printed_size):
+    """Printings in any language for the numbers at the end of the main run
+    that have no English one (Neon Dynasty's Japanese and All Will Be One's
+    Phyrexian basics): one small extra request, only for sets that need it."""
+    size = main_run_size(printings, printed_size)
+    if not printed_size or size >= printed_size:
+        return []
+    try:
+        found = client.search_set(code, f" cn>={size + 1} cn<={printed_size} lang:any")
+    except urllib.error.HTTPError as error:
+        if error.code == 404:  # nothing in any language: the printed size is just too big
+            return []
+        raise
+    return [card for card in found if card.get("lang") != "en"]
 
 
 def trim_card(card):
@@ -294,8 +311,12 @@ def card_number(card):
     return (int(match.group(1)), match.group(2)) if match else None
 
 
+def is_paper(card):
+    return not card.get("digital") and "paper" in card.get("games", ["paper"])
+
+
 def is_english_paper(card):
-    return card.get("lang", "en") == "en" and not card.get("digital") and "paper" in card.get("games", ["paper"])
+    return card.get("lang", "en") == "en" and is_paper(card)
 
 
 def is_plain(card):
@@ -311,8 +332,8 @@ def main_run_size(printings, printed_size=None):
     """Where a set's main run ends. Scryfall's printed size when it has one,
     else the last plain printing before a gap of MAIN_RUN_GAP numbers (the
     showcase, borderless and other extra versions are numbered after the
-    main run). Numbers at the end with no English printing at all are cut."""
-    numbers = {card_number(c)[0] for c in printings if card_number(c) and is_english_paper(c)}
+    main run). Numbers at the end with no printing at all are cut."""
+    numbers = {card_number(c)[0] for c in printings if card_number(c) and is_paper(c)}
     size = printed_size
     if not size:
         size = 0
@@ -327,25 +348,29 @@ def main_run_size(printings, printed_size=None):
 
 def select_base_cards(printings, printed_size=None):
     """One printing per collector number of the set's main run, in number
-    order. A plain printing wins over a lettered one (1 over 1a, 1a over 1b)
-    and a lettered one over a special version. Raises ValueError if a number
-    inside the main run has no English printing at all."""
+    order. English wins, then a plain printing over a lettered one (1 over
+    1a, 1a over 1b) and a lettered one over a special version; a card printed
+    only in another language is kept in that language. Raises ValueError if a
+    number inside the main run has no printing at all."""
     size = main_run_size(printings, printed_size)
     by_number = {}
     for card in printings:
         number = card_number(card)
-        if number and 1 <= number[0] <= size and is_english_paper(card):
+        if number and 1 <= number[0] <= size and is_paper(card):
             by_number.setdefault(number[0], []).append(card)
     missing = [n for n in range(1, size + 1) if n not in by_number]
     if missing or not size:
         shown = ", ".join(str(n) for n in missing[:20]) + (" …" if len(missing) > 20 else "")
-        raise ValueError(f"{len(missing)} of {size} collector numbers have no English printing: {shown}" if size
-                         else "no numbered English cards")
-    rank = lambda card: (not is_plain(card), card_number(card)[1])
+        raise ValueError(f"{len(missing)} of {size} collector numbers have no printing: {shown}" if size
+                         else "no numbered cards")
+    rank = lambda card: (not is_english_paper(card), not is_plain(card), card_number(card)[1])
     kept = [min(by_number[n], key=rank) for n in range(1, size + 1)]
     report = f"kept {len(kept)} base cards of {len(printings)} printings"
+    foreign = [card_number(c)[0] for c in kept if not is_english_paper(c)]
+    if foreign:
+        report += f" ({len(foreign)} printed only in another language: {foreign[0]}-{foreign[-1]})"
     if printed_size and size < printed_size:
-        report += f" (numbers {size + 1}-{printed_size} have no English printing)"
+        report += f" (numbers {size + 1}-{printed_size} were never printed)"
     return kept, report
 
 

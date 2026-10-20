@@ -58,7 +58,7 @@ class SelectBaseCards(unittest.TestCase):
         self.assertEqual(len(kept), 2)
 
     def test_gap_stops_the_import(self):
-        with self.assertRaisesRegex(ValueError, "1 of 3 collector numbers have no English printing: 2"):
+        with self.assertRaisesRegex(ValueError, "1 of 3 collector numbers have no printing: 2"):
             importer.select_base_cards([printing(1), printing(3)], 3)
 
 
@@ -78,12 +78,34 @@ class MainRun(unittest.TestCase):
             printing(13, promo_types=["starterdeck"])]
         self.assertEqual(importer.main_run_size(printings), 10)
 
-    def test_numbers_with_no_english_printing_at_the_end_are_cut(self):
-        # Kamigawa: Neon Dynasty's last basics exist only in Japanese.
-        printings = [printing(n) for n in range(1, 4)] + [printing(n, lang="ja") for n in range(4, 6)]
-        kept, report = importer.select_base_cards(printings, 5)
+    def test_numbers_never_printed_at_the_end_are_cut(self):
+        # Eighth Edition's printed size counts cards numbered elsewhere.
+        kept, report = importer.select_base_cards([printing(n) for n in range(1, 4)], 5)
         self.assertEqual(len(kept), 3)
-        self.assertIn("numbers 4-5 have no English printing", report)
+        self.assertIn("numbers 4-5 were never printed", report)
+
+    def test_cards_printed_only_in_another_language_are_kept(self):
+        # Kamigawa: Neon Dynasty's last basics exist only in Japanese.
+        printings = [printing(n) for n in range(1, 4)] + [printing(n, lang="ja") for n in range(4, 6)] + [
+            printing(2, lang="ja", name="Japanese 2")]
+        kept, report = importer.select_base_cards(printings, 5)
+        self.assertEqual([c["lang"] for c in kept], ["en", "en", "en", "ja", "ja"])
+        self.assertIn("2 printed only in another language: 4-5", report)
+
+    def test_other_languages_are_fetched_only_when_needed(self):
+        class Client:
+            queries = []
+
+            def search_set(self, code, extra=""):
+                self.queries.append(extra)
+                return [printing(4, lang="ja"), printing(4)]
+
+        client = Client()
+        english = [printing(n) for n in range(1, 4)]
+        self.assertEqual(importer.fetch_other_languages(client, "tst", english, 3), [])
+        self.assertEqual(importer.fetch_other_languages(client, "tst", english, None), [])
+        self.assertEqual([c["lang"] for c in importer.fetch_other_languages(client, "tst", english, 4)], ["ja"])
+        self.assertEqual(client.queries, [" cn>=4 cn<=4 lang:any"])
 
 
 class CardFile(unittest.TestCase):
