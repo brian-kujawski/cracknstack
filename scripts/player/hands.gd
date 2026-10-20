@@ -115,8 +115,10 @@ const HELD_POSITION := Vector3(0.075, -0.05, -0.2)
 const HELD_ROTATION := Vector3(0.12, -0.25, 0.04)
 const ZOOMED_POSITION := Vector3(0.0, 0.0, -0.11)
 const ZOOMED_ROTATION := Vector3.ZERO
-## A carried binder: held low and to the right, cover tilted toward you.
-const CARRIED_POSITION := Vector3(0.3, -0.36, -0.55)
+## A carried binder: held to the right, cover tilted toward you. High and
+## close enough that all of it stays in view, and that it stays clear of a
+## table top while you lean over one.
+const CARRIED_POSITION := Vector3(0.22, -0.07, -0.44)
 const CARRIED_ROTATION := Vector3(0.7, -0.5, 0.0)
 ## How many times faster every glide is at each rank of Snap (none, I, II).
 const SNAP_SPEEDUP := [1.0, 1.5, 2.0]
