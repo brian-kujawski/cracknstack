@@ -1,0 +1,5 @@
+Wood066 by ambientCG
+https://ambientcg.com/view?id=Wood066
+Licence: CC0 1.0 (https://docs.ambientcg.com/license/)
+Downloaded 2026-10-20, 1K-JPG. Files renamed: Color -> albedo, NormalGL -> normal, Roughness -> roughness.
+Used for: work tables and display cabinets (store_builder.gd TABLE_WOOD).
