@@ -1,6 +1,6 @@
 class_name MenuScreen
 extends Control
-## A full-screen page opened from a menu (Achievements, Settings, Credits):
+## A full-screen page opened from a menu (Achievements, Settings):
 ## the backdrop, a heading, whatever the page holds, and a Back button. Back
 ## or Esc closes it and hands control back to the menu that opened it, so the
 ## same pages work from the title screen and, later, the pause menu.
@@ -46,20 +46,3 @@ func _unhandled_input(event: InputEvent) -> void:
 func close() -> void:
 	closed.emit()
 	queue_free()
-
-
-## The credits as plain scrolling text, until the credits roll (M4b step 3)
-## replaces it.
-static func credits() -> MenuScreen:
-	var screen := MenuScreen.new("Credits")
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	screen.content.add_child(scroll)
-	var text := Label.new()
-	text.text = Credits.text()
-	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(text)
-	return screen

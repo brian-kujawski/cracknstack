@@ -68,21 +68,22 @@ func _add_button(column: VBoxContainer, found: Dictionary, text: String, enabled
 	return button
 
 
-## Developer only: jump straight to noon or midnight to check the lighting.
+## Developer only: jump straight to noon or midnight to check the lighting,
+## or play the ending without filing every card.
 func _add_time_buttons(column: VBoxContainer) -> void:
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 16)
 	row.custom_minimum_size.y = 80
 	column.add_child(row)
-	for entry in [["Set Noon", 12.0], ["Set Midnight", 0.0]]:
+	for entry in [["Set Noon", _set_hour.bind(12.0)], ["Set Midnight", _set_hour.bind(0.0)], ["Play Ending", SceneFlow.play_ending]]:
 		var button := Button.new()
 		button.text = entry[0]
 		button.focus_mode = Control.FOCUS_NONE
 		button.custom_minimum_size = Vector2(142, 40)
 		button.size_flags_vertical = Control.SIZE_SHRINK_END
 		button.add_theme_font_size_override("font_size", 18)
-		button.pressed.connect(_set_hour.bind(entry[1]))
+		button.pressed.connect(entry[1])
 		row.add_child(button)
 
 

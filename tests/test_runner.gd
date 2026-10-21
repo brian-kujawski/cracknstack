@@ -37,6 +37,7 @@ func _ready() -> void:
 	_test_pause()
 	_test_title_screen()
 	_test_achievements()
+	await _test_credits_roll()
 	_test_progression()
 	_test_upgrade_menu()
 	_test_sorcery_recharge()
@@ -608,8 +609,24 @@ func _test_credits() -> void:
 	var text := Credits.text()
 	_check(Credits.DISCLAIMER in text, "credits carry the Fan Content disclaimer")
 	_check("Scryfall" in text and "Test Set art by Amy Artist, Zed Painter." in text, "real-data credits name Scryfall and the artists")
+	_check(Credits.artists() == PackedStringArray(["Amy Artist", "Zed Painter"]), "the roll names each artist once: %s" % [Credits.artists()])
+	var kinds := Credits.roll().map(func(block: Array) -> String: return block[0])
+	_check(kinds[0] == "title" and kinds.back() == "end" and "names" in kinds, "the roll runs from the title to the closing line, with the artists in columns")
+	CardDatabase.get_set(CardDatabase.sets_in_shelf_order()[0].code).artists.append("amy artist")
+	CardDatabase.get_set(CardDatabase.sets_in_shelf_order()[0].code).artists.append("Amy Artist")
+	_check(Credits.artists() == PackedStringArray(["Amy Artist", "amy artist", "Zed Painter"]) or Credits.artists() == PackedStringArray(["amy artist", "Amy Artist", "Zed Painter"]),
+		"artists repeated across sets are named once, sorted ignoring case: %s" % [Credits.artists()])
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_check(Credits.DISCLAIMER in Credits.text() and not "Scryfall" in Credits.text(), "placeholder credits still carry the disclaimer")
+	var names := PackedStringArray()
+	for i in 200:
+		names.append("Artist %03d" % i)
+	var roll := CreditsRoll.new()
+	roll._add_block("names", names)
+	var blocks := roll._strip.get_children().filter(func(child: Node) -> bool: return child is HBoxContainer)
+	_check(blocks.size() == 3 and blocks[0].get_child_count() == CreditsRoll.NAME_COLUMNS, "a long artist list is cut into blocks of columns")
+	_check(blocks[0].get_child(1).text.begins_with("Artist 001\nArtist 004"), "names read left to right, then down")
+	roll.free()
 
 
 func _test_inspect_tilt() -> void:
@@ -847,13 +864,13 @@ func _test_title_screen() -> void:
 	_check(title.buttons["New Game"].has_focus(), "from the keyboard, New Game is focused")
 	for page in ["Achievements", "Settings", "Credits"]:
 		title.buttons[page].pressed.emit()
-		var screens := title.find_children("*", "MenuScreen", false, false)
-		_check(screens.size() == 1 and screens[0].name == page, "%s opens its page" % page)
+		var screens := title.find_children("*", "CreditsRoll" if page == "Credits" else "MenuScreen", false, false)
+		_check(screens.size() == 1 and (page == "Credits" or screens[0].name == page), "%s opens its page" % page)
 		if screens.is_empty():
 			continue
 		if page == "Credits":
 			var text := screens[0].find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
-			_check(text.any(func(t: String) -> bool: return Credits.DISCLAIMER in t), "the credits page shows the credits")
+			_check(text.any(func(t: String) -> bool: return Credits.DISCLAIMER in t), "Credits rolls the credits")
 		var esc := InputEventAction.new()
 		esc.action = Controls.PAUSE
 		esc.pressed = true
@@ -928,6 +945,52 @@ func _test_achievements() -> void:
 	Achievements.unlocked.disconnect(listen)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	Achievements.load_from(Achievements.SAVE_PATH)
+
+
+func _test_credits_roll() -> void:
+	var closed := [false]
+	var roll := CreditsRoll.new()
+	roll.closed.connect(func() -> void: closed[0] = true)
+	add_child(roll)
+	roll.set_process(false)
+	_check(roll._strip.position.y >= roll.size.y - 1.0 and roll.size.y > 0.0, "the credits start below the screen")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var start: float = roll._strip.position.y
+	roll.advance(1.0)
+	var slow: float = start - roll._strip.position.y
+	roll.advance(1.0, true)
+	var fast: float = start - slow - roll._strip.position.y
+	_check(is_equal_approx(slow, CreditsRoll.SPEED) and is_equal_approx(fast, CreditsRoll.SPEED * CreditsRoll.FAST),
+		"they scroll steadily, %d times faster while a key is held: %.1f, %.1f" % [CreditsRoll.FAST, slow, fast])
+	for i in 2000:
+		if roll.is_holding():
+			break
+		roll.advance(0.5)
+	_check(roll.is_holding() and not closed[0], "the closing line stops in the middle of the screen")
+	roll.advance(CreditsRoll.HOLD + 0.1)
+	_check(closed[0] and roll.is_queued_for_deletion(), "and after a moment the credits close")
+	await get_tree().process_frame
+	roll = CreditsRoll.new()
+	closed[0] = false
+	roll.closed.connect(func() -> void: closed[0] = true)
+	add_child(roll)
+	var esc := InputEventAction.new()
+	esc.action = Controls.PAUSE
+	esc.pressed = true
+	roll._unhandled_input(esc)
+	_check(closed[0], "Esc leaves the credits")
+	await get_tree().process_frame
+	_check(not SceneFlow.take_credits_request(), "nothing asks for the credits by default")
+	SceneFlow._credits_requested = true
+	var title: Control = load(SceneFlow.TITLE_SCENE).instantiate()
+	add_child(title)
+	_check(title.state == title.State.MENU and title.find_child("CreditsRoll", false, false) != null,
+		"after the ending, the credits roll over the main menu")
+	title.free()
+	var empty: Array[Binder] = []
+	_check(not preload("res://scripts/main.gd").is_finished(empty, []), "an empty store isn't a finished game")
+	get_viewport().gui_release_focus()
 
 
 func _test_progression() -> void:

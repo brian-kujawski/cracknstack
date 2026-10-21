@@ -25,8 +25,11 @@ var _prompt_tween: Tween
 
 
 func _ready() -> void:
-	# Coming back from the shop (Exit Game → Main Menu) lands on the menu.
+	# Coming back from the shop (Quit to Menu, or the credits after the
+	# ending) lands on the menu.
 	var straight_to_menu := SceneFlow.take_menu_request()
+	var roll_credits := SceneFlow.take_credits_request()
+	straight_to_menu = straight_to_menu or roll_credits
 	if not straight_to_menu and SceneFlow.should_skip_title():
 		get_tree().change_scene_to_file.call_deferred(SceneFlow.SHOP_SCENE)
 		return
@@ -56,12 +59,14 @@ func _ready() -> void:
 	_add_button("Load Game", false)
 	_add_button("Achievements").pressed.connect(_open.bind(AchievementsScreen.make, "Achievements"))
 	_add_button("Settings").pressed.connect(_open.bind(func() -> MenuScreen: return MenuScreen.new("Settings"), "Settings"))
-	_add_button("Credits").pressed.connect(_open.bind(MenuScreen.credits, "Credits"))
+	_add_button("Credits").pressed.connect(_open.bind(CreditsRoll.new, "Credits"))
 	_add_button("Exit").pressed.connect(SceneFlow.quit)
 	_menu.visible = false
 	_add_footer()
 	if straight_to_menu:
 		show_menu(false, true)
+	if roll_credits:
+		_open(CreditsRoll.new, "Credits")
 	else:
 		_title.modulate.a = 0.0
 		create_tween().tween_property(_title, "modulate:a", 1.0, TITLE_FADE)
@@ -145,7 +150,7 @@ func show_menu(from_keyboard := false, instant := false) -> void:
 ## Opens one of the menu's pages over it, and hands focus back to its
 ## button when it closes.
 func _open(make: Callable, label: String) -> void:
-	var page: MenuScreen = make.call()
+	var page: Control = make.call()
 	var button: Button = buttons[label]
 	var had_focus := button.has_focus()
 	get_viewport().gui_release_focus()

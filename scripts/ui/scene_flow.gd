@@ -2,9 +2,10 @@ extends CanvasLayer
 ## Moving between the title screen and the shop (autoload: SceneFlow). Owns a
 ## black screen above everything else that survives scene changes, and does
 ## the fades: New Game fades to black, loads the shop behind it and fades in.
-## Exit Game → Main Menu fades back to the title scene, which then opens
-## straight on the menu. While a fade runs, input is swallowed so nothing is
-## clicked or pressed half-way through.
+## Quit to Menu fades back to the title scene, which then opens straight on
+## the menu; finishing the game does too, with the credits rolling over it.
+## While a fade runs, input is swallowed so nothing is clicked or pressed
+## half-way through.
 
 ## Emitted by save_game(), before the save itself (M8).
 signal saving
@@ -15,6 +16,8 @@ const FADE_OUT := 0.4
 const FADE_IN := 1.5
 ## Back on the menu from the shop, a quicker fade in.
 const MENU_FADE_IN := 0.6
+## The game's end: a slow fade out, standing in for the final animation.
+const ENDING_FADE := 2.5
 ## How far into the fade-in the player can look and move.
 const CONTROL_AT := 0.5
 ## Frames to wait after the shop loads before fading in, so its first frame
@@ -25,6 +28,8 @@ var _black: ColorRect
 var _busy := false
 ## Set on the way back from the shop, so the title opens on its menu.
 var _menu_requested := false
+## Set after the ending, so the title rolls the credits over its menu.
+var _credits_requested := false
 
 
 func _ready() -> void:
@@ -89,6 +94,31 @@ func to_main_menu() -> void:
 	await get_tree().scene_changed
 	_busy = false
 	await _fade_to(0.0, MENU_FADE_IN)
+
+
+## The game is finished: every card filed and every binder shelved. Fades
+## out slowly (the final animation goes here later), then rolls the credits
+## over the main menu, where they leave you.
+func play_ending() -> void:
+	if _busy:
+		return
+	_busy = true
+	get_tree().paused = true
+	await _fade_to(1.0, ENDING_FADE)
+	_credits_requested = true
+	get_tree().paused = false
+	get_tree().change_scene_to_file(TITLE_SCENE)
+	await get_tree().scene_changed
+	_busy = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	await _fade_to(0.0, MENU_FADE_IN)
+
+
+## True once after play_ending(): the title rolls the credits.
+func take_credits_request() -> bool:
+	var requested := _credits_requested
+	_credits_requested = false
+	return requested
 
 
 ## True once after to_main_menu(): the title skips straight to its menu.

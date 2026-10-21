@@ -26,6 +26,8 @@ const SORCERIES := [
 
 var _stats_timer := 0.0
 var _achievement_tween: Tween
+## The game's been finished and the ending has started.
+var _finished := false
 
 
 func _ready() -> void:
@@ -55,6 +57,9 @@ func _process(delta: float) -> void:
 	if _stats_timer >= 0.5:
 		_stats_timer = 0.0
 		_update_stats()
+		if not _finished and is_finished(_pile.binders, _store.find_children("*", "ShelfUnit", false, false)):
+			_finished = true
+			SceneFlow.play_ending()
 
 
 ## Frame rate, draw calls and the placeholder-data note are for us while
@@ -73,6 +78,19 @@ func _update_stats() -> void:
 			debug += "\nPlaceholder cards: run tools/import_scryfall.py for Khans of Tarkir"
 		text = debug + "\n" + text
 	_status.text = text
+
+
+## The game is finished when every card is locked into its own pocket and
+## every binder stands in its own shelf space.
+static func is_finished(binders: Array[Binder], shelves: Array) -> bool:
+	for binder in binders:
+		if not binder.contents.is_complete():
+			return false
+	for shelf: ShelfUnit in shelves:
+		for space in shelf.spaces.size():
+			if shelf.spaces[space] != null and (shelf.shelved[space] == null or shelf.shelved[space].binder != shelf.spaces[space]):
+				return false
+	return not binders.is_empty()
 
 
 ## Cards locked into their own pockets, across every binder.
