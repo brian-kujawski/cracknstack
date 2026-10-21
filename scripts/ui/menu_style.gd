@@ -1,7 +1,9 @@
 class_name MenuStyle
 extends RefCounted
 ## The look every menu shares: the dark brown backdrop, headings and the
-## buttons in a menu's column. A stand-in until M4c picks the real font and
+## buttons in a menu's column. Sizes are in pixels at 1920 × 1080; the
+## project stretches the whole UI to fit the window (canvas_items, expand),
+## so every menu scales with the resolution. A stand-in until M4c picks the real font and
 ## theme, kept in one place so that change is one file.
 
 const BACKDROP := Color(0.07, 0.05, 0.04, 0.92)
@@ -9,7 +11,7 @@ const BACKDROP := Color(0.07, 0.05, 0.04, 0.92)
 const TITLE_BACKDROP := Color(0.07, 0.05, 0.04, 1.0)
 const BUTTON_SIZE := Vector2(300, 56)
 const BUTTON_FONT_SIZE := 24
-const SMALL_FONT_SIZE := 14
+const SMALL_FONT_SIZE := 18
 
 
 ## A full-screen backdrop that takes every click, so nothing reaches what's

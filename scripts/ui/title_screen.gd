@@ -152,7 +152,7 @@ func show_menu(from_keyboard := false, instant := false) -> void:
 func _open(make: Callable, label: String) -> void:
 	var page: Control = make.call()
 	var button: Button = buttons[label]
-	var had_focus := button.has_focus()
+	var had_focus := button.has_focus(true)
 	get_viewport().gui_release_focus()
 	page.closed.connect(func() -> void:
 		if had_focus:

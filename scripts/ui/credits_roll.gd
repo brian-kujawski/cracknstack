@@ -1,8 +1,8 @@
 class_name CreditsRoll
 extends Control
 ## The credits, film style: they scroll up from the bottom of the screen at a
-## steady pace until the closing line reaches the middle, hold there a moment,
-## and close. Holding any key or mouse button speeds the roll up; Esc leaves
+## steady pace until the last line has gone off the top, hold on the empty
+## screen a moment, and close. Holding any key or mouse button speeds the roll up; Esc leaves
 ## it. Played from the main menu's Credits button and after the game is
 ## finished, over the main menu either way, so closing it lands there.
 ##
@@ -14,7 +14,8 @@ signal closed
 
 const SPEED := 60.0
 const FAST := 5.0
-## Seconds the closing line holds in the middle before the roll closes.
+## Seconds the empty screen holds after the last line leaves, before the
+## roll closes.
 const HOLD := 3.0
 const NAME_COLUMNS := 3
 const NAME_ROWS := 30
@@ -23,7 +24,6 @@ const TEXT_WIDTH := 900
 const GAP := 48
 
 var _strip: VBoxContainer
-var _end: Label
 var _hold_left := HOLD
 
 
@@ -61,8 +61,7 @@ func _add_block(kind: String, content) -> void:
 				_strip.add_child(_names(content.slice(first, first + NAME_COLUMNS * NAME_ROWS)))
 		"end":
 			_strip.add_child(_spacer())
-			_end = _text(content)
-			_strip.add_child(_end)
+			_strip.add_child(_text(content))
 
 
 func _spacer() -> Control:
@@ -102,24 +101,28 @@ func _process(delta: float) -> void:
 	advance(delta, Input.is_anything_pressed())
 
 
-## Moves the roll on by `seconds` (faster while `fast`), holding once the
-## closing line reaches the middle of the screen, then closing.
+## Moves the roll on by `seconds` (faster while `fast`) until every line has
+## left the top of the screen, then holds on the empty screen and closes.
 func advance(seconds: float, fast := false) -> void:
 	if is_queued_for_deletion():
 		return
-	var end_middle := _strip.position.y + _end.position.y + _end.size.y / 2
-	if end_middle > size.y / 2:
-		_strip.position.y = maxf(_strip.position.y - SPEED * (FAST if fast else 1.0) * seconds,
-			size.y / 2 - _end.position.y - _end.size.y / 2)
+	var step := seconds * (FAST if fast else 1.0)
+	if not is_holding():
+		_strip.position.y = maxf(_strip.position.y - SPEED * step, -_strip_height())
 		return
-	_hold_left -= seconds * (FAST if fast else 1.0)
+	_hold_left -= step
 	if _hold_left <= 0.0:
 		close()
 
 
-## The closing line has reached the middle and the roll is holding.
+## Every line has scrolled off the top and the roll is holding on the empty
+## screen.
 func is_holding() -> bool:
-	return _strip.position.y + _end.position.y + _end.size.y / 2 <= size.y / 2 + 0.5
+	return _strip.position.y <= -_strip_height() + 0.5
+
+
+func _strip_height() -> float:
+	return maxf(_strip.size.y, _strip.get_combined_minimum_size().y)
 
 
 func _unhandled_input(event: InputEvent) -> void:

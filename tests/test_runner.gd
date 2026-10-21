@@ -877,6 +877,20 @@ func _test_title_screen() -> void:
 		screens[0]._unhandled_input(esc)
 		_check(screens[0].is_queued_for_deletion(), "Esc closes the %s page" % page)
 		screens[0].free()
+	# Back on the menu, the button that opened a page takes the keyboard
+	# outline again only if the keyboard opened it; after a click nothing is
+	# highlighted.
+	for by_mouse in [false, true]:
+		var button: Button = title.buttons["Settings"]
+		button.grab_focus(by_mouse)
+		button.pressed.emit()
+		var settings: MenuScreen = title.find_children("*", "MenuScreen", false, false)[0]
+		settings.close()
+		settings.free()
+		_check(button.has_focus(true) != by_mouse,
+			"after a click, closing a page leaves nothing highlighted" if by_mouse
+			else "from the keyboard, closing a page puts focus back on its button")
+		get_viewport().gui_release_focus()
 	title.free()
 	SceneFlow._menu_requested = true
 	title = load(SceneFlow.TITLE_SCENE).instantiate()
@@ -967,7 +981,9 @@ func _test_credits_roll() -> void:
 		if roll.is_holding():
 			break
 		roll.advance(0.5)
-	_check(roll.is_holding() and not closed[0], "the closing line stops in the middle of the screen")
+	var bottom: float = roll._strip.position.y + roll._strip.size.y
+	_check(roll.is_holding() and not closed[0] and bottom <= 0.5,
+		"the credits scroll until every line has left the screen: bottom at %.1f" % bottom)
 	roll.advance(CreditsRoll.HOLD + 0.1)
 	_check(closed[0] and roll.is_queued_for_deletion(), "and after a moment the credits close")
 	await get_tree().process_frame
