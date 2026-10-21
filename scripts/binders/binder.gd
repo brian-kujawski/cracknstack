@@ -58,13 +58,16 @@ const RING_ZS := [-0.1, 0.0, 0.1]
 ## belongs in a future low-quality graphics option for players short on
 ## frame rate.
 const DETAIL_RANGE := 0.0
+## The cover leather (assets/store/leather), tinted by each binder's set
+## colour, and how many metres one copy of it covers.
+const LEATHER := "res://assets/store/leather/"
+const LEATHER_SIZE := 0.2
 
 ## Shared by every binder: the leather (one per-binder material) and the
 ## details (pages, rings, stitching; shared materials). Built on first use.
 static var _leather_mesh: ArrayMesh
 static var _detail_mesh: ArrayMesh
 static var _open_mesh: ArrayMesh
-static var _grain: NoiseTexture2D
 
 var binder: BinderRange
 var contents: BinderContents
@@ -112,13 +115,16 @@ func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
 	_closed_view = Node3D.new()
 	add_child(_closed_view)
 	_cover_material = StandardMaterial3D.new()
+	# The leather map is white on average, so the set colour comes through
+	# as it is. Mapped in the binder's own space so it moves with it.
 	_cover_material.albedo_color = accent.darkened(0.35)
-	_cover_material.roughness = 0.6
+	_cover_material.albedo_texture = load(LEATHER + "albedo.jpg")
+	_cover_material.roughness_texture = load(LEATHER + "roughness.jpg")
+	_cover_material.roughness = 1.0  # Scales the map.
 	_cover_material.normal_enabled = true
-	_cover_material.normal_texture = _leather_grain()
-	_cover_material.normal_scale = 0.8
+	_cover_material.normal_texture = load(LEATHER + "normal.jpg")
 	_cover_material.uv1_triplanar = true
-	_cover_material.uv1_scale = Vector3.ONE * 16.0
+	_cover_material.uv1_scale = Vector3.ONE / LEATHER_SIZE
 	_cover_material.emission_enabled = true
 	_cover_material.emission = Color.BLACK
 	_build_meshes()
@@ -622,22 +628,6 @@ static func _append_stitching(tool: SurfaceTool, rect: Rect2, y: float) -> void:
 static func _commit_surface(mesh: ArrayMesh, tool: SurfaceTool, material: Material) -> void:
 	tool.set_material(material)
 	tool.commit(mesh)
-
-
-## A fine pebbled grain for the leather, as a normal map.
-static func _leather_grain() -> NoiseTexture2D:
-	if _grain == null:
-		var noise := FastNoiseLite.new()
-		noise.noise_type = FastNoiseLite.TYPE_CELLULAR
-		noise.frequency = 0.06
-		_grain = NoiseTexture2D.new()
-		_grain.width = 256
-		_grain.height = 256
-		_grain.seamless = true
-		_grain.as_normal_map = true
-		_grain.bump_strength = 6.0
-		_grain.noise = noise
-	return _grain
 
 
 static func _pages_material() -> StandardMaterial3D:

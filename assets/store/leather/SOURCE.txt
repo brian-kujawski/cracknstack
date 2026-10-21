@@ -1,0 +1,6 @@
+Leather025 by ambientCG
+https://ambientcg.com/view?id=Leather025
+Licence: CC0 1.0 (https://docs.ambientcg.com/license/)
+Downloaded 2026-10-21, 1K-JPG. Files renamed: Color -> albedo, NormalGL -> normal, Roughness -> roughness.
+The colour map is scaled so its average is white (the original is a pale grey, about 0.84), because each binder multiplies it by its set colour (binder.gd), and a grey map would darken every set colour.
+Used for: the binder covers and spines (binder.gd LEATHER).
