@@ -11,7 +11,7 @@ Pickup is free and always will be.
 ## Running it
 
 1. Install [Godot 4.7](https://godotengine.org/download) (standard build, not .NET).
-2. Open `project.godot` in Godot and press **Play** (F5). You start just inside the door of the store's one cramped room: three wall-length binder shelves (left, back, right; the timeline runs round the room in that order) and four work tables in the middle.
+2. Open `project.godot` in Godot and press **Play** (F5). The game opens on the title screen: press any key for the main menu, then **New Game** fades into the shop. (While developing, `godot --path . -- --skip-title` goes straight into the shop.) You start just inside the door of the store's one cramped room: three wall-length binder shelves (left, back, right; the timeline runs round the room in that order) and four work tables in the middle.
 
 Controls:
 

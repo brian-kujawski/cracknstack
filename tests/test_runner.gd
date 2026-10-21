@@ -35,6 +35,7 @@ func _ready() -> void:
 	_test_controls()
 	_test_onscreen_text()
 	_test_pause()
+	_test_title_screen()
 	_test_progression()
 	_test_upgrade_menu()
 	_test_sorcery_recharge()
@@ -758,6 +759,59 @@ func _test_pause() -> void:
 		menu.resume()
 	day.free()
 	menu.free()
+
+
+func _test_title_screen() -> void:
+	_check(SceneFlow.should_skip_title(PackedStringArray(["--benchmark"])), "the benchmark skips the title")
+	_check(SceneFlow.should_skip_title(PackedStringArray(["--skip-title"])) == OS.is_debug_build(), "--skip-title skips it in developer builds only")
+	_check(not SceneFlow.should_skip_title(PackedStringArray()), "a normal launch shows the title")
+	var title: Control = load(SceneFlow.TITLE_SCENE).instantiate()
+	add_child(title)
+	var labels := title.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
+	_check("PICKUP" in labels and "PRESS ANY KEY TO START" in labels and Credits.DISCLAIMER in labels,
+		"the title shows the name, PRESS ANY KEY TO START and the disclaimer")
+	_check(title.buttons.keys() == ["Continue", "New Game", "Load Game", "Achievements", "Settings", "Credits", "Exit"],
+		"the main menu's buttons, in order: %s" % [title.buttons.keys()])
+	for label in ["Continue", "Load Game"]:
+		_check(title.buttons[label].disabled and title.buttons[label].focus_mode == Control.FOCUS_NONE, "%s is greyed out until there are saves" % label)
+	_check(not title.buttons["New Game"].is_visible_in_tree(), "the menu is hidden behind the title at first")
+	var motion := InputEventMouseMotion.new()
+	motion.relative = Vector2(30, 10)
+	_check(not title.is_start_press(motion), "moving the mouse doesn't leave the title")
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	_check(not title.is_start_press(release), "nor does letting go of a mouse button")
+	var key := InputEventKey.new()
+	key.physical_keycode = KEY_Q
+	key.pressed = true
+	_check(title.is_start_press(key), "any key leaves the title")
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_RIGHT
+	click.pressed = true
+	_check(title.is_start_press(click), "and so does any mouse button")
+	title._input(motion)
+	_check(title.state == title.State.TITLE, "the title waits through mouse movement")
+	title._input(key)
+	_check(title.state == title.State.MENU and title.buttons["New Game"].is_visible_in_tree(), "a key press brings up the menu")
+	_check(title.buttons["New Game"].has_focus(), "from the keyboard, New Game is focused")
+	for page in ["Achievements", "Settings", "Credits"]:
+		title.buttons[page].pressed.emit()
+		var screens := title.find_children("*", "MenuScreen", false, false)
+		_check(screens.size() == 1 and screens[0].name == page, "%s opens its page" % page)
+		if screens.is_empty():
+			continue
+		if page == "Credits":
+			var text := screens[0].find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
+			_check(text.any(func(t: String) -> bool: return Credits.DISCLAIMER in t), "the credits page shows the credits")
+		var esc := InputEventAction.new()
+		esc.action = Controls.PAUSE
+		esc.pressed = true
+		screens[0]._unhandled_input(esc)
+		_check(screens[0].is_queued_for_deletion(), "Esc closes the %s page" % page)
+		screens[0].free()
+	title.free()
+	get_viewport().gui_release_focus()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _test_progression() -> void:
