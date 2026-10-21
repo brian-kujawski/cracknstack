@@ -15,18 +15,21 @@ extends Node
 ## Putting something down happens when the button comes back up. Hold the
 ## button and a ghost shows where it will go, following your aim, so you can
 ## place it carefully; a quick click just puts it where you're looking.
-## Right-click tosses a held card back onto the pile. F brings the held card
+## Right-click tosses a held card back onto the pile (or a table, if it
+## comes down on one). F brings the held card
 ## up close to inspect it (F again lowers it). E opens or closes the binder
 ## you're looking at, and the mouse wheel turns its pages.
 ##
-## Right-click with empty hands, aimed at the pile, flips it: a few of the
-## top cards there jump up, spin and land face up or down at random.
+## Right-click with empty hands, aimed at the pile or cards on a table, flips
+## them: a few of the top cards there jump up, spin and land face up or down
+## at random. Cards on tables count as lying about just like floor cards, for
+## everything below.
 ##
 ## Upgrades bought with Mana (see Progression) change some of this: Snap
 ## speeds up every glide, Spider Climb lengthens your reach, Remember the
 ## Fallen names cards you've held wherever you see them again, Enlightened
-## Tutor shows the set of a floor card you look at (at rank II, the whole
-## card), and Unmask flips more
+## Tutor shows the set of a card lying about that you look at (at rank II,
+## the whole card), and Unmask flips more
 ## cards, more of them face up; with Demonic Consultation, flipped cards for
 ## an open binder hover, ready to grab. Harmonize lets you hold several cards: a
 ## quick click on another card picks it up too (hold the button to put the
@@ -157,8 +160,8 @@ var behind: Array[int] = []
 ## `behind`; the fan shows once they've all arrived.
 var _incoming := 0
 var carried_binder: Binder
-## Every card you've held at least once, by id. A card lying on a table is a
-## mystery until you've picked it up; from then on you know what it is.
+## Every card you've held at least once, by id. With Remember the Fallen
+## you know one of these wherever you see it again.
 var seen_cards := {}
 
 @onready var _camera: Camera3D = get_parent().get_node("Camera3D")
@@ -248,7 +251,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_update_aim()
 	_aim_floor_card = pile.top_card_at(_aim_point) if _aim == Aim.FLOOR else -1
-	pile.set_highlight(_aim_floor_card if has_room() else -1)
+	pile.set_highlight(_aim_lying_card() if has_room() else -1)
 	_update_hover()
 	_update_blessing(delta)
 	_update_ghost(delta)
@@ -367,7 +370,10 @@ func _pick_up_aimed() -> bool:
 		Aim.LOOSE_CARD:
 			var card := _aim_loose_card
 			var from := card.card_pose()
-			card.queue_free()
+			if pile.is_lying(card.card_id):
+				pile.pick_up(card.card_id)
+			else:
+				card.queue_free() # Hovering (Demonic Consultation).
 			_take_in_hand(card.card_id, from)
 			return true
 		Aim.BINDER:
@@ -450,7 +456,7 @@ func brainstorm(binder: Binder) -> Array[int]:
 	var rank := Progression.rank("Brainstorm")
 	if rank == 0:
 		return []
-	var missing := _missing_on_floor(binder)
+	var missing := _missing_lying(binder)
 	missing.shuffle()
 	missing = missing.slice(0, BRAINSTORM_CARDS[rank - 1])
 	for id in missing:
@@ -477,15 +483,16 @@ func _locked_in(binder: Binder, pocket: int) -> void:
 	FeedbackSounds.play(pile, binder.to_global(binder.pocket_position(pocket)), sound)
 
 
-## Chain Lightning goes off: missing cards from this binder page that lie on
-## the floor glow where they are, some or all of them by rank.
+## Chain Lightning goes off: missing cards from this binder page that lie
+## about (on the floor or a table) glow where they are, some or all of them
+## by rank.
 func _strike_chain_lightning(binder: Binder, page: int) -> Array[int]:
 	var first := page * BinderLayout.POCKETS_PER_PAGE
 	var missing: Array[int] = []
 	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
 	for pocket in range(first, mini(first + BinderLayout.POCKETS_PER_PAGE, binder.contents.capacity())):
 		var id := cards[binder.binder.first + pocket - 1].id
-		if not binder.contents.is_locked(pocket) and pile.is_on_floor(id):
+		if not binder.contents.is_locked(pocket) and pile.is_lying(id):
 			missing.append(id)
 	missing.shuffle()
 	var count: int = CHAIN_LIGHTNING_CARDS[maxi(Progression.rank("Chain Lightning"), 1) - 1]
@@ -513,28 +520,30 @@ func _update_blessing(delta: float) -> void:
 	if _blessed == null or _blessing_refresh > 0.0:
 		return
 	_blessing_refresh = BLESSING_REFRESH_SECONDS
-	pile.glow(_missing_on_floor(_blessed), BLESSING_REFRESH_SECONDS * 2.0)
+	pile.glow(_missing_lying(_blessed), BLESSING_REFRESH_SECONDS * 2.0)
 
 
-## The cards a binder still needs that are lying on the floor.
-func _missing_on_floor(binder: Binder) -> Array[int]:
+## The cards a binder still needs that are lying about, on the floor or a
+## table.
+func _missing_lying(binder: Binder) -> Array[int]:
 	var missing: Array[int] = []
 	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
 	for pocket in binder.contents.capacity():
 		var id := cards[binder.binder.first + pocket - 1].id
-		if binder.contents.card_at(pocket) < 0 and pile.is_on_floor(id):
+		if binder.contents.card_at(pocket) < 0 and pile.is_lying(id):
 			missing.append(id)
 	return missing
 
 
 ## Tithe: missing cards for the binder you're carrying or looking at, picked
-## at random from wherever they lie on the floor, glow for a while. How many
+## at random from wherever they lie, on the floor or a table, glow for a
+## while. How many
 ## and how long go up with rank. Returns the cards lit.
 func cast_tithe() -> Array[int]:
 	var binder := carried_binder if carried_binder != null else (_aim_binder if _aim == Aim.BINDER else null)
 	if binder == null or not Progression.can_cast("Tithe"):
 		return []
-	var missing := _missing_on_floor(binder)
+	var missing := _missing_lying(binder)
 	if missing.is_empty():
 		return []
 	var rank := Progression.rank("Tithe")
@@ -638,8 +647,10 @@ func _fly_to_pocket(id: int, from: Transform3D, binder: Binder, pocket: int, lan
 		if binder.insert(pocket, id) == BinderContents.Result.LOCKED:
 			landed.call()
 		else:
-			# Its pocket filled while it flew: it falls onto the pile there.
-			pile.drop(id, binder.global_position, binder.rotation.y))
+			# Its pocket filled while it flew: it falls beside the binder,
+			# onto the pile or the table it's on.
+			pile.land(id, binder.global_position + binder.global_basis.y * Binder.THICKNESS, binder.rotation.y,
+				true, [binder.get_rid()]))
 
 
 ## Demonic Tutor: aimed at an empty pocket of an open binder with room in
@@ -663,12 +674,12 @@ func cast_demonic_tutor() -> bool:
 	return true
 
 
-## The pile flip: aimed at the floor with empty hands, the topmost cards
-## there jump up, spin and fall back onto the pile, each landing face up or
-## down at random. Unmask flips more of them, and more land face up. Returns
-## the cards flipped.
+## The pile flip: aimed at the floor (or a table) with empty hands, the
+## topmost cards there jump up, spin and fall back down, each landing face
+## up or down at random. Unmask flips more of them, and more land face up.
+## Returns the cards flipped.
 func flip_pile() -> Array[int]:
-	if not _hands_empty() or _aim != Aim.FLOOR:
+	if not _hands_empty() or _aim not in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
 		return []
 	var rank := Progression.rank("Unmask")
 	var ids := pile.flip_cards(_aim_point, FLIP_COUNTS[rank])
@@ -794,15 +805,11 @@ func _put_down_where_aimed() -> void:
 		return
 	var id := held_card_id
 	var yaw := _yaw_facing_player(_aim_point)
+	var point := _aim_point
 	if _aim == Aim.FLOOR:
-		var point := _aim_point
 		_put_down_card(pile.drop_pose(point, yaw), func() -> void: pile.drop(id, point, yaw))
 	else:
-		var point := _aim_point
-		_put_down_card(LooseCard.pose_at(point, yaw), func() -> void:
-			var card := LooseCard.new()
-			pile.add_child(card)
-			card.setup(id, point, yaw))
+		_put_down_card(LooseCard.pose_at(point, yaw), func() -> void: pile.lay_loose(id, point, yaw))
 
 
 ## Glides the held card to `to` (a global card pose) and calls `land` when it
@@ -978,36 +985,44 @@ func _update_hint() -> void:
 		shown_card_changed.emit(shown, set_only)
 
 
-## The card whose details to show: the one in hand, or else one you're
-## looking at that you've held before. Without Remember the Fallen that's
-## only a card lying on a table; with it, cards on the floor and misplaced
-## in a pocket too. -1 for none.
+## The card whose details to show: the one in hand, or else, with Remember
+## the Fallen, one you're looking at that you've held before, lying about
+## (on the floor or a table) or misplaced in a pocket. -1 for none.
 func shown_card_id() -> int:
 	if held_card_id >= 0:
 		return held_card_id
 	if not _hands_empty():
 		return -1
 	var id := -1
-	if _aim == Aim.LOOSE_CARD:
-		return _aim_loose_card.card_id if seen_cards.has(_aim_loose_card.card_id) else -1
-	# Enlightened Tutor II reads every floor card at a glance.
-	if _aim == Aim.FLOOR and Progression.rank("Enlightened Tutor") >= 2:
-		return _aim_floor_card
+	var lying := _aim_lying_card()
+	# Enlightened Tutor II reads every card lying about at a glance.
+	if lying >= 0 and Progression.rank("Enlightened Tutor") >= 2:
+		return lying
 	if Progression.rank("Remember the Fallen") == 0:
 		return -1
-	if _aim == Aim.FLOOR:
-		id = _aim_floor_card
+	if lying >= 0:
+		id = lying
 	elif _aim == Aim.BINDER and _aim_binder.is_open() and not _aim_binder.contents.is_locked(_aim_pocket):
 		id = _aim_binder.contents.card_at(_aim_pocket)
 	return id if seen_cards.has(id) else -1
 
 
-## With Enlightened Tutor, a floor card you look at with empty hands shows
-## its set, even one you've never held. -1 for none.
+## With Enlightened Tutor, a card lying about that you look at with empty
+## hands shows its set, even one you've never held. -1 for none.
 func shown_set_card_id() -> int:
-	if not _hands_empty() or _aim != Aim.FLOOR or Progression.rank("Enlightened Tutor") == 0:
+	if not _hands_empty() or Progression.rank("Enlightened Tutor") == 0:
 		return -1
-	return _aim_floor_card
+	return _aim_lying_card()
+
+
+## The card lying under the crosshair, on the floor or a table (or hovering
+## there), or -1.
+func _aim_lying_card() -> int:
+	if _aim == Aim.FLOOR:
+		return _aim_floor_card
+	if _aim == Aim.LOOSE_CARD:
+		return _aim_loose_card.card_id
+	return -1
 
 
 ## How a hint shows an action's key or button (see Controls).

@@ -1,9 +1,9 @@
 class_name HoveringCard
 extends LooseCard
 ## A card a pile flip tossed up while its binder was open, held in the air a
-## few inches above the pile by Demonic Consultation, face up and ready to
-## grab like a card on a table. When its time runs out, or its binder is
-## closed, it falls back onto the pile.
+## few inches above the pile (or the table it lay on) by Demonic
+## Consultation, face up and ready to grab like a card on a table. When its
+## time runs out, or its binder is closed, it falls back down.
 
 ## How high above the pile it hovers, and how far it bobs.
 const HEIGHT := 0.12
@@ -41,9 +41,9 @@ func _process(delta: float) -> void:
 		position.y = _base_y + BOB * sin((_age - RISE_SECONDS) * 3.0)
 
 
-## Drops back onto the pile where it hovers.
+## Drops back down where it hovers: onto the pile, or the table it rose from.
 func fall() -> void:
 	if is_queued_for_deletion():
 		return
-	pile.drop(card_id, global_position, rotation.y)
+	pile.land(card_id, global_position, rotation.y, true, [get_rid()])
 	queue_free()

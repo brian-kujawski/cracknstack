@@ -1,19 +1,24 @@
 class_name LooseCard
 extends StaticBody3D
-## A single card the player set down on a table (or on another card lying on
-## one), face up and turned toward them. Cards set down on the floor go back
-## into the pile instead; only the pile can hold floor cards. Like binders
-## it's kinematic and on the binder collision layer, so it can be aimed at,
-## picked back up, and have binders and other cards rest on it.
+## A single card lying on a table (or on another card lying on one): set
+## down there, face up and turned toward the player, or tossed or flipped
+## there, face up or down. Cards on the floor go back into the pile instead;
+## only the pile can hold floor cards. PileWorld keeps track of both kinds
+## (see PileWorld.lay_loose), so to the player they're all just cards lying
+## about. Like binders it's kinematic and on the binder collision layer, so
+## it can be aimed at, picked back up, and have binders and other cards rest
+## on it.
 
 var card_id := -1
+var face_up := true
 
 var _top: MeshInstance3D
 
 
 ## Lays card `id` with its underside at `point` (global), turned to `yaw`.
-func setup(id: int, point: Vector3, yaw: float) -> void:
+func setup(id: int, point: Vector3, yaw: float, lying_face_up := true) -> void:
 	card_id = id
+	face_up = lying_face_up
 	collision_layer = Binder.PHYSICS_LAYER
 	collision_mask = 0
 	var shape := BoxShape3D.new()
@@ -38,7 +43,7 @@ func setup(id: int, point: Vector3, yaw: float) -> void:
 	_top.mesh = quad
 	_top.material_override = ShaderMaterial.new()
 	_top.material_override.shader = preload("res://shaders/binder_card.gdshader")
-	_top.rotation.x = -PI / 2
+	_top.basis = Glide.flat_card(Vector3.ZERO, Basis(), face_up).basis
 	_top.position.y = PileWorld.CARD_THICKNESS + 0.0005
 	add_child(_top)
 	CardView.apply(_top.material_override, id)
@@ -49,7 +54,17 @@ func setup(id: int, point: Vector3, yaw: float) -> void:
 
 ## Where the card lies, as a global pose for a card quad (see Glide).
 func card_pose() -> Transform3D:
-	return Glide.flat_card(_top.global_position, global_basis)
+	return Glide.flat_card(_top.global_position, global_basis, face_up)
+
+
+## Lit like a floor card: a soft warm light while aimed at, and a bright
+## pulse while found by magic (see floor_card.gdshader).
+func set_highlighted(on: bool) -> void:
+	_top.material_override.set_shader_parameter("highlighted", on)
+
+
+func set_glowing(on: bool) -> void:
+	_top.material_override.set_shader_parameter("glowing", on)
 
 
 ## The pose a card laid at `point`, turned to `yaw`, will have (see Glide).

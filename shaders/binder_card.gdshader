@@ -1,5 +1,6 @@
-// A card sitting in a binder pocket or on top of an unsorted stack. Lit like
-// the floor cards, with an edge glow: gold when locked in, red when misplaced.
+// A card sitting in a binder pocket or lying on a table. Lit like the floor
+// cards, with an edge glow: gold when locked in, red when misplaced. A card on
+// a table also lights up like a floor card when aimed at or found by magic.
 shader_type spatial;
 render_mode cull_disabled;
 
@@ -16,6 +17,9 @@ uniform sampler2D face_texture : source_color, filter_linear_mipmap, repeat_disa
 uniform bool alpha_corners = false;
 // rgb colour, a strength (0 = no glow).
 uniform vec4 glow = vec4(0.0);
+// As floor_card.gdshader's highlighted and glowing flags.
+uniform bool highlighted = false;
+uniform bool glowing = false;
 
 void fragment() {
 	if (cut_away(UV, alpha_corners)) {
@@ -30,4 +34,10 @@ void fragment() {
 	ALBEDO = mix(color, glow.rgb, band * min(glow.a, 1.0) * 0.85);
 	ROUGHNESS = 0.45;
 	EMISSION = glow.rgb * glow.a * (0.2 + 0.8 * band);
+	if (highlighted) {
+		EMISSION += vec3(0.35, 0.3, 0.1);
+	}
+	if (glowing) {
+		EMISSION += vec3(1.6, 0.9, 0.3) * (0.6 + 0.4 * sin(TIME * 5.0));
+	}
 }

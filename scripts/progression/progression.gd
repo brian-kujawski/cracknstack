@@ -30,9 +30,9 @@ const PRICES := [20, 40, 90, 200, 400, 900, 2000]
 const COLOURS := [
 	{"name": "White", "steps": [
 		["Remember the Fallen", 0, "Remember the name and number of every card you've held."],
-		["Enlightened Tutor", 1, "See the set of any card on the floor."],
+		["Enlightened Tutor", 1, "See the set of any card on the floor or a table."],
 		["Tithe", 1, "Cast: 5 missing cards for this binder glow for 5 s."],
-		["Enlightened Tutor", 2, "See the set, number and name of any card on the floor."],
+		["Enlightened Tutor", 2, "See the set, number and name of any card on the floor or a table."],
 		["Tithe", 2, "Tithe lights 10 missing cards for 10 s."],
 		["Tithe", 3, "Tithe lights every missing card for 15 s."],
 		["Serra's Blessing", 0, "Tithe is always on for the binder you're using."]]},
