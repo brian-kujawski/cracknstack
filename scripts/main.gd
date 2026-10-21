@@ -3,6 +3,9 @@ extends Node3D
 ## dumped on its floor, and the player.
 
 const PILE_SEED := 1993
+## How long "Achievement: Tithe" stays up in the top right, and its fade.
+const ACHIEVEMENT_SHOWN := 4.0
+const ACHIEVEMENT_FADE := 0.6
 ## Sorceries in key order, each with the action that casts it. Only learned
 ## ones show, under the Mana total.
 const SORCERIES := [
@@ -19,8 +22,12 @@ const SORCERIES := [
 @onready var _status: Label = $HUD/Status
 @onready var _held: Label = $HUD/Held
 @onready var _hint: Label = $HUD/Hint
+@onready var _achievement: Label = $HUD/Achievement
 
 var _stats_timer := 0.0
+var _achievement_tween: Tween
+## The game's been finished and the ending has started.
+var _finished := false
 
 
 func _ready() -> void:
@@ -41,6 +48,8 @@ func _ready() -> void:
 	Progression.unlocked.connect(func(_colour: int, _step: int) -> void: _update_stats())
 	Progression.sorceries_changed.connect(_update_stats)
 	_update_stats()
+	_achievement.text = ""
+	Achievements.unlocked.connect(_on_achievement_unlocked)
 
 
 func _process(delta: float) -> void:
@@ -48,6 +57,9 @@ func _process(delta: float) -> void:
 	if _stats_timer >= 0.5:
 		_stats_timer = 0.0
 		_update_stats()
+		if not _finished and is_finished(_pile.binders, _store.find_children("*", "ShelfUnit", false, false)):
+			_finished = true
+			SceneFlow.play_ending()
 
 
 ## Frame rate, draw calls and the placeholder-data note are for us while
@@ -66,6 +78,19 @@ func _update_stats() -> void:
 			debug += "\nPlaceholder cards: run tools/import_scryfall.py for Khans of Tarkir"
 		text = debug + "\n" + text
 	_status.text = text
+
+
+## The game is finished when every card is locked into its own pocket and
+## every binder stands in its own shelf space.
+static func is_finished(binders: Array[Binder], shelves: Array) -> bool:
+	for binder in binders:
+		if not binder.contents.is_complete():
+			return false
+	for shelf: ShelfUnit in shelves:
+		for space in shelf.spaces.size():
+			if shelf.spaces[space] != null and (shelf.shelved[space] == null or shelf.shelved[space].binder != shelf.spaces[space]):
+				return false
+	return not binders.is_empty()
 
 
 ## Cards locked into their own pockets, across every binder.
@@ -92,6 +117,18 @@ static func sorcery_lines() -> PackedStringArray:
 			line += " (%d s)" % ceili(left)
 		lines.append(line)
 	return lines
+
+
+## "Achievement: Tithe" in the top right for a few seconds. A newer one
+## takes its place.
+func _on_achievement_unlocked(index: int) -> void:
+	_achievement.text = "Achievement: %s" % Achievements.card_name(index)
+	_achievement.modulate.a = 1.0
+	if _achievement_tween != null:
+		_achievement_tween.kill()
+	_achievement_tween = create_tween()
+	_achievement_tween.tween_interval(ACHIEVEMENT_SHOWN)
+	_achievement_tween.tween_property(_achievement, "modulate:a", 0.0, ACHIEVEMENT_FADE)
 
 
 func _on_shown_card_changed(card: CardData, set_only: bool) -> void:

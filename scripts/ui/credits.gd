@@ -2,8 +2,8 @@ class_name Credits
 extends RefCounted
 ## The credits text: the Fan Content disclaimer (plan §2) and, with real
 ## data, where the card data and images come from and who painted the art.
-## Nothing shows it yet: it goes in the in-game menu's credits (M4b), and the
-## game doesn't ship until it does.
+## The credits roll (CreditsRoll) scrolls it, from the main menu's Credits
+## button and after the game is finished.
 
 const DISCLAIMER := "Pickup is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC."
 
@@ -19,6 +19,37 @@ const TEXTURES := [
 	"Brass: Metal048B by ambientCG (ambientcg.com), CC0.",
 	"Curtains: Fabric019 by ambientCG (ambientcg.com), CC0.",
 ]
+
+
+## The credits as the roll shows them, in order: [kind, content] where kind
+## is "title", "heading", "text" or "end" (the closing line), each one
+## string that may wrap, or "names" (a PackedStringArray in columns).
+static func roll() -> Array:
+	var blocks := [["title", "PICKUP"], ["text", DISCLAIMER]]
+	if CardDatabase.is_real_data():
+		blocks.append(["heading", "CARD DATA AND IMAGES"])
+		blocks.append(["text", "Card data and images from Scryfall (scryfall.com). Pickup isn't produced by or endorsed by Scryfall.\nMagic: The Gathering card names, text, images and art are © Wizards of the Coast LLC and the artists."])
+		var names := artists()
+		if not names.is_empty():
+			blocks.append(["heading", "ARTISTS"])
+			blocks.append(["names", names])
+	else:
+		blocks.append(["text", "These are placeholder cards. Run tools/import_scryfall.py to bring in Khans of Tarkir."])
+	blocks.append(["heading", "STORE TEXTURES"])
+	blocks.append(["text", "\n".join(TEXTURES)])
+	blocks.append(["end", "Pickup is free and always will be."])
+	return blocks
+
+
+## Every artist across the imported sets, each named once, alphabetically.
+static func artists() -> PackedStringArray:
+	var seen := {}
+	for set_data in CardDatabase.sets_in_shelf_order():
+		for artist in set_data.artists:
+			seen[artist] = true
+	var names: Array = seen.keys()
+	names.sort_custom(func(a: String, b: String) -> bool: return a.naturalnocasecmp_to(b) < 0)
+	return PackedStringArray(names)
 
 
 static func text() -> String:

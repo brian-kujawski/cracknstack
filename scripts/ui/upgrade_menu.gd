@@ -5,7 +5,6 @@ extends CanvasLayer
 ## unlock can be bought; hovering one says what it does. Tab or Esc goes
 ## back in. A stand-in until the shop moves to the front counter.
 
-const BACKDROP := Color(0.07, 0.05, 0.04, 0.92)
 const COLOUR_TINTS := [
 	Color(0.95, 0.92, 0.8), Color(0.45, 0.65, 1.0), Color(0.7, 0.55, 0.8), Color(1.0, 0.45, 0.35), Color(0.45, 0.85, 0.45)]
 
@@ -17,9 +16,7 @@ var _buttons: Array = []
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 9
-	var backdrop := ColorRect.new()
-	backdrop.color = BACKDROP
-	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var backdrop := MenuStyle.backdrop()
 	add_child(backdrop)
 	var column := VBoxContainer.new()
 	column.set_anchors_and_offsets_preset(Control.PRESET_CENTER)

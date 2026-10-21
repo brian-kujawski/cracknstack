@@ -11,7 +11,7 @@ Pickup is free and always will be.
 ## Running it
 
 1. Install [Godot 4.7](https://godotengine.org/download) (standard build, not .NET).
-2. Open `project.godot` in Godot and press **Play** (F5). You start just inside the door of the store's one cramped room: three wall-length binder shelves (left, back, right; the timeline runs round the room in that order) and four work tables in the middle.
+2. Open `project.godot` in Godot and press **Play** (F5). The game opens on the title screen: press any key for the main menu, then **New Game** fades into the shop. (While developing, `godot --path . -- --skip-title` goes straight into the shop, and the pause menu's **Play Ending** button plays the ending without filing every card.) Filing every card and shelving every binder fades out into the credits. You start just inside the door of the store's one cramped room: three wall-length binder shelves (left, back, right; the timeline runs round the room in that order) and four work tables in the middle.
 
 Controls:
 
@@ -25,7 +25,7 @@ Controls:
 | E | Open or close the binder you're looking at |
 | Mouse wheel | Turn the pages of the open binder you're looking at. Holding several cards (Harmonize), aimed anywhere else: cycle which card is on top |
 | F | Bring the held card up close to inspect it (the view holds still and the mouse tilts the card; F again lowers it) |
-| Esc | Pause (Esc again, or the Continue button, to go back in) |
+| Esc | Pause menu: Resume (or Esc again), Achievements, Settings, Exit Game (to the main menu or the desktop) |
 | Tab | Upgrade menu: spend Mana on upgrades (Tab or Esc to go back in) |
 | 1 | Cast Tithe, once learned: holding or looking at a binder, some of its missing cards light up wherever they lie in the pile |
 | 2 | Cast Teleport, once learned: the top card in hand flies to its own binder, wherever it is, and files itself |

@@ -35,6 +35,9 @@ func _ready() -> void:
 	_test_controls()
 	_test_onscreen_text()
 	_test_pause()
+	_test_title_screen()
+	_test_achievements()
+	await _test_credits_roll()
 	_test_progression()
 	_test_upgrade_menu()
 	_test_sorcery_recharge()
@@ -606,8 +609,24 @@ func _test_credits() -> void:
 	var text := Credits.text()
 	_check(Credits.DISCLAIMER in text, "credits carry the Fan Content disclaimer")
 	_check("Scryfall" in text and "Test Set art by Amy Artist, Zed Painter." in text, "real-data credits name Scryfall and the artists")
+	_check(Credits.artists() == PackedStringArray(["Amy Artist", "Zed Painter"]), "the roll names each artist once: %s" % [Credits.artists()])
+	var kinds := Credits.roll().map(func(block: Array) -> String: return block[0])
+	_check(kinds[0] == "title" and kinds.back() == "end" and "names" in kinds, "the roll runs from the title to the closing line, with the artists in columns")
+	CardDatabase.get_set(CardDatabase.sets_in_shelf_order()[0].code).artists.append("amy artist")
+	CardDatabase.get_set(CardDatabase.sets_in_shelf_order()[0].code).artists.append("Amy Artist")
+	_check(Credits.artists() == PackedStringArray(["Amy Artist", "amy artist", "Zed Painter"]) or Credits.artists() == PackedStringArray(["amy artist", "Amy Artist", "Zed Painter"]),
+		"artists repeated across sets are named once, sorted ignoring case: %s" % [Credits.artists()])
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_check(Credits.DISCLAIMER in Credits.text() and not "Scryfall" in Credits.text(), "placeholder credits still carry the disclaimer")
+	var names := PackedStringArray()
+	for i in 200:
+		names.append("Artist %03d" % i)
+	var roll := CreditsRoll.new()
+	roll._add_block("names", names)
+	var blocks := roll._strip.get_children().filter(func(child: Node) -> bool: return child is HBoxContainer)
+	_check(blocks.size() == 3 and blocks[0].get_child_count() == CreditsRoll.NAME_COLUMNS, "a long artist list is cut into blocks of columns")
+	_check(blocks[0].get_child(1).text.begins_with("Artist 001\nArtist 004"), "names read left to right, then down")
+	roll.free()
 
 
 func _test_inspect_tilt() -> void:
@@ -737,10 +756,60 @@ func _test_pause() -> void:
 	menu._unhandled_input(esc)
 	_check(not menu.is_paused() and not get_tree().paused, "Esc again goes back in")
 	menu.pause()
-	var button: Button = menu.find_children("*", "Button", true, false)[0]
-	_check(button.text == "Click to Continue", "the pause screen has a Continue button")
-	button.pressed.emit()
-	_check(not menu.is_paused() and not get_tree().paused, "the Continue button goes back in")
+	_check(menu.buttons.keys() == ["Resume", "Save/Load", "Achievements", "Settings", "Exit Game"],
+		"the pause menu's buttons, in order: %s" % [menu.buttons.keys()])
+	_check(menu.buttons["Save/Load"].disabled and menu.buttons["Save/Load"].focus_mode == Control.FOCUS_NONE,
+		"Save/Load is greyed out until there are saves")
+	menu.buttons["Resume"].pressed.emit()
+	_check(not menu.is_paused() and not get_tree().paused, "Resume goes back in")
+	menu.pause()
+	for page in ["Achievements", "Settings"]:
+		menu.buttons[page].pressed.emit()
+		var screens := menu.find_children("*", "MenuScreen", false, false)
+		_check(screens.size() == 1 and screens[0].name == page, "%s opens its page from the pause menu" % page)
+		if screens.is_empty():
+			continue
+		screens[0]._unhandled_input(esc)
+		_check(screens[0].is_queued_for_deletion() and menu.is_paused() and get_tree().paused,
+			"Esc closes the %s page and the game stays paused" % page)
+		screens[0].free()
+	menu.buttons["Exit Game"].pressed.emit()
+	_check(menu.is_asking_to_exit() and menu.exit_buttons.keys() == ["Quit to Menu", "Quit to Desktop", "Back"],
+		"Exit Game offers Quit to Menu, Quit to Desktop or Back")
+	var shown := menu.find_children("*", "Label", true, false).filter(func(label: Label) -> bool: return label.is_visible_in_tree())
+	_check(shown.is_empty(), "with no text above the buttons")
+	menu.exit_buttons["Back"].pressed.emit()
+	_check(not menu.is_asking_to_exit() and menu.is_paused(), "Back returns to the pause menu")
+	var saves := [0]
+	var count_save := func() -> void: saves[0] += 1
+	SceneFlow.saving.connect(count_save)
+	for quit in ["Quit to Menu", "Quit to Desktop"]:
+		for answer in ["Save And Quit", "Quit Without Saving"]:
+			menu.buttons["Exit Game"].pressed.emit()
+			menu.exit_buttons[quit].pressed.emit()
+			var questions := menu.find_children("*", "Label", true, false).filter(func(label: Label) -> bool: return label.is_visible_in_tree())
+			_check(menu.is_asking_to_save() and not menu.is_asking_to_exit() and questions.size() == 1 and questions[0].text == "Save before quitting?"
+				and menu.save_buttons.keys() == ["Save And Quit", "Quit Without Saving"], "%s asks: Save before quitting?" % quit)
+			_check(menu._quit_to == (SceneFlow.to_main_menu if quit == "Quit to Menu" else SceneFlow.quit), "%s heads for the right place" % quit)
+			var went := [false]
+			menu._quit_to = func() -> void: went[0] = true
+			saves[0] = 0
+			menu.save_buttons[answer].pressed.emit()
+			_check(went[0] and saves[0] == (1 if answer == "Save And Quit" else 0),
+				"%s, %s: %s" % [quit, answer, "saves, then quits" if answer == "Save And Quit" else "quits without saving"])
+			menu._show_menu()
+	SceneFlow.saving.disconnect(count_save)
+	menu.buttons["Exit Game"].pressed.emit()
+	menu.exit_buttons["Quit to Desktop"].pressed.emit()
+	menu._unhandled_input(esc)
+	_check(menu.is_asking_to_exit() and not menu.is_asking_to_save(), "Esc steps back from the save question to the exit question")
+	menu._unhandled_input(esc)
+	_check(not menu.is_asking_to_exit() and menu.is_paused(), "Esc again goes back to the pause menu, without resuming")
+	menu._unhandled_input(esc)
+	_check(not menu.is_paused() and not get_tree().paused, "and Esc again resumes")
+	_check(not SceneFlow.take_menu_request(), "nothing asks the title to skip to its menu by default")
+	SceneFlow._menu_requested = true
+	_check(SceneFlow.take_menu_request() and not SceneFlow.take_menu_request(), "the way back to the menu is taken once")
 	var environment := Environment.new()
 	var day := DayCycle.new()
 	day.setup(environment, [] as Array[Light3D], null, null)
@@ -758,6 +827,170 @@ func _test_pause() -> void:
 		menu.resume()
 	day.free()
 	menu.free()
+
+
+func _test_title_screen() -> void:
+	_check(SceneFlow.should_skip_title(PackedStringArray(["--benchmark"])), "the benchmark skips the title")
+	_check(SceneFlow.should_skip_title(PackedStringArray(["--skip-title"])) == OS.is_debug_build(), "--skip-title skips it in developer builds only")
+	_check(not SceneFlow.should_skip_title(PackedStringArray()), "a normal launch shows the title")
+	var title: Control = load(SceneFlow.TITLE_SCENE).instantiate()
+	add_child(title)
+	var labels := title.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
+	_check("PICKUP" in labels and "PRESS ANY KEY TO START" in labels and Credits.DISCLAIMER in labels,
+		"the title shows the name, PRESS ANY KEY TO START and the disclaimer")
+	_check(title.buttons.keys() == ["Continue", "New Game", "Load Game", "Achievements", "Settings", "Credits", "Exit"],
+		"the main menu's buttons, in order: %s" % [title.buttons.keys()])
+	for label in ["Continue", "Load Game"]:
+		_check(title.buttons[label].disabled and title.buttons[label].focus_mode == Control.FOCUS_NONE, "%s is greyed out until there are saves" % label)
+	_check(not title.buttons["New Game"].is_visible_in_tree(), "the menu is hidden behind the title at first")
+	var motion := InputEventMouseMotion.new()
+	motion.relative = Vector2(30, 10)
+	_check(not title.is_start_press(motion), "moving the mouse doesn't leave the title")
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	_check(not title.is_start_press(release), "nor does letting go of a mouse button")
+	var key := InputEventKey.new()
+	key.physical_keycode = KEY_Q
+	key.pressed = true
+	_check(title.is_start_press(key), "any key leaves the title")
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_RIGHT
+	click.pressed = true
+	_check(title.is_start_press(click), "and so does any mouse button")
+	title._input(motion)
+	_check(title.state == title.State.TITLE, "the title waits through mouse movement")
+	title._input(key)
+	_check(title.state == title.State.MENU and title.buttons["New Game"].is_visible_in_tree(), "a key press brings up the menu")
+	_check(title.buttons["New Game"].has_focus(), "from the keyboard, New Game is focused")
+	for page in ["Achievements", "Settings", "Credits"]:
+		title.buttons[page].pressed.emit()
+		var screens := title.find_children("*", "CreditsRoll" if page == "Credits" else "MenuScreen", false, false)
+		_check(screens.size() == 1 and (page == "Credits" or screens[0].name == page), "%s opens its page" % page)
+		if screens.is_empty():
+			continue
+		if page == "Credits":
+			var text := screens[0].find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
+			_check(text.any(func(t: String) -> bool: return Credits.DISCLAIMER in t), "Credits rolls the credits")
+		var esc := InputEventAction.new()
+		esc.action = Controls.PAUSE
+		esc.pressed = true
+		screens[0]._unhandled_input(esc)
+		_check(screens[0].is_queued_for_deletion(), "Esc closes the %s page" % page)
+		screens[0].free()
+	title.free()
+	SceneFlow._menu_requested = true
+	title = load(SceneFlow.TITLE_SCENE).instantiate()
+	add_child(title)
+	_check(title.state == title.State.MENU and title.buttons["New Game"].is_visible_in_tree(),
+		"coming back from the shop, the title opens straight on its menu")
+	title.free()
+	get_viewport().gui_release_focus()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _test_achievements() -> void:
+	var path := "user://test_achievements.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Achievements.load_from(path)
+	var nodes := {}
+	for colour in Progression.COLOURS.size():
+		for step in Progression.COLOURS[colour].steps:
+			nodes[step[0]] = colour
+	_check(Achievements.count() == nodes.size(), "one achievement per card the upgrade tree is named after: %d" % Achievements.count())
+	var matches := true
+	for index in Achievements.count():
+		matches = matches and nodes.get(Achievements.card_name(index), -1) == Achievements.colour(index)
+	_check(matches, "each achievement sits in its card's colour")
+	var tithe := Achievements.index_of("Tithe")
+	_check(not Achievements.is_unlocked(tithe) and Achievements.title(tithe) == "???" and Achievements.description(tithe) == "This achievement is locked.",
+		"a locked achievement shows ??? and This achievement is locked.")
+	_check(Achievements.icon(tithe).resource_path.ends_with("achievement%03d_locked.png" % (tithe + 1)), "and its locked icon")
+	for index in Achievements.count():
+		for unlocked in [true, false]:
+			matches = matches and Achievements.icon_path(index + 1, unlocked) == Achievements.ICON_PATH % [index + 1, "" if unlocked else "_locked"]
+	_check(matches, "every achievement has both placeholder icons")
+	_check(Achievements.icon_path(999, true).ends_with("achievement001.png") and Achievements.icon_path(999, false).ends_with("achievement001_locked.png"),
+		"a missing icon falls back to 001's")
+	var heard: Array[int] = []
+	var listen := func(index: int) -> void: heard.append(index)
+	Achievements.unlocked.connect(listen)
+	var card := CardDatabase.get_card(0)
+	Achievements.card_filed(card)
+	_check(heard.is_empty(), "filing a card no upgrade is named after unlocks nothing")
+	var real_name := card.name
+	card.name = "Tithe"
+	Achievements.card_filed(card)
+	Achievements.card_filed(card)
+	card.name = real_name
+	var set_name := CardDatabase.get_set(card.set_code).name
+	_check(heard == [tithe], "filing Tithe unlocks its achievement, once")
+	_check(Achievements.is_unlocked(tithe) and Achievements.title(tithe) == "Tithe" and Achievements.description(tithe) == "Filed Tithe from %s." % set_name,
+		"an unlocked achievement shows its name and what it was for: " + Achievements.description(tithe))
+	_check(Achievements.icon(tithe).resource_path.ends_with("achievement%03d.png" % (tithe + 1)), "and its full icon")
+	var screen := AchievementsScreen.make()
+	add_child(screen)
+	var tiles := screen.find_children("Achievement*", "VBoxContainer", true, false)
+	_check(tiles.size() == Achievements.count(), "the Achievements page has a tile for each")
+	var tile: Node = screen.find_child("Achievement%03d" % (tithe + 1), true, false)
+	var locked_tile: Node = screen.find_child("Achievement%03d" % (Achievements.index_of("Snap") + 1), true, false)
+	_check(tile != null and tile.get_node("Title").text == "Tithe" and tile.get_node("Icon").texture == Achievements.icon(tithe),
+		"an unlocked tile shows the name and full icon")
+	_check(locked_tile != null and locked_tile.get_node("Title").text == "???" and locked_tile.get_node("Text").text == "This achievement is locked.",
+		"a locked tile shows ??? and the locked line")
+	screen.free()
+	Progression.reset()
+	_check(Achievements.is_unlocked(tithe), "New Game doesn't clear achievements")
+	Achievements.load_from(path)
+	_check(Achievements.is_unlocked(tithe) and Achievements.description(tithe) == "Filed Tithe from %s." % set_name, "unlocked achievements are saved and load back")
+	Achievements.unlocked.disconnect(listen)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Achievements.load_from(Achievements.SAVE_PATH)
+
+
+func _test_credits_roll() -> void:
+	var closed := [false]
+	var roll := CreditsRoll.new()
+	roll.closed.connect(func() -> void: closed[0] = true)
+	add_child(roll)
+	roll.set_process(false)
+	_check(roll._strip.position.y >= roll.size.y - 1.0 and roll.size.y > 0.0, "the credits start below the screen")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var start: float = roll._strip.position.y
+	roll.advance(1.0)
+	var slow: float = start - roll._strip.position.y
+	roll.advance(1.0, true)
+	var fast: float = start - slow - roll._strip.position.y
+	_check(is_equal_approx(slow, CreditsRoll.SPEED) and is_equal_approx(fast, CreditsRoll.SPEED * CreditsRoll.FAST),
+		"they scroll steadily, %d times faster while a key is held: %.1f, %.1f" % [CreditsRoll.FAST, slow, fast])
+	for i in 2000:
+		if roll.is_holding():
+			break
+		roll.advance(0.5)
+	_check(roll.is_holding() and not closed[0], "the closing line stops in the middle of the screen")
+	roll.advance(CreditsRoll.HOLD + 0.1)
+	_check(closed[0] and roll.is_queued_for_deletion(), "and after a moment the credits close")
+	await get_tree().process_frame
+	roll = CreditsRoll.new()
+	closed[0] = false
+	roll.closed.connect(func() -> void: closed[0] = true)
+	add_child(roll)
+	var esc := InputEventAction.new()
+	esc.action = Controls.PAUSE
+	esc.pressed = true
+	roll._unhandled_input(esc)
+	_check(closed[0], "Esc leaves the credits")
+	await get_tree().process_frame
+	_check(not SceneFlow.take_credits_request(), "nothing asks for the credits by default")
+	SceneFlow._credits_requested = true
+	var title: Control = load(SceneFlow.TITLE_SCENE).instantiate()
+	add_child(title)
+	_check(title.state == title.State.MENU and title.find_child("CreditsRoll", false, false) != null,
+		"after the ending, the credits roll over the main menu")
+	title.free()
+	var empty: Array[Binder] = []
+	_check(not preload("res://scripts/main.gd").is_finished(empty, []), "an empty store isn't a finished game")
+	get_viewport().gui_release_focus()
 
 
 func _test_progression() -> void:

@@ -462,10 +462,11 @@ func brainstorm(binder: Binder) -> Array[int]:
 	return missing
 
 
-## A card locked into its pocket, by hand or by Teleport: the chime, and
-## Chain Lightning if it's armed.
+## A card locked into its pocket, by hand or by Teleport: the chime, Chain
+## Lightning if it's armed, and the card's achievement if it has one.
 func _locked_in(binder: Binder, pocket: int) -> void:
 	var page := pocket / BinderLayout.POCKETS_PER_PAGE
+	Achievements.card_filed(CardDatabase.get_card(binder.contents.card_at(pocket)))
 	if Progression.fire("Chain Lightning"):
 		_strike_chain_lightning(binder, page)
 	var sound := FeedbackSounds.Kind.CARD_LOCKED
