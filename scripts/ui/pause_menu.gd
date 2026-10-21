@@ -6,18 +6,24 @@ extends CanvasLayer
 ## so the mouse is never left loose in the game.
 ##
 ## Resume, Save/Load (greyed out until saves exist, M8), Achievements and
-## Settings (the same pages as the main menu's), and Exit Game, which asks
-## first because nothing is saved yet: Main Menu, Quit to Desktop or Back.
+## Settings (the same pages as the main menu's), and Exit Game: Quit to
+## Menu, Quit to Desktop or Back. Either quit then asks "Save before
+## quitting?": Save And Quit saves first (SceneFlow.save_game(), a hook
+## until M8), Quit Without Saving never does. Esc steps back one question.
 
 ## Set by the main scene; the developer time-of-day buttons drive it.
 var day_cycle: DayCycle
-## The menu's buttons by label, and the exit question's, for the tests and
-## for focus.
+## Each step's buttons by label, for the tests and for focus.
 var buttons := {}
 var exit_buttons := {}
+var save_buttons := {}
 
 var _menu: VBoxContainer
 var _exit_question: VBoxContainer
+var _save_question: VBoxContainer
+## Where the chosen quit goes once the save question is answered:
+## SceneFlow.to_main_menu or SceneFlow.quit.
+var _quit_to: Callable
 
 
 func _ready() -> void:
@@ -40,16 +46,18 @@ func _ready() -> void:
 	if OS.is_debug_build():
 		_add_time_buttons(_menu)
 	_exit_question = MenuStyle.centred_column(12)
-	_exit_question.visible = false
 	backdrop.add_child(_exit_question)
-	var question := MenuStyle.heading("EXIT GAME", 48)
-	_exit_question.add_child(question)
-	var warning := MenuStyle.heading("Progress isn't saved.", MenuStyle.BUTTON_FONT_SIZE)
-	warning.custom_minimum_size.y = 72
-	_exit_question.add_child(warning)
-	_add_button(_exit_question, exit_buttons, "Main Menu").pressed.connect(SceneFlow.to_main_menu)
-	_add_button(_exit_question, exit_buttons, "Quit to Desktop").pressed.connect(SceneFlow.quit)
+	_add_button(_exit_question, exit_buttons, "Quit to Menu").pressed.connect(_ask_to_save.bind(SceneFlow.to_main_menu, "Quit to Menu"))
+	_add_button(_exit_question, exit_buttons, "Quit to Desktop").pressed.connect(_ask_to_save.bind(SceneFlow.quit, "Quit to Desktop"))
 	_add_button(_exit_question, exit_buttons, "Back").pressed.connect(_back_from_exit)
+	_save_question = MenuStyle.centred_column(12)
+	backdrop.add_child(_save_question)
+	var question := MenuStyle.heading("Save before quitting?", 36)
+	question.custom_minimum_size.y = 80
+	_save_question.add_child(question)
+	_add_button(_save_question, save_buttons, "Save And Quit").pressed.connect(_quit.bind(true))
+	_add_button(_save_question, save_buttons, "Quit Without Saving").pressed.connect(_quit.bind(false))
+	_show_menu()
 	visible = false
 
 
@@ -87,7 +95,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if SceneFlow.is_busy():
 		return
 	if event.is_action_pressed(Controls.PAUSE):
-		if _exit_question.visible:
+		if _save_question.visible:
+			_back_from_save()
+		elif _exit_question.visible:
 			_back_from_exit()
 		elif visible:
 			resume()
@@ -96,7 +106,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif visible and MenuStyle.wants_focus(_menu, event):
 		get_viewport().set_input_as_handled()
-		(exit_buttons["Back"] if _exit_question.visible else buttons["Resume"]).grab_focus()
+		_first_button().grab_focus()
 
 
 func _notification(what: int) -> void:
@@ -122,32 +132,64 @@ func resume() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
-## True while the Exit Game question is showing.
+## True while the Exit Game question (Quit to Menu, Quit to Desktop, Back)
+## is showing.
 func is_asking_to_exit() -> bool:
 	return _exit_question.visible
 
 
+## True while "Save before quitting?" is showing.
+func is_asking_to_save() -> bool:
+	return _save_question.visible
+
+
 func _ask_to_exit() -> void:
-	var had_focus: bool = buttons["Exit Game"].has_focus()
-	_menu.visible = false
-	_exit_question.visible = true
-	if had_focus:
-		exit_buttons["Back"].grab_focus()
-	else:
-		get_viewport().gui_release_focus()
+	_show(_exit_question, buttons["Exit Game"], exit_buttons["Quit to Menu"])
 
 
 func _back_from_exit() -> void:
-	var had_focus: bool = exit_buttons["Back"].has_focus()
-	_show_menu()
-	if had_focus:
-		buttons["Exit Game"].grab_focus()
+	_show(_menu, exit_buttons["Back"], buttons["Exit Game"])
+
+
+func _ask_to_save(quit_to: Callable, label: String) -> void:
+	_quit_to = quit_to
+	_show(_save_question, exit_buttons[label], save_buttons["Save And Quit"])
+
+
+func _back_from_save() -> void:
+	var label := "Quit to Menu" if _quit_to == SceneFlow.to_main_menu else "Quit to Desktop"
+	_show(_exit_question, null, exit_buttons[label], true)
+
+
+## Save And Quit saves first; Quit Without Saving never does, even once
+## saving exists.
+func _quit(save: bool) -> void:
+	if save:
+		SceneFlow.save_game()
+	_quit_to.call()
 
 
 func _show_menu() -> void:
-	_exit_question.visible = false
-	_menu.visible = true
+	_show(_menu, null, null)
+
+
+## Shows one step of the menu. Focus follows the keyboard: if `from` had it
+## (or `keep_focus`), `to` takes it; otherwise nothing is highlighted.
+func _show(column: VBoxContainer, from: Button, to: Button, keep_focus := false) -> void:
+	var had_focus := keep_focus or (from != null and from.has_focus())
+	for step in [_menu, _exit_question, _save_question]:
+		step.visible = step == column
 	get_viewport().gui_release_focus()
+	if had_focus and to != null:
+		to.grab_focus()
+
+
+func _first_button() -> Button:
+	if _save_question.visible:
+		return save_buttons["Save And Quit"]
+	if _exit_question.visible:
+		return exit_buttons["Quit to Menu"]
+	return buttons["Resume"]
 
 
 ## Opens the Achievements or Settings page over the menu; Back or Esc

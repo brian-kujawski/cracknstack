@@ -756,15 +756,37 @@ func _test_pause() -> void:
 			"Esc closes the %s page and the game stays paused" % page)
 		screens[0].free()
 	menu.buttons["Exit Game"].pressed.emit()
-	_check(menu.is_asking_to_exit() and menu.exit_buttons.keys() == ["Main Menu", "Quit to Desktop", "Back"],
-		"Exit Game asks first: Main Menu, Quit to Desktop or Back")
-	var labels := menu.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
-	_check("Progress isn't saved." in labels, "and warns that progress isn't saved")
+	_check(menu.is_asking_to_exit() and menu.exit_buttons.keys() == ["Quit to Menu", "Quit to Desktop", "Back"],
+		"Exit Game offers Quit to Menu, Quit to Desktop or Back")
+	var shown := menu.find_children("*", "Label", true, false).filter(func(label: Label) -> bool: return label.is_visible_in_tree())
+	_check(shown.is_empty(), "with no text above the buttons")
 	menu.exit_buttons["Back"].pressed.emit()
 	_check(not menu.is_asking_to_exit() and menu.is_paused(), "Back returns to the pause menu")
+	var saves := [0]
+	var count_save := func() -> void: saves[0] += 1
+	SceneFlow.saving.connect(count_save)
+	for quit in ["Quit to Menu", "Quit to Desktop"]:
+		for answer in ["Save And Quit", "Quit Without Saving"]:
+			menu.buttons["Exit Game"].pressed.emit()
+			menu.exit_buttons[quit].pressed.emit()
+			var questions := menu.find_children("*", "Label", true, false).filter(func(label: Label) -> bool: return label.is_visible_in_tree())
+			_check(menu.is_asking_to_save() and not menu.is_asking_to_exit() and questions.size() == 1 and questions[0].text == "Save before quitting?"
+				and menu.save_buttons.keys() == ["Save And Quit", "Quit Without Saving"], "%s asks: Save before quitting?" % quit)
+			_check(menu._quit_to == (SceneFlow.to_main_menu if quit == "Quit to Menu" else SceneFlow.quit), "%s heads for the right place" % quit)
+			var went := [false]
+			menu._quit_to = func() -> void: went[0] = true
+			saves[0] = 0
+			menu.save_buttons[answer].pressed.emit()
+			_check(went[0] and saves[0] == (1 if answer == "Save And Quit" else 0),
+				"%s, %s: %s" % [quit, answer, "saves, then quits" if answer == "Save And Quit" else "quits without saving"])
+			menu._show_menu()
+	SceneFlow.saving.disconnect(count_save)
 	menu.buttons["Exit Game"].pressed.emit()
+	menu.exit_buttons["Quit to Desktop"].pressed.emit()
 	menu._unhandled_input(esc)
-	_check(not menu.is_asking_to_exit() and menu.is_paused(), "so does Esc, without resuming")
+	_check(menu.is_asking_to_exit() and not menu.is_asking_to_save(), "Esc steps back from the save question to the exit question")
+	menu._unhandled_input(esc)
+	_check(not menu.is_asking_to_exit() and menu.is_paused(), "Esc again goes back to the pause menu, without resuming")
 	menu._unhandled_input(esc)
 	_check(not menu.is_paused() and not get_tree().paused, "and Esc again resumes")
 	_check(not SceneFlow.take_menu_request(), "nothing asks the title to skip to its menu by default")

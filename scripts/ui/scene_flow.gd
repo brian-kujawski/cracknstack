@@ -6,6 +6,9 @@ extends CanvasLayer
 ## straight on the menu. While a fade runs, input is swallowed so nothing is
 ## clicked or pressed half-way through.
 
+## Emitted by save_game(), before the save itself (M8).
+signal saving
+
 const TITLE_SCENE := "res://scenes/title.tscn"
 const SHOP_SCENE := "res://scenes/main.tscn"
 const FADE_OUT := 0.4
@@ -93,6 +96,12 @@ func take_menu_request() -> bool:
 	var requested := _menu_requested
 	_menu_requested = false
 	return requested
+
+
+## Saves the game before quitting (the pause menu's Save And Quit). Saves
+## come in M8; until then this is where they'll hook in, and does nothing.
+func save_game() -> void:
+	saving.emit()
 
 
 ## Fades out and closes the game.
