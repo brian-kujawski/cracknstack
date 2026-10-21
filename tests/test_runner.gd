@@ -981,7 +981,9 @@ func _test_credits_roll() -> void:
 		if roll.is_holding():
 			break
 		roll.advance(0.5)
-	_check(roll.is_holding() and not closed[0], "the closing line stops in the middle of the screen")
+	var bottom: float = roll._strip.position.y + roll._strip.size.y
+	_check(roll.is_holding() and not closed[0] and bottom <= 0.5,
+		"the credits scroll until every line has left the screen: bottom at %.1f" % bottom)
 	roll.advance(CreditsRoll.HOLD + 0.1)
 	_check(closed[0] and roll.is_queued_for_deletion(), "and after a moment the credits close")
 	await get_tree().process_frame
