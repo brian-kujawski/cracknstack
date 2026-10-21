@@ -8,9 +8,9 @@ extends RefCounted
 ## icon.
 
 const ICON_SIZE := 96
-const TILE_WIDTH := 230
+const TILE_WIDTH := 280
 const COLOUR_COUNT := 5
-const TEXT_LINE_HEIGHT := 22
+const TEXT_LINE_HEIGHT := 28
 
 
 static func make() -> MenuScreen:
