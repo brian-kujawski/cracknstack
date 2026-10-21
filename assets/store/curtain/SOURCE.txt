@@ -1,0 +1,6 @@
+Fabric019 by ambientCG
+https://ambientcg.com/view?id=Fabric019
+Licence: CC0 1.0 (https://docs.ambientcg.com/license/)
+Downloaded 2026-10-21, 1K-JPG. Files renamed: Color -> albedo, NormalGL -> normal, Roughness -> roughness.
+The Opacity map is solid white, so it isn't shipped. The colour map is a near-white grey; the curtains keep their cream colour as a tint on it.
+Used for: the window curtains (store_builder.gd CURTAIN).

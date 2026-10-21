@@ -70,6 +70,10 @@ const PLASTER_SIZE := 2.0
 ## (assets/store/brass), and how many metres one copy of it covers.
 const BRASS := "brass"
 const BRASS_SIZE := 0.1
+## The curtains' knit (assets/store/curtain), tinted cream, and how many
+## metres one copy of it covers.
+const CURTAIN := "curtain"
+const CURTAIN_SIZE := 0.2
 
 ## Floor footprints nothing on the floor may overlap (the shelves and the
 ## table legs), as x/z rectangles. The space under a table top is open:
@@ -78,7 +82,7 @@ var obstacles: Array[Rect2] = []
 ## For the DayCycle: the light from each window, the curtains, and the sky
 ## seen between them.
 var window_lights: Array[Light3D] = []
-var curtain_material := _material(Color(0.86, 0.8, 0.68))
+var curtain_material := _curtain()
 var sky_material := StandardMaterial3D.new()
 ## Every shadow box in the display cabinets, back cabinet first, each
 ## cabinet's top row first, left to right as you face it.
@@ -518,6 +522,14 @@ static func _by_uv(material: StandardMaterial3D) -> StandardMaterial3D:
 	copy.uv1_world_triplanar = false
 	copy.uv1_scale = Vector3.ONE
 	return copy
+
+
+## The knit curtain fabric, tinted the curtains' cream.
+static func _curtain() -> StandardMaterial3D:
+	var material := _textured(CURTAIN, CURTAIN_SIZE)
+	material.albedo_color = Color(0.86, 0.8, 0.68)
+	material.normal_scale = 2.0  # The knit's own relief barely shows on a curtain.
+	return material
 
 
 ## The brass texture as a metal (its metalness map is solid white).
