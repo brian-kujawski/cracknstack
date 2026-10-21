@@ -58,6 +58,10 @@ const FELT_SIZE := 0.3
 ## of it covers.
 const CARPET := "carpet"
 const CARPET_SIZE := 0.5
+## Painted plaster on the walls and ceiling (assets/store/plaster), and how
+## many metres one copy of it covers.
+const PLASTER := "plaster"
+const PLASTER_SIZE := 2.0
 
 ## Floor footprints nothing on the floor may overlap (the shelves and the
 ## table legs), as x/z rectangles. The space under a table top is open:
@@ -72,7 +76,7 @@ var sky_material := StandardMaterial3D.new()
 ## cabinet's top row first, left to right as you face it.
 var display_slots: Array[Marker3D] = []
 
-var _wall_material := _material(Color(0.86, 0.84, 0.8))
+var _wall_material := _textured(PLASTER, PLASTER_SIZE)
 var _floor_material := _textured(CARPET, CARPET_SIZE)
 var _shelf_material := _material(Color(0.62, 0.48, 0.34))
 var _table_material := _textured(TABLE_WOOD, TABLE_WOOD_SIZE)

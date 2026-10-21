@@ -13,6 +13,7 @@ const TEXTURES := [
 	"Table and cabinet wood: Wood066 by ambientCG (ambientcg.com), CC0.",
 	"Table and cabinet baize: Fabric037 by ambientCG (ambientcg.com), CC0.",
 	"Carpet: Carpet016 by ambientCG (ambientcg.com), CC0.",
+	"Walls: PaintedPlaster017 by ambientCG (ambientcg.com), CC0.",
 ]
 
 
