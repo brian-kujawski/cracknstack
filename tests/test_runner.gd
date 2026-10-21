@@ -36,6 +36,7 @@ func _ready() -> void:
 	_test_onscreen_text()
 	_test_pause()
 	_test_title_screen()
+	_test_achievements()
 	_test_progression()
 	_test_upgrade_menu()
 	_test_sorcery_recharge()
@@ -868,6 +869,65 @@ func _test_title_screen() -> void:
 	title.free()
 	get_viewport().gui_release_focus()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _test_achievements() -> void:
+	var path := "user://test_achievements.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Achievements.load_from(path)
+	var nodes := {}
+	for colour in Progression.COLOURS.size():
+		for step in Progression.COLOURS[colour].steps:
+			nodes[step[0]] = colour
+	_check(Achievements.count() == nodes.size(), "one achievement per card the upgrade tree is named after: %d" % Achievements.count())
+	var matches := true
+	for index in Achievements.count():
+		matches = matches and nodes.get(Achievements.card_name(index), -1) == Achievements.colour(index)
+	_check(matches, "each achievement sits in its card's colour")
+	var tithe := Achievements.index_of("Tithe")
+	_check(not Achievements.is_unlocked(tithe) and Achievements.title(tithe) == "???" and Achievements.description(tithe) == "This achievement is locked.",
+		"a locked achievement shows ??? and This achievement is locked.")
+	_check(Achievements.icon(tithe).resource_path.ends_with("achievement%03d_locked.png" % (tithe + 1)), "and its locked icon")
+	for index in Achievements.count():
+		for unlocked in [true, false]:
+			matches = matches and Achievements.icon_path(index + 1, unlocked) == Achievements.ICON_PATH % [index + 1, "" if unlocked else "_locked"]
+	_check(matches, "every achievement has both placeholder icons")
+	_check(Achievements.icon_path(999, true).ends_with("achievement001.png") and Achievements.icon_path(999, false).ends_with("achievement001_locked.png"),
+		"a missing icon falls back to 001's")
+	var heard: Array[int] = []
+	var listen := func(index: int) -> void: heard.append(index)
+	Achievements.unlocked.connect(listen)
+	var card := CardDatabase.get_card(0)
+	Achievements.card_filed(card)
+	_check(heard.is_empty(), "filing a card no upgrade is named after unlocks nothing")
+	var real_name := card.name
+	card.name = "Tithe"
+	Achievements.card_filed(card)
+	Achievements.card_filed(card)
+	card.name = real_name
+	var set_name := CardDatabase.get_set(card.set_code).name
+	_check(heard == [tithe], "filing Tithe unlocks its achievement, once")
+	_check(Achievements.is_unlocked(tithe) and Achievements.title(tithe) == "Tithe" and Achievements.description(tithe) == "Filed Tithe from %s." % set_name,
+		"an unlocked achievement shows its name and what it was for: " + Achievements.description(tithe))
+	_check(Achievements.icon(tithe).resource_path.ends_with("achievement%03d.png" % (tithe + 1)), "and its full icon")
+	var screen := AchievementsScreen.make()
+	add_child(screen)
+	var tiles := screen.find_children("Achievement*", "VBoxContainer", true, false)
+	_check(tiles.size() == Achievements.count(), "the Achievements page has a tile for each")
+	var tile: Node = screen.find_child("Achievement%03d" % (tithe + 1), true, false)
+	var locked_tile: Node = screen.find_child("Achievement%03d" % (Achievements.index_of("Snap") + 1), true, false)
+	_check(tile != null and tile.get_node("Title").text == "Tithe" and tile.get_node("Icon").texture == Achievements.icon(tithe),
+		"an unlocked tile shows the name and full icon")
+	_check(locked_tile != null and locked_tile.get_node("Title").text == "???" and locked_tile.get_node("Text").text == "This achievement is locked.",
+		"a locked tile shows ??? and the locked line")
+	screen.free()
+	Progression.reset()
+	_check(Achievements.is_unlocked(tithe), "New Game doesn't clear achievements")
+	Achievements.load_from(path)
+	_check(Achievements.is_unlocked(tithe) and Achievements.description(tithe) == "Filed Tithe from %s." % set_name, "unlocked achievements are saved and load back")
+	Achievements.unlocked.disconnect(listen)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Achievements.load_from(Achievements.SAVE_PATH)
 
 
 func _test_progression() -> void:

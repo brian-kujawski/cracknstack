@@ -54,7 +54,7 @@ func _ready() -> void:
 	_add_button("Continue", false)
 	_add_button("New Game").pressed.connect(SceneFlow.new_game)
 	_add_button("Load Game", false)
-	_add_button("Achievements").pressed.connect(_open.bind(func() -> MenuScreen: return MenuScreen.new("Achievements"), "Achievements"))
+	_add_button("Achievements").pressed.connect(_open.bind(AchievementsScreen.make, "Achievements"))
 	_add_button("Settings").pressed.connect(_open.bind(func() -> MenuScreen: return MenuScreen.new("Settings"), "Settings"))
 	_add_button("Credits").pressed.connect(_open.bind(MenuScreen.credits, "Credits"))
 	_add_button("Exit").pressed.connect(SceneFlow.quit)

@@ -40,8 +40,8 @@ func _ready() -> void:
 	# Fires when the click comes back up, so neither half of it reaches the game.
 	_add_button(_menu, buttons, "Resume").pressed.connect(resume)
 	_add_button(_menu, buttons, "Save/Load", false)
-	_add_button(_menu, buttons, "Achievements").pressed.connect(_open.bind("Achievements"))
-	_add_button(_menu, buttons, "Settings").pressed.connect(_open.bind("Settings"))
+	_add_button(_menu, buttons, "Achievements").pressed.connect(_open.bind("Achievements", AchievementsScreen.make))
+	_add_button(_menu, buttons, "Settings").pressed.connect(_open.bind("Settings", func() -> MenuScreen: return MenuScreen.new("Settings")))
 	_add_button(_menu, buttons, "Exit Game").pressed.connect(_ask_to_exit)
 	if OS.is_debug_build():
 		_add_time_buttons(_menu)
@@ -194,11 +194,11 @@ func _first_button() -> Button:
 
 ## Opens the Achievements or Settings page over the menu; Back or Esc
 ## returns to it, still paused.
-func _open(title: String) -> void:
+func _open(title: String, make: Callable) -> void:
 	var button: Button = buttons[title]
 	var had_focus := button.has_focus()
 	get_viewport().gui_release_focus()
-	var page := MenuScreen.new(title)
+	var page: MenuScreen = make.call()
 	page.closed.connect(func() -> void:
 		if had_focus:
 			button.grab_focus())
