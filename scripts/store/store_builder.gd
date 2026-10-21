@@ -66,6 +66,10 @@ const CARPET_SIZE := 0.5
 ## many metres one copy of it covers.
 const PLASTER := "plaster"
 const PLASTER_SIZE := 2.0
+## Polished brass for the door and cabinet hardware and the curtain rods
+## (assets/store/brass), and how many metres one copy of it covers.
+const BRASS := "brass"
+const BRASS_SIZE := 0.1
 
 ## Floor footprints nothing on the floor may overlap (the shelves and the
 ## table legs), as x/z rectangles. The space under a table top is open:
@@ -89,7 +93,7 @@ var _table_material := _textured(TABLE_WOOD, TABLE_WOOD_SIZE)
 var _leg_material := _by_uv(_table_material)
 var _felt_material := _textured(FELT, FELT_SIZE)
 var _fixture_material := _metal(Color(0.12, 0.13, 0.12), 0.45)
-var _brass_material := _metal(Color(0.75, 0.6, 0.35), 0.35)
+var _brass_material := _brass()
 
 
 ## The floor area cards can land on, inset a little from the walls.
@@ -249,7 +253,7 @@ func _build_display_cabinets() -> void:
 	for i in CABINET_ZS.size():
 		var cabinet := DisplayCabinet.new()
 		cabinet.name = "DisplayCabinet%d" % (i + 1)
-		cabinet.build(_table_material, _felt_material, FIXTURE_LIGHT)
+		cabinet.build(_table_material, _felt_material, _brass_material, FIXTURE_LIGHT)
 		cabinet.position = Vector3(WIDTH - DisplayCabinet.DEPTH / 2, 0, CABINET_ZS[i])
 		cabinet.rotation.y = -PI / 2
 		add_child(cabinet)
@@ -318,7 +322,7 @@ func _build_windows() -> void:
 func _build_door() -> void:
 	var door := ShopDoor.new()
 	door.name = "ShopDoor"
-	door.build()
+	door.build(_brass_material)
 	door.position = Vector3(WIDTH / 2, 0, DEPTH)
 	door.rotation.y = PI
 	add_child(door)
@@ -514,6 +518,13 @@ static func _by_uv(material: StandardMaterial3D) -> StandardMaterial3D:
 	copy.uv1_world_triplanar = false
 	copy.uv1_scale = Vector3.ONE
 	return copy
+
+
+## The brass texture as a metal (its metalness map is solid white).
+static func _brass() -> StandardMaterial3D:
+	var material := _textured(BRASS, BRASS_SIZE)
+	material.metallic = 1.0
+	return material
 
 
 static func _metal(color: Color, roughness: float) -> StandardMaterial3D:

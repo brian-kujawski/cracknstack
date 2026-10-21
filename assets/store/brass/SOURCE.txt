@@ -1,0 +1,6 @@
+Metal048B by ambientCG
+https://ambientcg.com/view?id=Metal048B
+Licence: CC0 1.0 (https://docs.ambientcg.com/license/)
+Downloaded 2026-10-21, 1K-JPG. Files renamed: Color -> albedo, NormalGL -> normal, Roughness -> roughness.
+The Metalness map is 1.0 throughout, so it isn't shipped; the material sets metallic = 1.0 instead.
+Used for: the door's knob and hinges, the display cabinets' knobs, escutcheon and name plates, and the curtain rods (store_builder.gd BRASS).

@@ -50,15 +50,13 @@ static func footprint() -> Rect2:
 
 
 ## Builds the meshes, lights, collision and slots. `wood` is the oak the
-## store's tables are made of, `light` the colour of its lamps. Call once
-## before adding to the tree.
-## `lining` covers the back of the case, behind the frames.
-func build(wood: StandardMaterial3D, lining: Material, light: Color) -> void:
+## store's tables are made of, `lining` covers the back of the case behind
+## the frames, `brass` is for the knobs and plates, and `light` is the colour
+## of the store's lamps. Call once before adding to the tree.
+func build(wood: StandardMaterial3D, lining: Material, brass: Material, light: Color) -> void:
 	var dark := _tinted(wood, 0.7)
 	var walnut := _tinted(wood, 0.5)
 	var linen := _material(Color(0.83, 0.79, 0.7), 0.95)
-	var brass := _material(Color(0.75, 0.6, 0.35), 0.35)
-	brass.metallic = 0.8
 	var glass := _material(Color(0.85, 0.93, 0.92, 0.1), 0.04)
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass.metallic_specular = 0.8
