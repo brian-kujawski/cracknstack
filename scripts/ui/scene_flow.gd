@@ -2,13 +2,16 @@ extends CanvasLayer
 ## Moving between the title screen and the shop (autoload: SceneFlow). Owns a
 ## black screen above everything else that survives scene changes, and does
 ## the fades: New Game fades to black, loads the shop behind it and fades in.
-## While a fade runs, input is swallowed so nothing is clicked or pressed
-## half-way through.
+## Exit Game → Main Menu fades back to the title scene, which then opens
+## straight on the menu. While a fade runs, input is swallowed so nothing is
+## clicked or pressed half-way through.
 
 const TITLE_SCENE := "res://scenes/title.tscn"
 const SHOP_SCENE := "res://scenes/main.tscn"
 const FADE_OUT := 0.4
 const FADE_IN := 1.5
+## Back on the menu from the shop, a quicker fade in.
+const MENU_FADE_IN := 0.6
 ## How far into the fade-in the player can look and move.
 const CONTROL_AT := 0.5
 ## Frames to wait after the shop loads before fading in, so its first frame
@@ -17,6 +20,8 @@ const SETTLE_FRAMES := 2
 
 var _black: ColorRect
 var _busy := false
+## Set on the way back from the shop, so the title opens on its menu.
+var _menu_requested := false
 
 
 func _ready() -> void:
@@ -66,6 +71,28 @@ func new_game() -> void:
 	get_tree().paused = false
 	_busy = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+## Leaves the shop for the main menu: fade to black, swap scenes, fade in
+## on the menu (not the title). Nothing is saved yet.
+func to_main_menu() -> void:
+	if _busy:
+		return
+	_busy = true
+	await _fade_to(1.0, FADE_OUT)
+	_menu_requested = true
+	get_tree().paused = false
+	get_tree().change_scene_to_file(TITLE_SCENE)
+	await get_tree().scene_changed
+	_busy = false
+	await _fade_to(0.0, MENU_FADE_IN)
+
+
+## True once after to_main_menu(): the title skips straight to its menu.
+func take_menu_request() -> bool:
+	var requested := _menu_requested
+	_menu_requested = false
+	return requested
 
 
 ## Fades out and closes the game.

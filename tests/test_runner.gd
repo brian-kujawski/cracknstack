@@ -738,10 +738,38 @@ func _test_pause() -> void:
 	menu._unhandled_input(esc)
 	_check(not menu.is_paused() and not get_tree().paused, "Esc again goes back in")
 	menu.pause()
-	var button: Button = menu.find_children("*", "Button", true, false)[0]
-	_check(button.text == "Click to Continue", "the pause screen has a Continue button")
-	button.pressed.emit()
-	_check(not menu.is_paused() and not get_tree().paused, "the Continue button goes back in")
+	_check(menu.buttons.keys() == ["Resume", "Save/Load", "Achievements", "Settings", "Exit Game"],
+		"the pause menu's buttons, in order: %s" % [menu.buttons.keys()])
+	_check(menu.buttons["Save/Load"].disabled and menu.buttons["Save/Load"].focus_mode == Control.FOCUS_NONE,
+		"Save/Load is greyed out until there are saves")
+	menu.buttons["Resume"].pressed.emit()
+	_check(not menu.is_paused() and not get_tree().paused, "Resume goes back in")
+	menu.pause()
+	for page in ["Achievements", "Settings"]:
+		menu.buttons[page].pressed.emit()
+		var screens := menu.find_children("*", "MenuScreen", false, false)
+		_check(screens.size() == 1 and screens[0].name == page, "%s opens its page from the pause menu" % page)
+		if screens.is_empty():
+			continue
+		screens[0]._unhandled_input(esc)
+		_check(screens[0].is_queued_for_deletion() and menu.is_paused() and get_tree().paused,
+			"Esc closes the %s page and the game stays paused" % page)
+		screens[0].free()
+	menu.buttons["Exit Game"].pressed.emit()
+	_check(menu.is_asking_to_exit() and menu.exit_buttons.keys() == ["Main Menu", "Quit to Desktop", "Back"],
+		"Exit Game asks first: Main Menu, Quit to Desktop or Back")
+	var labels := menu.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
+	_check("Progress isn't saved." in labels, "and warns that progress isn't saved")
+	menu.exit_buttons["Back"].pressed.emit()
+	_check(not menu.is_asking_to_exit() and menu.is_paused(), "Back returns to the pause menu")
+	menu.buttons["Exit Game"].pressed.emit()
+	menu._unhandled_input(esc)
+	_check(not menu.is_asking_to_exit() and menu.is_paused(), "so does Esc, without resuming")
+	menu._unhandled_input(esc)
+	_check(not menu.is_paused() and not get_tree().paused, "and Esc again resumes")
+	_check(not SceneFlow.take_menu_request(), "nothing asks the title to skip to its menu by default")
+	SceneFlow._menu_requested = true
+	_check(SceneFlow.take_menu_request() and not SceneFlow.take_menu_request(), "the way back to the menu is taken once")
 	var environment := Environment.new()
 	var day := DayCycle.new()
 	day.setup(environment, [] as Array[Light3D], null, null)
@@ -809,6 +837,12 @@ func _test_title_screen() -> void:
 		screens[0]._unhandled_input(esc)
 		_check(screens[0].is_queued_for_deletion(), "Esc closes the %s page" % page)
 		screens[0].free()
+	title.free()
+	SceneFlow._menu_requested = true
+	title = load(SceneFlow.TITLE_SCENE).instantiate()
+	add_child(title)
+	_check(title.state == title.State.MENU and title.buttons["New Game"].is_visible_in_tree(),
+		"coming back from the shop, the title opens straight on its menu")
 	title.free()
 	get_viewport().gui_release_focus()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE

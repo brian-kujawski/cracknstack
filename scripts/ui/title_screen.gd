@@ -25,7 +25,9 @@ var _prompt_tween: Tween
 
 
 func _ready() -> void:
-	if SceneFlow.should_skip_title():
+	# Coming back from the shop (Exit Game → Main Menu) lands on the menu.
+	var straight_to_menu := SceneFlow.take_menu_request()
+	if not straight_to_menu and SceneFlow.should_skip_title():
 		get_tree().change_scene_to_file.call_deferred(SceneFlow.SHOP_SCENE)
 		return
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -58,8 +60,11 @@ func _ready() -> void:
 	_add_button("Exit").pressed.connect(SceneFlow.quit)
 	_menu.visible = false
 	_add_footer()
-	_title.modulate.a = 0.0
-	create_tween().tween_property(_title, "modulate:a", 1.0, TITLE_FADE)
+	if straight_to_menu:
+		show_menu(false, true)
+	else:
+		_title.modulate.a = 0.0
+		create_tween().tween_property(_title, "modulate:a", 1.0, TITLE_FADE)
 
 
 func _add_button(text: String, enabled := true) -> Button:
@@ -115,14 +120,20 @@ static func is_start_press(event: InputEvent) -> bool:
 	return false
 
 
-## Fades the prompt out and the menu in. Coming from the keyboard, New Game
-## is focused so Enter starts at once.
-func show_menu(from_keyboard := false) -> void:
+## Fades the prompt out and the menu in, or with `instant` puts it straight
+## there. Coming from the keyboard, New Game is focused so Enter starts at
+## once.
+func show_menu(from_keyboard := false, instant := false) -> void:
 	if state == State.MENU:
 		return
 	state = State.MENU
 	_prompt_tween.kill()
 	_menu.visible = true
+	if instant:
+		_prompt.modulate.a = 0.0
+		_menu_room.custom_minimum_size.y = _menu.get_combined_minimum_size().y + 4
+		_menu.modulate.a = 1.0
+		return
 	var tween := create_tween().set_parallel().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tween.tween_property(_prompt, "modulate:a", 0.0, MENU_FADE)
 	tween.tween_property(_menu_room, "custom_minimum_size:y", _menu.get_combined_minimum_size().y + 4, MENU_FADE)

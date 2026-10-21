@@ -25,7 +25,7 @@ Controls:
 | E | Open or close the binder you're looking at |
 | Mouse wheel | Turn the pages of the open binder you're looking at. Holding several cards (Harmonize), aimed anywhere else: cycle which card is on top |
 | F | Bring the held card up close to inspect it (the view holds still and the mouse tilts the card; F again lowers it) |
-| Esc | Pause (Esc again, or the Continue button, to go back in) |
+| Esc | Pause menu: Resume (or Esc again), Achievements, Settings, Exit Game (to the main menu or the desktop) |
 | Tab | Upgrade menu: spend Mana on upgrades (Tab or Esc to go back in) |
 | 1 | Cast Tithe, once learned: holding or looking at a binder, some of its missing cards light up wherever they lie in the pile |
 | 2 | Cast Teleport, once learned: the top card in hand flies to its own binder, wherever it is, and files itself |
