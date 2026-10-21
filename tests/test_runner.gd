@@ -833,11 +833,30 @@ func _test_title_screen() -> void:
 	_check(SceneFlow.should_skip_title(PackedStringArray(["--benchmark"])), "the benchmark skips the title")
 	_check(SceneFlow.should_skip_title(PackedStringArray(["--skip-title"])) == OS.is_debug_build(), "--skip-title skips it in developer builds only")
 	_check(not SceneFlow.should_skip_title(PackedStringArray()), "a normal launch shows the title")
+	var profile := "user://test_profile.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(profile))
+	SceneFlow.load_profile(profile)
 	var title: Control = load(SceneFlow.TITLE_SCENE).instantiate()
 	add_child(title)
 	var labels := title.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
-	_check("PICKUP" in labels and "PRESS ANY KEY TO START" in labels and Credits.DISCLAIMER in labels,
-		"the title shows the name, PRESS ANY KEY TO START and the disclaimer")
+	_check("PICKUP" in labels and "PRESS ANY KEY TO START" in labels,
+		"the title shows the name and PRESS ANY KEY TO START")
+	_check(not labels.any(func(t: String) -> bool: return "Wizards" in t or "Fan Content" in t),
+		"and nothing that gives away what the game is")
+	_check(title.buttons["Credits"].disabled and title.buttons["Credits"].focus_mode == Control.FOCUS_NONE,
+		"Credits is greyed out until a game has been started")
+	var pages := SceneFlow.intro_pages()
+	_check(pages.size() == SceneFlow.PROLOGUE.size() + 1 and pages[-1] == Credits.DISCLAIMER,
+		"New Game's intro plays the prologue, then the disclaimer")
+	SceneFlow._mark_started()
+	_check(SceneFlow.has_started(), "finishing the intro marks a game as started")
+	SceneFlow._started = false
+	SceneFlow.load_profile(profile)
+	_check(SceneFlow.has_started(), "and that's remembered across launches")
+	title.free()
+	title = load(SceneFlow.TITLE_SCENE).instantiate()
+	add_child(title)
+	_check(not title.buttons["Credits"].disabled, "after that, Credits is on the menu")
 	_check(title.buttons.keys() == ["Continue", "New Game", "Load Game", "Achievements", "Settings", "Credits", "Exit"],
 		"the main menu's buttons, in order: %s" % [title.buttons.keys()])
 	for label in ["Continue", "Load Game"]:
@@ -900,6 +919,8 @@ func _test_title_screen() -> void:
 	title.free()
 	get_viewport().gui_release_focus()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(profile))
+	SceneFlow.load_profile(SceneFlow.PROFILE_PATH)
 
 
 func _test_achievements() -> void:

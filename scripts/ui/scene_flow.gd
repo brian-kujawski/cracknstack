@@ -20,12 +20,32 @@ const MENU_FADE_IN := 0.6
 const ENDING_FADE := 2.5
 ## How far into the fade-in the player can look and move.
 const CONTROL_AT := 0.5
+## The prologue: pages of text shown on the black screen before the
+## disclaimer, one after another. Empty until the intro text is written.
+const PROLOGUE: Array[String] = []
+## Each intro page fades in, stays at least INTRO_MIN seconds (then any key
+## or click moves on) and at most INTRO_HOLD, and fades out.
+const INTRO_FADE := 0.6
+const INTRO_MIN := 2.0
+const INTRO_HOLD := 6.0
+const INTRO_FONT_SIZE := 28
+const INTRO_WIDTH := 1100
+## Where it's remembered that a game has been started (the intro played
+## through), which unlocks Credits on the main menu. The autosave made at
+## that point takes over from this file in M8.
+const PROFILE_PATH := "user://profile.cfg"
 ## Frames to wait after the shop loads before fading in, so its first frame
 ## has drawn and the fade doesn't show a hitch.
 const SETTLE_FRAMES := 2
 
 var _black: ColorRect
+var _intro: Label
 var _busy := false
+## The intro page on screen can be skipped by a key or click.
+var _skippable := false
+var _skipped := false
+var _profile_path := PROFILE_PATH
+var _started := false
 ## Set on the way back from the shop, so the title opens on its menu.
 var _menu_requested := false
 ## Set after the ending, so the title rolls the credits over its menu.
@@ -41,10 +61,24 @@ func _ready() -> void:
 	_black.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_black.modulate.a = 0.0
 	add_child(_black)
+	_intro = Label.new()
+	_intro.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_intro.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_intro.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_intro.custom_minimum_size.x = INTRO_WIDTH
+	_intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_intro.add_theme_font_size_override("font_size", INTRO_FONT_SIZE)
+	_intro.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_intro.modulate.a = 0.0
+	add_child(_intro)
+	load_profile(PROFILE_PATH)
 
 
-func _input(_event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if _busy:
+		if _skippable and TitleScreen.is_start_press(event):
+			_skipped = true
 		get_viewport().set_input_as_handled()
 
 
@@ -59,12 +93,47 @@ static func should_skip_title(args := OS.get_cmdline_user_args()) -> bool:
 	return "--benchmark" in args or (OS.is_debug_build() and "--skip-title" in args)
 
 
-## Starts a fresh game: fade to black, reset progress, load the shop, fade in.
+## True once a game has been started: the intro has played through at
+## least once. Credits on the main menu stays greyed out until then.
+func has_started() -> bool:
+	return _started
+
+
+## Reads whether a game has been started from `path` (tests use their own).
+func load_profile(path: String) -> void:
+	_profile_path = path
+	var file := ConfigFile.new()
+	file.load(path)
+	_started = file.get_value("game", "started", false)
+
+
+func _mark_started() -> void:
+	if _started:
+		return
+	_started = true
+	var file := ConfigFile.new()
+	file.load(_profile_path)
+	file.set_value("game", "started", true)
+	file.save(_profile_path)
+
+
+## The intro's pages in order: the prologue, then the disclaimer.
+static func intro_pages() -> Array[String]:
+	var pages := PROLOGUE.duplicate()
+	pages.append(Credits.DISCLAIMER)
+	return pages
+
+
+## Starts a fresh game: fade to black, play the intro, reset progress, load
+## the shop, fade in.
 func new_game() -> void:
 	if _busy:
 		return
 	_busy = true
 	await _fade_to(1.0, FADE_OUT)
+	for page in intro_pages():
+		await _show_page(page)
+	_mark_started()
 	Progression.reset()
 	get_tree().paused = false
 	get_tree().change_scene_to_file(SHOP_SCENE)
@@ -141,6 +210,24 @@ func quit() -> void:
 	_busy = true
 	await _fade_to(1.0, FADE_OUT)
 	get_tree().quit()
+
+
+## One page of the intro on the black screen: fades in, holds, fades out.
+func _show_page(text: String) -> void:
+	_intro.text = text
+	var tween := create_tween()
+	tween.tween_property(_intro, "modulate:a", 1.0, INTRO_FADE)
+	await tween.finished
+	_skipped = false
+	var held := 0.0
+	while held < INTRO_HOLD and not (_skipped and held >= INTRO_MIN):
+		held += get_process_delta_time()
+		_skippable = held >= INTRO_MIN
+		await get_tree().process_frame
+	_skippable = false
+	tween = create_tween()
+	tween.tween_property(_intro, "modulate:a", 0.0, INTRO_FADE)
+	await tween.finished
 
 
 func _fade_to(alpha: float, seconds: float) -> Signal:
