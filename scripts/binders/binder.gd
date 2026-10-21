@@ -61,7 +61,7 @@ const DETAIL_RANGE := 0.0
 ## The cover leather (assets/store/leather), tinted by each binder's set
 ## colour, and how many metres one copy of it covers.
 const LEATHER := "res://assets/store/leather/"
-const LEATHER_SIZE := 0.2
+const LEATHER_SIZE := 0.4
 
 ## Shared by every binder: the leather (one per-binder material) and the
 ## details (pages, rings, stitching; shared materials). Built on first use.
@@ -115,14 +115,15 @@ func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
 	_closed_view = Node3D.new()
 	add_child(_closed_view)
 	_cover_material = StandardMaterial3D.new()
-	# The leather map is white on average, so the set colour comes through
-	# as it is. Mapped in the binder's own space so it moves with it.
+	# The leather map is white except in its creases, so the set colour comes
+	# through as it is. Mapped in the binder's own space so it moves with it.
 	_cover_material.albedo_color = accent.darkened(0.35)
 	_cover_material.albedo_texture = load(LEATHER + "albedo.jpg")
 	_cover_material.roughness_texture = load(LEATHER + "roughness.jpg")
 	_cover_material.roughness = 1.0  # Scales the map.
 	_cover_material.normal_enabled = true
 	_cover_material.normal_texture = load(LEATHER + "normal.jpg")
+	_cover_material.normal_scale = 3.0  # The texture's own relief is too faint at this size.
 	_cover_material.uv1_triplanar = true
 	_cover_material.uv1_scale = Vector3.ONE / LEATHER_SIZE
 	_cover_material.emission_enabled = true
