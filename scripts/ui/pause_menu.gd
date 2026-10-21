@@ -175,9 +175,10 @@ func _show_menu() -> void:
 
 
 ## Shows one step of the menu. Focus follows the keyboard: if `from` had it
-## (or `keep_focus`), `to` takes it; otherwise nothing is highlighted.
+## (or `keep_focus`), `to` takes it; otherwise nothing is highlighted. A
+## click focuses a button with its outline hidden, which doesn't count.
 func _show(column: VBoxContainer, from: Button, to: Button, keep_focus := false) -> void:
-	var had_focus := keep_focus or (from != null and from.has_focus())
+	var had_focus := keep_focus or (from != null and from.has_focus(true))
 	for step in [_menu, _exit_question, _save_question]:
 		step.visible = step == column
 	get_viewport().gui_release_focus()
@@ -197,7 +198,7 @@ func _first_button() -> Button:
 ## returns to it, still paused.
 func _open(title: String, make: Callable) -> void:
 	var button: Button = buttons[title]
-	var had_focus := button.has_focus()
+	var had_focus := button.has_focus(true)
 	get_viewport().gui_release_focus()
 	var page: MenuScreen = make.call()
 	page.closed.connect(func() -> void:
