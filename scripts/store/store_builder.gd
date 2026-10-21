@@ -50,6 +50,10 @@ const CABINET_ZS := [2.9, 5.3]
 ## metres of real wood one copy of its texture covers.
 const TABLE_WOOD := "table_wood"
 const TABLE_WOOD_SIZE := 0.6
+## The shelving's and window frames' wood (assets/store/shelf_wood), and
+## how many metres one copy of it covers.
+const SHELF_WOOD := "shelf_wood"
+const SHELF_WOOD_SIZE := 0.8
 ## The green baize on the tables' playing surface and lining the cabinets'
 ## backs (assets/store/felt), and how many metres one copy of it covers.
 const FELT := "felt"
@@ -78,7 +82,7 @@ var display_slots: Array[Marker3D] = []
 
 var _wall_material := _textured(PLASTER, PLASTER_SIZE)
 var _floor_material := _textured(CARPET, CARPET_SIZE)
-var _shelf_material := _material(Color(0.62, 0.48, 0.34))
+var _shelf_material := _textured(SHELF_WOOD, SHELF_WOOD_SIZE)
 var _table_material := _textured(TABLE_WOOD, TABLE_WOOD_SIZE)
 ## The same wood for the legs, mapped by the legs' own UVs so the grain runs
 ## up them (world mapping would lay it across, like the top's).

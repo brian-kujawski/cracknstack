@@ -1,0 +1,5 @@
+Wood052 by ambientCG
+https://ambientcg.com/view?id=Wood052
+Licence: CC0 1.0 (https://docs.ambientcg.com/license/)
+Downloaded 2026-10-21, 1K-JPG. Files renamed: Color -> albedo, NormalGL -> normal, Roughness -> roughness.
+Used for: the binder shelving and the window frames (store_builder.gd SHELF_WOOD).
