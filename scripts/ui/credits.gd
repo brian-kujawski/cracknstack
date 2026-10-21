@@ -7,6 +7,19 @@ extends RefCounted
 
 const DISCLAIMER := "Pickup is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC."
 
+## One line per texture in assets/store/ (each folder's SOURCE.txt has the
+## details). They're CC0, so crediting them is a courtesy.
+const TEXTURES := [
+	"Table and cabinet wood: Wood066 by ambientCG (ambientcg.com), CC0.",
+	"Shelf wood: Wood052 by ambientCG (ambientcg.com), CC0.",
+	"Table and cabinet baize: Fabric037 by ambientCG (ambientcg.com), CC0.",
+	"Carpet: Carpet016 by ambientCG (ambientcg.com), CC0.",
+	"Walls: PaintedPlaster017 by ambientCG (ambientcg.com), CC0.",
+	"Binder leather: Leather025 by ambientCG (ambientcg.com), CC0.",
+	"Brass: Metal048B by ambientCG (ambientcg.com), CC0.",
+	"Curtains: Fabric019 by ambientCG (ambientcg.com), CC0.",
+]
+
 
 static func text() -> String:
 	var lines := PackedStringArray(["PICKUP", "", DISCLAIMER, ""])
@@ -20,6 +33,10 @@ static func text() -> String:
 				lines.append("%s art by %s." % [set_data.name, ", ".join(set_data.artists)])
 	else:
 		lines.append("These are placeholder cards. Run tools/import_scryfall.py to bring in Khans of Tarkir.")
+	lines.append("")
+	lines.append("STORE TEXTURES")
+	for credit in TEXTURES:
+		lines.append(credit)
 	lines.append("")
 	lines.append("Pickup is free and always will be.")
 	return "\n".join(lines)

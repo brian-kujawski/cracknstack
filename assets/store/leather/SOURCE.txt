@@ -1,0 +1,7 @@
+Leather025 by ambientCG
+https://ambientcg.com/view?id=Leather025
+Licence: CC0 1.0 (https://docs.ambientcg.com/license/)
+Downloaded 2026-10-21, 1K-JPG. Files renamed: Color -> albedo, NormalGL -> normal, Roughness -> roughness.
+albedo.jpg: the colour map times a crease darkening made from the Displacement map (creases down to 55%), then scaled so the raised leather is white (the whole map averages 0.95). Each binder multiplies it by its set colour (binder.gd), so the leather shows the set colour and only the creases are darker.
+roughness.jpg: the Roughness map times 1.9 (average about 0.37 -> 0.7), for a matte finish.
+Used for: the binder covers and spines (binder.gd LEATHER).

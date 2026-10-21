@@ -1,0 +1,6 @@
+PaintedPlaster017 by ambientCG
+https://ambientcg.com/view?id=PaintedPlaster017
+Licence: CC0 1.0 (https://docs.ambientcg.com/license/)
+Downloaded 2026-10-21, 1K-JPG. Files renamed: Color -> albedo, NormalGL -> normal, Roughness -> roughness.
+The originals are 1024 x 512; each is stacked twice vertically to make a square 1024 x 1024 tile, so one uniform scale maps it on every face.
+Used for: the walls and ceiling (store_builder.gd PLASTER).

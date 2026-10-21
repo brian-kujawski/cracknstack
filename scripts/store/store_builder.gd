@@ -46,6 +46,34 @@ const FIXTURE_LIGHT := Color(1.0, 0.82, 0.6)
 ## into the room, centred at these z, back one first. They line up with the
 ## table rows.
 const CABINET_ZS := [2.9, 5.3]
+## The tables' and cabinets' wood (assets/store/table_wood), and how many
+## metres of real wood one copy of its texture covers.
+const TABLE_WOOD := "table_wood"
+const TABLE_WOOD_SIZE := 0.6
+## The shelving's and window frames' wood (assets/store/shelf_wood), and
+## how many metres one copy of it covers.
+const SHELF_WOOD := "shelf_wood"
+const SHELF_WOOD_SIZE := 0.8
+## The green baize on the tables' playing surface and lining the cabinets'
+## backs (assets/store/felt), and how many metres one copy of it covers.
+const FELT := "felt"
+const FELT_SIZE := 0.3
+## The shop's carpet (assets/store/carpet), and how many metres one copy
+## of it covers.
+const CARPET := "carpet"
+const CARPET_SIZE := 0.5
+## Painted plaster on the walls and ceiling (assets/store/plaster), and how
+## many metres one copy of it covers.
+const PLASTER := "plaster"
+const PLASTER_SIZE := 2.0
+## Polished brass for the door and cabinet hardware and the curtain rods
+## (assets/store/brass), and how many metres one copy of it covers.
+const BRASS := "brass"
+const BRASS_SIZE := 0.1
+## The curtains' knit (assets/store/curtain), tinted cream, and how many
+## metres one copy of it covers.
+const CURTAIN := "curtain"
+const CURTAIN_SIZE := 0.2
 
 ## Floor footprints nothing on the floor may overlap (the shelves and the
 ## table legs), as x/z rectangles. The space under a table top is open:
@@ -54,19 +82,22 @@ var obstacles: Array[Rect2] = []
 ## For the DayCycle: the light from each window, the curtains, and the sky
 ## seen between them.
 var window_lights: Array[Light3D] = []
-var curtain_material := _material(Color(0.86, 0.8, 0.68))
+var curtain_material := _curtain()
 var sky_material := StandardMaterial3D.new()
 ## Every shadow box in the display cabinets, back cabinet first, each
 ## cabinet's top row first, left to right as you face it.
 var display_slots: Array[Marker3D] = []
 
-var _wall_material := _material(Color(0.86, 0.84, 0.8))
-var _floor_material := _material(Color(0.55, 0.5, 0.45))
-var _shelf_material := _material(Color(0.62, 0.48, 0.34))
-var _table_material := _wood(Color(0.46, 0.29, 0.16))
-var _felt_material := _material(Color(0.1, 0.24, 0.17))
+var _wall_material := _textured(PLASTER, PLASTER_SIZE)
+var _floor_material := _textured(CARPET, CARPET_SIZE)
+var _shelf_material := _textured(SHELF_WOOD, SHELF_WOOD_SIZE)
+var _table_material := _textured(TABLE_WOOD, TABLE_WOOD_SIZE)
+## The same wood for the legs, mapped by the legs' own UVs so the grain runs
+## up them (world mapping would lay it across, like the top's).
+var _leg_material := _by_uv(_table_material)
+var _felt_material := _textured(FELT, FELT_SIZE)
 var _fixture_material := _metal(Color(0.12, 0.13, 0.12), 0.45)
-var _brass_material := _metal(Color(0.75, 0.6, 0.35), 0.35)
+var _brass_material := _brass()
 
 
 ## The floor area cards can land on, inset a little from the walls.
@@ -149,7 +180,7 @@ func _build_table(center: Vector2) -> void:
 		var at: Vector2 = corner * leg_half
 		var leg := MeshInstance3D.new()
 		leg.mesh = _tapered_leg(LEG_TOP, LEG_FOOT, leg_height)
-		leg.material_override = _table_material
+		leg.material_override = _leg_material
 		leg.position = Vector3(at.x, 0, at.y)
 		body.add_child(leg)
 		_add_shape(body, Vector3(LEG_TOP, leg_height, LEG_TOP), Vector3(at.x, leg_height / 2, at.y))
@@ -175,7 +206,8 @@ func _build_table(center: Vector2) -> void:
 
 
 ## A square leg standing on the floor, `top` wide under the table and
-## narrowing to `foot` at the floor.
+## narrowing to `foot` at the floor. Its UVs are in TABLE_WOOD_SIZE units,
+## with u running up the leg, so the wood's grain does too.
 static func _tapered_leg(top: float, foot: float, height: float) -> ArrayMesh:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -187,10 +219,14 @@ static func _tapered_leg(top: float, foot: float, height: float) -> ArrayMesh:
 		var b0 := Vector3(b.x * foot / 2, 0, b.y * foot / 2)
 		var a1 := Vector3(a.x * top / 2, height, a.y * top / 2)
 		var b1 := Vector3(b.x * top / 2, height, b.y * top / 2)
+		var uvs := [Vector2(0, 0), Vector2(0, foot), Vector2(height, top), Vector2(height, 0)]
+		var corners_3d := [a0, b0, b1, a1]
 		# Clockwise seen from outside (Godot's front faces).
-		for v in [a0, b0, b1, a0, b1, a1]:
-			tool.add_vertex(v)
+		for j in [0, 1, 2, 0, 2, 3]:
+			tool.set_uv(uvs[j] / TABLE_WOOD_SIZE)
+			tool.add_vertex(corners_3d[j])
 	tool.generate_normals()
+	tool.generate_tangents()
 	return tool.commit()
 
 
@@ -221,7 +257,7 @@ func _build_display_cabinets() -> void:
 	for i in CABINET_ZS.size():
 		var cabinet := DisplayCabinet.new()
 		cabinet.name = "DisplayCabinet%d" % (i + 1)
-		cabinet.build(_table_material, FIXTURE_LIGHT)
+		cabinet.build(_table_material, _felt_material, _brass_material, FIXTURE_LIGHT)
 		cabinet.position = Vector3(WIDTH - DisplayCabinet.DEPTH / 2, 0, CABINET_ZS[i])
 		cabinet.rotation.y = -PI / 2
 		add_child(cabinet)
@@ -290,7 +326,7 @@ func _build_windows() -> void:
 func _build_door() -> void:
 	var door := ShopDoor.new()
 	door.name = "ShopDoor"
-	door.build()
+	door.build(_brass_material)
 	door.position = Vector3(WIDTH / 2, 0, DEPTH)
 	door.rotation.y = PI
 	add_child(door)
@@ -462,10 +498,44 @@ func _add_solid(size: Vector3, center: Vector3, material: Material) -> void:
 	add_child(body)
 
 
-## A warm oiled hardwood: a little sheen, no texture yet (that's M4e).
-static func _wood(color: Color) -> StandardMaterial3D:
-	var material := _material(color)
-	material.roughness = 0.55
+## A tiling PBR surface from assets/store/<name>/ (albedo, normal and
+## roughness maps), mapped by world position so it runs on across
+## neighbouring boxes. `size` is how many metres one copy of it covers.
+static func _textured(name: String, size: float) -> StandardMaterial3D:
+	var dir := "res://assets/store/%s/" % name
+	var material := StandardMaterial3D.new()
+	material.albedo_texture = load(dir + "albedo.jpg")
+	material.normal_enabled = true
+	material.normal_texture = load(dir + "normal.jpg")
+	material.roughness_texture = load(dir + "roughness.jpg")
+	material.roughness = 1.0  # Scales the map.
+	material.uv1_triplanar = true
+	material.uv1_world_triplanar = true
+	material.uv1_scale = Vector3.ONE / size
+	return material
+
+
+## A copy of a textured surface that follows the mesh's own UVs instead.
+static func _by_uv(material: StandardMaterial3D) -> StandardMaterial3D:
+	var copy: StandardMaterial3D = material.duplicate()
+	copy.uv1_triplanar = false
+	copy.uv1_world_triplanar = false
+	copy.uv1_scale = Vector3.ONE
+	return copy
+
+
+## The knit curtain fabric, tinted the curtains' cream.
+static func _curtain() -> StandardMaterial3D:
+	var material := _textured(CURTAIN, CURTAIN_SIZE)
+	material.albedo_color = Color(0.86, 0.8, 0.68)
+	material.normal_scale = 2.0  # The knit's own relief barely shows on a curtain.
+	return material
+
+
+## The brass texture as a metal (its metalness map is solid white).
+static func _brass() -> StandardMaterial3D:
+	var material := _textured(BRASS, BRASS_SIZE)
+	material.metallic = 1.0
 	return material
 
 

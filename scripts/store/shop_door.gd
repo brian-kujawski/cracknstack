@@ -24,12 +24,11 @@ const KNOB_INSET := 0.07
 const HINGE_SIDE := 1.0
 
 
-## Builds the meshes and collision. Call once before adding to the tree.
-func build() -> void:
+## Builds the meshes and collision, with `brass` for the knob and hinges.
+## Call once before adding to the tree.
+func build(brass: Material) -> void:
 	var wood := _material(Color(0.45, 0.29, 0.17), 0.6)
 	var frame := _material(Color(0.36, 0.23, 0.13), 0.6)
-	var brass := _material(Color(0.75, 0.6, 0.35), 0.35)
-	brass.metallic = 0.8
 	var half := LEAF_SIZE.x / 2
 	var top := LEAF_SIZE.y
 

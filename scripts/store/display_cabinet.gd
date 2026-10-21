@@ -50,21 +50,19 @@ static func footprint() -> Rect2:
 
 
 ## Builds the meshes, lights, collision and slots. `wood` is the oak the
-## store's tables are made of, `light` the colour of its lamps. Call once
-## before adding to the tree.
-func build(wood: StandardMaterial3D, light: Color) -> void:
+## store's tables are made of, `lining` covers the back of the case behind
+## the frames, `brass` is for the knobs and plates, and `light` is the colour
+## of the store's lamps. Call once before adding to the tree.
+func build(wood: StandardMaterial3D, lining: Material, brass: Material, light: Color) -> void:
 	var dark := _tinted(wood, 0.7)
 	var walnut := _tinted(wood, 0.5)
-	var velvet := _material(Color(0.28, 0.06, 0.07), 0.95)
 	var linen := _material(Color(0.83, 0.79, 0.7), 0.95)
-	var brass := _material(Color(0.75, 0.6, 0.35), 0.35)
-	brass.metallic = 0.8
 	var glass := _material(Color(0.85, 0.93, 0.92, 0.1), 0.04)
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass.metallic_specular = 0.8
 
 	_build_base(wood, dark, brass)
-	_build_case(wood, velvet, brass, glass)
+	_build_case(wood, lining, brass, glass)
 	_build_frames(walnut, linen, brass)
 	_build_lights(light)
 	_commit()
@@ -111,15 +109,15 @@ func _build_base(wood: Material, dark: Material, brass: Material) -> void:
 		_box(Vector3(0.018, 0.018, 0.024), knob + Vector3(0, 0, 0.012), brass)
 
 
-## The glass case: corner posts, a back panel lined with velvet, glass sides,
+## The glass case: corner posts, a back panel lined with green baize, glass sides,
 ## two glazed doors, top and bottom rails, and a stepped cornice.
-func _build_case(wood: Material, velvet: Material, brass: Material, glass: Material) -> void:
+func _build_case(wood: Material, lining: Material, brass: Material, glass: Material) -> void:
 	var height := CASE_TOP - BASE_HEIGHT
 	var mid_y := BASE_HEIGHT + height / 2
 	var front := DEPTH / 2
 	var back := -DEPTH / 2
 	_box(Vector3(WIDTH, height, _BACK), Vector3(0, mid_y, back + _BACK / 2), wood)
-	_box(Vector3(WIDTH - 2 * _POST, height - 0.01, _LINING), Vector3(0, mid_y, back + _BACK + _LINING / 2), velvet)
+	_box(Vector3(WIDTH - 2 * _POST, height - 0.01, _LINING), Vector3(0, mid_y, back + _BACK + _LINING / 2), lining)
 	for side in [-1, 1]:
 		var x: float = side * (WIDTH / 2 - _POST / 2)
 		_box(Vector3(_POST, height, _POST), Vector3(x, mid_y, front - _POST / 2), wood)
@@ -168,7 +166,7 @@ func _build_case(wood: Material, velvet: Material, brass: Material, glass: Mater
 		Vector3(0, cove_y + 0.025 + crown / 2, CORNICE_OVERHANG / 2), wood)
 
 
-## The shadow boxes, hung on the velvet back in a grid: a walnut moulding as
+## The shadow boxes, hung on the baize back in a grid: a walnut moulding as
 ## deep as the box, a gilt slip round the front of the opening, and a linen
 ## lining at the back. Under each, a blank brass plate for the card's name.
 func _build_frames(walnut: Material, linen: Material, brass: Material) -> void:
@@ -210,7 +208,7 @@ func _build_frames(walnut: Material, linen: Material, brass: Material) -> void:
 
 ## Two spotlights tucked behind the top rail, aimed down at the back of the
 ## case, and the strip they stand for. They cast shadows, so each frame
-## throws its own shadow down the velvet. Glass casts none, so some light
+## throws its own shadow down the baize. Glass casts none, so some light
 ## spills through the sides onto the wall, as it would.
 func _build_lights(colour: Color) -> void:
 	var strip := MeshInstance3D.new()
