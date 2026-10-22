@@ -265,7 +265,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _zoomed:
 			# Hands sees input before the player, so marking it handled keeps
 			# the view still while the card tilts.
-			_tilt = inspect_tilt(_tilt, event.relative, get_parent().mouse_sensitivity, deg_to_rad(inspect_tilt_degrees))
+			_tilt = inspect_tilt(_tilt, event.relative, get_parent().mouse_sensitivity(), deg_to_rad(inspect_tilt_degrees))
 			_pose_held_card()
 			get_viewport().set_input_as_handled()
 		return

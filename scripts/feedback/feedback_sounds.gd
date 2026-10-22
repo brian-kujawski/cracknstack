@@ -31,6 +31,7 @@ static func play(parent: Node, at: Vector3, kind: Kind) -> void:
 	var player := AudioStreamPlayer3D.new()
 	player.stream = stream(kind)
 	player.unit_size = 4.0
+	player.bus = Settings.EFFECTS_BUS
 	parent.add_child(player)
 	player.global_position = at
 	player.finished.connect(player.queue_free)

@@ -41,7 +41,7 @@ func _ready() -> void:
 	_add_button(_menu, buttons, "Resume").pressed.connect(resume)
 	_add_button(_menu, buttons, "Save/Load", false)
 	_add_button(_menu, buttons, "Achievements").pressed.connect(_open.bind(AchievementsScreen.make))
-	_add_button(_menu, buttons, "Settings").pressed.connect(_open.bind(func() -> MenuScreen: return MenuScreen.new("Settings")))
+	_add_button(_menu, buttons, "Settings").pressed.connect(_open.bind(SettingsScreen.new))
 	_add_button(_menu, buttons, "Exit Game").pressed.connect(_ask_to_exit)
 	if OS.is_debug_build():
 		_add_time_buttons(_menu)

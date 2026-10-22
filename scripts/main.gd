@@ -50,6 +50,14 @@ func _ready() -> void:
 	_update_stats()
 	_achievement.text = ""
 	Achievements.unlocked.connect(_on_achievement_unlocked)
+	Settings.changed.connect(_apply_brightness.unbind(1))
+	_apply_brightness()
+
+
+## The Brightness setting is the camera's exposure: everything brighter or
+## darker together, without changing a single light.
+func _apply_brightness() -> void:
+	$WorldEnvironment.environment.tonemap_exposure = Settings.value("brightness")
 
 
 func _process(delta: float) -> void:

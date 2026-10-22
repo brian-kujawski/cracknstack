@@ -33,7 +33,9 @@ Controls:
 | 4 | Cast Chain Lightning, once learned: your next lock-in makes a missing card from that page glow where it lies in the pile |
 | 5 | Cast Abundance, once learned (needs Harmonize): holding a card, the next unfiled cards after it in its set fly into your hand behind it |
 
-These are the defaults. Every binding is defined in one place, `scripts/input/controls.gd` (the `Controls` autoload), and the hints on screen read their key names from it. Rebinds are saved to `user://controls.cfg`; the settings menu for changing them comes later (M4b).
+These are the defaults. Every binding is defined in one place, `scripts/input/controls.gd` (the `Controls` autoload), and the hints on screen read their key names from it. The Settings page (main menu or pause) lists them for reference; they aren't rebindable in game.
+
+**Settings** has four tabs: Audio (Master, Effects, Ambience and Music volume, mute in background), Controls (mouse sensitivity, invert Y, crouch Hold/Toggle, the key list), Gameplay (day length or a stopped clock, interface size) and Graphics (window mode, vsync, frame limit, field of view, brightness, and a Low/Medium/High quality preset over render scale, shadows and anti-aliasing). Changes apply at once and are saved to `user://settings.cfg` (the `Settings` autoload, `scripts/settings/settings.gd`).
 
 A card in its own pocket locks in with a chime and a gold edge; anywhere else it glows red, makes no sound and can be taken back out. A binder in its own shelf space locks in with a chime; in another binder's space it glows red. A shelf lights up when every binder on it is in its own space and complete.
 
