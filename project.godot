@@ -22,6 +22,7 @@ Controls="*res://scripts/input/controls.gd"
 Progression="*res://scripts/progression/progression.gd"
 Achievements="*res://scripts/progression/achievements.gd"
 SceneFlow="*res://scripts/ui/scene_flow.gd"
+Settings="*res://scripts/settings/settings.gd"
 
 [display]
 

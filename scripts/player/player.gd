@@ -18,7 +18,6 @@ const Store := preload("res://scripts/store/store_builder.gd")
 @export var crouch_speed := 1.6
 ## Fervor (red): walking and crouch-walking this many times faster.
 @export var fervor_speedup := 1.5
-@export var mouse_sensitivity := 0.0025
 @export var stand_eye_height := 1.65
 @export var crouch_eye_height := 0.5
 ## Body (capsule) height standing and crouched. Crouched fits under a table.
@@ -28,9 +27,9 @@ const Store := preload("res://scripts/store/store_builder.gd")
 @export var lean_eye_dip := 0.12
 ## How fast the camera moves between standing and crouching heights.
 @export var crouch_lerp_speed := 10.0
-## Crouch key: hold to crouch (default), or press to toggle. A setting in the
-## M4b menu.
-@export var crouch_toggle := false
+## Crouch key: hold to crouch (default), or press to toggle. Follows the
+## Crouch setting.
+var crouch_toggle := false
 
 @onready var _camera: Camera3D = $Camera3D
 @onready var _body: CollisionShape3D = $CollisionShape3D
@@ -52,15 +51,37 @@ func _ready() -> void:
 	collision_layer = 0
 	# Once the store has built its tables.
 	_lean_over_tables.call_deferred()
+	Settings.changed.connect(_apply_settings.unbind(1))
+	_apply_settings()
+
+
+## Mouse look, crouch mode and field of view, from Settings.
+func _apply_settings() -> void:
+	if crouch_toggle and not Settings.value("crouch_toggle"):
+		_crouch_toggled = false
+	crouch_toggle = Settings.value("crouch_toggle")
+	_camera.fov = Settings.value("field_of_view")
+
+
+## Mouse look in radians per pixel; inspect tilt uses it too.
+func mouse_sensitivity() -> float:
+	return Settings.look_sensitivity()
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		rotate_y(-event.relative.x * mouse_sensitivity)
-		_pitch = clampf(_pitch - event.relative.y * mouse_sensitivity, -PI / 2 + 0.01, PI / 2 - 0.01)
-		_camera.rotation.x = _pitch
+		look(event.relative)
 	elif crouch_toggle and event.is_action_pressed(Controls.CROUCH):
 		_crouch_toggled = not _crouch_toggled
+
+
+## Turns the view by a mouse movement: raw and 1:1, never smoothed.
+func look(relative: Vector2) -> void:
+	var sensitivity := mouse_sensitivity()
+	var vertical := -1.0 if Settings.value("invert_y") else 1.0
+	rotate_y(-relative.x * sensitivity)
+	_pitch = clampf(_pitch - relative.y * sensitivity * vertical, -PI / 2 + 0.01, PI / 2 - 0.01)
+	_camera.rotation.x = _pitch
 
 
 func _physics_process(delta: float) -> void:

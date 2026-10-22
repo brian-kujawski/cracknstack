@@ -3,8 +3,9 @@ extends Node
 ## player's own rebinds (autoload: Controls). Game code names actions only
 ## through the constants below and asks here for how to show a binding
 ## ("E", "click", "scroll"), so no key is written anywhere else. Rebinds are
-## kept in user://controls.cfg. The settings menu (M4b) will list ACTIONS and
-## call rebind(), reset() and save(); there is no menu yet.
+## kept in user://controls.cfg. The Settings page lists the bindings for
+## reference only (your call: no rebinding in game), so rebind() is there for
+## the future and the tests.
 
 ## Emitted after any binding changes, so hints can redraw their key names.
 signal bindings_changed

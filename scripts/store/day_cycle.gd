@@ -6,10 +6,9 @@ extends Node
 ## light. At night only the store's own fixtures are lit, so the room is
 ## dimmer and the floor a little harder to read, but never dark.
 ##
-## A full day takes DAY_LENGTH seconds. (A setting to change the length or
-## turn the cycle off belongs in the options menu, later.)
+## How long a full day takes is a setting (Day length, 15 minutes by
+## default). Stopped holds the clock at the Stopped at hour instead.
 
-const DAY_LENGTH := 900.0
 const START_HOUR := 10.0
 ## Daylight around the clock: [hour, colour, strength 0..1]. Strength is how
 ## much daylight gets in; between keys both are blended.
@@ -51,13 +50,28 @@ func setup(environment: Environment, window_lights: Array[Light3D], curtain: Sta
 	_window_lights = window_lights
 	_curtain = curtain
 	_sky = sky
+	_follow_settings()
 	apply()
 
 
+func _ready() -> void:
+	Settings.changed.connect(func(key: String) -> void:
+		if key in ["", "day_length", "stopped_at"]:
+			_follow_settings())
+
+
 func _process(delta: float) -> void:
-	if running:
-		hour = fmod(hour + delta * 24.0 / DAY_LENGTH, 24.0)
+	var length := Settings.day_seconds()
+	if running and length > 0.0:
+		hour = fmod(hour + delta * 24.0 / length, 24.0)
 		apply()
+
+
+## With the clock stopped, goes to the hour it's stopped at. Changing the
+## length keeps the time of day; only the clock's speed changes.
+func _follow_settings() -> void:
+	if Settings.day_seconds() <= 0.0:
+		set_hour(Settings.stopped_hour())
 
 
 ## Jumps to an hour and relights at once (works while paused).

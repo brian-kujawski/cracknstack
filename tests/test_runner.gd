@@ -3,14 +3,19 @@ extends Node
 ##   godot --headless res://tests/test_runner.tscn
 ## Exits with code 1 if any check fails.
 
+const SETTINGS_TEST_PATH := "user://test_settings.cfg"
+
 var _failures := 0
 var _checks := 0
 
 
 func _ready() -> void:
 	# The checks below are written against the placeholder collection, even
-	# when real data has been imported locally.
+	# when real data has been imported locally, and against default settings,
+	# saved somewhere other than yours.
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
+	Settings.save_path = SETTINGS_TEST_PATH
+	Settings.reset_all()
 	_test_database_loaded()
 	_test_collector_numbers_are_contiguous()
 	_test_shelf_order()
@@ -33,6 +38,8 @@ func _ready() -> void:
 	_test_inspect_tilt()
 	_test_glide()
 	_test_controls()
+	_test_settings()
+	_test_settings_screen()
 	_test_onscreen_text()
 	_test_pause()
 	await _test_title_screen()
@@ -53,6 +60,7 @@ func _ready() -> void:
 	await _test_lean_over_table()
 	await _test_table_cards()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
+	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
 
@@ -679,6 +687,139 @@ func _test_controls() -> void:
 	Controls.reset(Controls.INTERACT)
 	_check(Controls.label(Controls.INTERACT) == "E", "reset puts one action back")
 	DirAccess.remove_absolute(path)
+
+
+func _test_settings() -> void:
+	Settings.reset_all()
+	_check(Settings.value("mouse_sensitivity") == 1.0 and is_equal_approx(Settings.look_sensitivity(), 0.0025),
+		"mouse look defaults to its old speed")
+	_check(Settings.value("field_of_view") == 75.0 and not Settings.value("crouch_toggle") and not Settings.value("invert_y"),
+		"field of view, crouch and look default to what the game did before Settings")
+	_check(Settings.value("quality") == 2 and Settings.matching_quality() == 2, "quality defaults to High")
+	for key in Settings.DEFAULTS:
+		var tabs := Settings.TABS.values().filter(func(keys: Array) -> bool: return key in keys)
+		_check(tabs.size() == 1, "%s belongs to exactly one tab" % key)
+
+	var effects := AudioServer.get_bus_index(Settings.EFFECTS_BUS)
+	_check(effects > 0 and AudioServer.get_bus_index(Settings.AMBIENCE_BUS) > 0 and AudioServer.get_bus_index(Settings.MUSIC_BUS) > 0,
+		"the Effects, Ambience and Music buses exist")
+	Settings.change("effects_volume", 0.5)
+	_check(is_equal_approx(AudioServer.get_bus_volume_db(effects), linear_to_db(0.25)), "half volume is a quarter of the power")
+	Settings.change("effects_volume", 0.0)
+	_check(AudioServer.is_bus_mute(effects), "0% mutes the bus")
+	_check(FeedbackSounds.stream(FeedbackSounds.Kind.CARD_LOCKED) != null, "feedback sounds still build")
+
+	Settings.change("quality", 0)
+	_check(Settings.value("render_scale") == 2 and Settings.value("shadows") == 0 and Settings.value("anti_aliasing") == 0,
+		"Low sets the three quality rows")
+	_check(is_equal_approx(get_tree().root.scaling_3d_scale, 0.75), "render scale applies to the window")
+	Settings.change("anti_aliasing", 3)
+	_check(Settings.value("quality") == Settings.CUSTOM_QUALITY and get_tree().root.msaa_3d == Viewport.MSAA_4X,
+		"changing a quality row by hand makes it Custom")
+	Settings.change("quality", 2)
+	_check(Settings.matching_quality() == 2 and get_tree().root.msaa_3d == Viewport.MSAA_2X, "picking High again sets it back")
+
+	Settings.change("day_length", 4)
+	Settings.change("stopped_at", 3)
+	_check(Settings.day_seconds() == 0.0 and Settings.stopped_hour() == 0.0, "Stopped at Night stops the clock at midnight")
+	var day := DayCycle.new()
+	add_child(day)
+	day.setup(Environment.new(), [] as Array[Light3D], null, null)
+	_check(day.hour == 0.0, "a stopped day starts at its hour")
+	day._process(60.0)
+	_check(day.hour == 0.0, "a stopped clock doesn't move")
+	Settings.change("stopped_at", 1)
+	_check(day.hour == 12.0, "changing Stopped at moves the clock there")
+	Settings.change("day_length", 2)
+	day._process(75.0)
+	_check(is_equal_approx(day.hour, 13.0), "30-minute days run half as fast, from where the clock stood")
+	day.free()
+
+	Settings.change("mouse_sensitivity", 1.5)
+	Settings.change("interface_size", 1.25)
+	Settings.save()
+	Settings.reset_all()
+	_check(Settings.value("mouse_sensitivity") == 1.0, "reset_all restores defaults")
+	Settings.load_settings()
+	_check(Settings.value("mouse_sensitivity") == 1.5 and Settings.value("interface_size") == 1.25 and Settings.value("day_length") == 2,
+		"settings survive a save and load")
+	_check(is_equal_approx(get_tree().root.content_scale_factor, 1.25), "interface size scales the UI")
+	Settings.reset_tab("Controls")
+	_check(Settings.value("mouse_sensitivity") == 1.0 and Settings.value("interface_size") == 1.25, "Reset puts back only its own tab")
+
+	var broken := ConfigFile.new()
+	broken.set_value("settings", "field_of_view", "wide")
+	broken.set_value("settings", "brightness", 1)
+	broken.set_value("settings", "not_a_setting", 3)
+	broken.save(SETTINGS_TEST_PATH)
+	Settings.load_settings()
+	_check(Settings.value("field_of_view") == 75.0 and Settings.value("brightness") == 1.0 and Settings.value("brightness") is float,
+		"a bad saved value keeps its default, and whole numbers load as decimals")
+	Settings.reset_all()
+
+
+func _test_settings_screen() -> void:
+	Settings.reset_all()
+	Progression.reset()
+	var screen := SettingsScreen.new()
+	add_child(screen)
+	_check(screen.tab_buttons.keys() == ["Audio", "Controls", "Gameplay", "Graphics"], "four tabs, in order")
+	_check(screen.open_tab == "Audio" and screen.pages["Audio"].visible and not screen.pages["Graphics"].visible, "it opens on Audio")
+	var all_buttons: Array = screen.tab_buttons.values() + [screen.reset_button]
+	_check(all_buttons.all(func(button: Button) -> bool: return button.focus_mode == Control.FOCUS_NONE)
+		and screen.controls.values().all(func(control: Control) -> bool: return control.focus_mode == Control.FOCUS_NONE),
+		"the settings page is mouse-only")
+	for tab in Settings.TABS:
+		for key in Settings.TABS[tab]:
+			_check(screen.controls.has(key) and screen.pages[tab].is_ancestor_of(screen.controls[key]), "%s has a row on %s" % [key, tab])
+	var slider: HSlider = screen.controls["master_volume"]
+	_check(not slider.scrollable, "the wheel scrolls the page, not a slider")
+	slider.value = 0.5
+	_check(Settings.value("master_volume") == 0.5, "dragging a slider changes its setting")
+	_check(slider.get_parent().get_child(2).text == "50%", "the slider shows its value")
+	var crouch: OptionButton = screen.controls["crouch_toggle"]
+	crouch.item_selected.emit(1)
+	_check(Settings.value("crouch_toggle") == true, "a two-way dropdown sets a true/false setting")
+	var stopped: OptionButton = screen.controls["stopped_at"]
+	_check(stopped.disabled, "Stopped at is greyed out while the clock runs")
+	(screen.controls["day_length"] as OptionButton).item_selected.emit(4)
+	_check(not stopped.disabled, "Stopped at opens up when the clock is stopped")
+	_check((screen.controls["frame_limit"] as OptionButton).disabled, "the frame limit is greyed out with vsync on")
+	(screen.controls["shadows"] as OptionButton).item_selected.emit(0)
+	_check((screen.controls["quality"] as OptionButton).selected == Settings.CUSTOM_QUALITY, "the Quality dropdown follows to Custom")
+
+	_check(screen.key_labels["Walk"].text == "WASD", "Walk shows as WASD, got " + screen.key_labels["Walk"].text)
+	_check(screen.key_labels["Crouch"].text == "Ctrl", "Crouch shows as Ctrl, got " + screen.key_labels["Crouch"].text)
+	_check(screen.key_labels["Turn pages"].text == "Scroll" and screen.key_labels["Pick up, put down, file, shelve"].text == "Click",
+		"the wheel and the mouse buttons read as words")
+	_check(screen.key_labels.has("Sorcery 1") and not screen.key_labels.has("Tithe") and screen.key_labels["Sorcery 1"].text == "1",
+		"an unlearned sorcery is listed without its name")
+	Progression.earn(200)
+	for step in 3:
+		Progression.buy(0, step)
+	_check(SettingsScreen.sorcery_name(0) == "Tithe" and SettingsScreen.sorcery_name(1) == "Sorcery 2", "a learned sorcery shows its name")
+	Progression.reset()
+
+	screen.tab_buttons["Controls"].pressed.emit()
+	_check(screen.open_tab == "Controls" and screen.reset_button.text == "Reset Controls", "a tab opens its page and names its Reset")
+	_check(screen.tab_buttons.keys().filter(func(tab: String) -> bool: return screen.tab_buttons[tab].button_pressed) == ["Controls"],
+		"only the open tab is lit")
+	(screen.controls["mouse_sensitivity"] as HSlider).value = 2.0
+	screen.reset_button.pressed.emit()
+	var question := screen.get_node("ResetQuestion")
+	_check(question != null and Settings.value("mouse_sensitivity") == 2.0, "Reset asks first")
+	question.buttons["Reset"].pressed.emit()
+	_check(Settings.value("mouse_sensitivity") == 1.0 and not Settings.value("crouch_toggle") and Settings.value("master_volume") == 0.5,
+		"Reset Controls resets only the Controls tab")
+	_check(is_equal_approx((screen.controls["mouse_sensitivity"] as HSlider).value, 1.0), "the page redraws after a reset")
+	screen.close()
+	var saved := ConfigFile.new()
+	_check(saved.load(SETTINGS_TEST_PATH) == OK and saved.get_value("settings", "master_volume", 1.0) == 0.5, "closing the page saves")
+	var again := SettingsScreen.new()
+	add_child(again)
+	_check(again.open_tab == "Controls", "the page reopens on the last tab used")
+	again.free()
+	Settings.reset_all()
 
 
 func _test_onscreen_text() -> void:
@@ -1758,7 +1899,7 @@ func _test_day_cycle() -> void:
 	day.apply()
 	_check(environment.ambient_light_energy < day_ambient and environment.ambient_light_energy > 0.0, "nights are dimmer but not black")
 	day.free()
-	_check(DayCycle.DAY_LENGTH == 900.0, "a day lasts 15 minutes")
+	_check(Settings.day_seconds() == 900.0, "a day lasts 15 minutes by default")
 
 
 func _test_crouch() -> void:
@@ -1768,6 +1909,16 @@ func _test_crouch() -> void:
 	player.global_position = Vector3(50, 0, 50)
 	var shape: CapsuleShape3D = player.get_node("CollisionShape3D").shape
 	_check(is_equal_approx(shape.height, player.stand_body_height), "the body starts standing height")
+	Settings.change("crouch_toggle", true)
+	Settings.change("field_of_view", 90.0)
+	_check(player.crouch_toggle and player.get_node("Camera3D").fov == 90.0, "the player follows the crouch and field of view settings")
+	player.look(Vector2(0, -10))
+	var up: float = player.get_node("Camera3D").rotation.x
+	Settings.change("invert_y", true)
+	player.look(Vector2(0, -10))
+	_check(up > 0.0 and is_zero_approx(player.get_node("Camera3D").rotation.x), "Invert Y turns the same mouse move the other way")
+	Settings.reset_all()
+	_check(not player.crouch_toggle and player.get_node("Camera3D").fov == 75.0, "and back to the defaults")
 	player.set_crouched(true)
 	_check(player.is_crouched() and is_equal_approx(shape.height, player.crouch_body_height), "crouching shrinks the body")
 	_check(player.crouch_body_height < preload("res://scripts/store/store_builder.gd").TABLE_SIZE.y - 0.1, "a crouched body fits under a table top")
