@@ -145,31 +145,32 @@ func _test_shelf_layout() -> void:
 	var binders := CardDatabase.all_binders()
 	var few: Array[BinderRange] = []
 	few.assign(binders.slice(0, 31))
-	var split := ShelfLayout.assign(few, [12, 20, 12] as Array[int])
-	_check(split[0].size() == 60 and split[1].size() == 100, "a unit has 5 shelves of its own width")
-	_check(split[0][0] == few[0] and split[0][10] == few[10] and split[0][11] == null,
-		"the first unit takes the first 11 of 31 binders, top shelf left to right")
-	_check(split[1][0] == few[11] and split[2][0] == few[21] and split[2][9] == few[30] and split[2][10] == null,
-		"the rest split 10 and 10, in order")
-	var wide := ShelfLayout.assign(few, [8] as Array[int])
-	_check(wide[0][7] == few[7] and wide[0][8] == few[8], "binders wrap onto the next shelf down")
+	var bays: Array[Vector2] = [Vector2(0.0, 0.8), Vector2(0.812, 1.6)]
+	var layout := ShelfLayout.plan(few, 2, bays)
+	_check(layout.binders == few, "every binder gets a space, in shelf order")
+	var fits := true
+	var fill := [0.0, 0.0]
+	for i in layout.binders.size():
+		var left := layout.lefts[i]
+		var right := left + layout.widths[i]
+		fits = fits and absf(layout.widths[i] - BinderLayout.thickness(few[i]) - ShelfLayout.SPACE_GAP) < 0.0001
+		fits = fits and ((left >= bays[0].x and right <= bays[0].y) or (left >= bays[1].x and right <= bays[1].y))
+		if i > 0:
+			var same_shelf := layout.shelves[i] == layout.shelves[i - 1]
+			fits = fits and layout.shelves[i] >= layout.shelves[i - 1]
+			fits = fits and (not same_shelf or left >= layout.lefts[i - 1] + layout.widths[i - 1] - 0.0001)
+		fill[layout.shelves[i]] += layout.widths[i]
+	_check(fits, "spaces are as wide as their binder, in order, never overlapping or straddling a divider")
+	_check(layout.shelves[0] == 0 and layout.shelves[-1] == 1 and absf(fill[0] - fill[1]) < 0.15,
+		"the binders split evenly over both shelves (%.2f m and %.2f m)" % fill)
 
-	var units := ShelfLayout.assign(binders, [54, 79, 54] as Array[int])
-	var seen := 0
-	var previous: BinderRange = null
-	var in_order := true
-	for unit in units:
-		for binder in unit:
-			if binder == null:
-				continue
-			seen += 1
-			if previous != null:
-				var prev_set := CardDatabase.get_set(previous.set_code)
-				var this_set := CardDatabase.get_set(binder.set_code)
-				in_order = in_order and CardSort.compare_sets(prev_set, this_set)
-			previous = binder
-	_check(seen == binders.size(), "every binder gets exactly one shelf space (%d of %d)" % [seen, binders.size()])
-	_check(in_order, "shelf spaces read in release-date order")
+	var eight: Array[BinderRange] = []
+	eight.assign(few.slice(0, 8))
+	var cramped := ShelfLayout.plan(eight, 1, [Vector2(0.0, 0.5)] as Array[Vector2])
+	_check(cramped.binders.size() < 8 and cramped.binders.size() > 0, "binders that don't fit are left out (with an error)")
+
+	var full := ShelfLayout.plan(binders, ShelfUnit.SHELF_HEIGHTS.size(), [Vector2(0.0, 7.9)] as Array[Vector2])
+	_check(full.binders.size() == binders.size(), "every binder fits on the back wall's shelves (%d of %d)" % [full.binders.size(), binders.size()])
 
 
 func _test_pile() -> void:
@@ -423,16 +424,29 @@ func _test_binder_pockets() -> void:
 
 func _test_shelving() -> void:
 	var ranges := CardDatabase.all_binders()
+	var few: Array[BinderRange] = []
+	few.assign(ranges.slice(0, 24))
 	var unit := ShelfUnit.new()
-	unit.build(ShelfLayout.assign(ranges, [12, 12, 12] as Array[int])[0], StandardMaterial3D.new())
+	unit.build(few, StandardMaterial3D.new(), 2.4)
 	add_child(unit)
 	unit.position = Vector3(3, 0, 1)
 	unit.rotation.y = PI / 2
 
-	var space_point := unit.to_global(unit.space_position(0, 1) + Vector3(0, 0.1, ShelfUnit.DEPTH / 2))
+	var space_point := unit.to_global(unit.space_position(1) + Vector3(0, 0.1, ShelfUnit.DEPTH / 2))
 	_check(unit.space_at(space_point) == 1, "aiming at the front of the top shelf's second space finds space 1")
-	var lower := unit.to_global(unit.space_position(2, 11) + Vector3(0, 0.2, ShelfUnit.DEPTH / 2))
-	_check(unit.space_at(lower) == 2 * unit.spaces_per_shelf + 11, "a lower shelf's last space")
+	var last := unit.spaces.size() - 1
+	var lower := unit.to_global(unit.space_position(last) + Vector3(0, 0.2, ShelfUnit.DEPTH / 2))
+	_check(unit.shelf_of(last) == 1 and unit.space_at(lower) == last, "the lower shelf's last space")
+	var under := unit.to_global(Vector3(0, ShelfUnit.leg_height() / 2, ShelfUnit.DEPTH / 2))
+	_check(unit.space_at(under) == -1, "there are no spaces down among the legs")
+	var spots := unit.leg_spots()
+	var spaced := spots.size() >= 2
+	for i in range(1, spots.size()):
+		spaced = spaced and spots[i] > spots[i - 1] and spots[i] - spots[i - 1] <= ShelfUnit.LEG_SPACING + ShelfUnit.BAY_WIDTH / 2
+	_check(spaced and spots[0] < -1.1 and spots[-1] > 1.1, "leg pairs stand under both ends and along the span")
+	var top := unit.top_rect()
+	_check(is_equal_approx(top.position.y, -ShelfUnit.DEPTH / 2) and top.end.y > ShelfUnit.DEPTH / 2 and top.size.x > 2.4,
+		"the top covers the whole unit, back to the wall")
 
 	var right := Binder.new()
 	right.setup(ranges[0], Color.RED, null)
@@ -446,14 +460,14 @@ func _test_shelving() -> void:
 	_check(unit.shelve(0, right), "a binder in its own space locks in")
 	var spine := right.to_global(Vector3(-Binder.COVER.x / 2, right.thickness / 2, 0))
 	var spine_local := unit.to_local(spine)
-	_check(spine_local.z > ShelfUnit.DEPTH / 2 and absf(spine_local.x - unit.space_position(0, 0).x) < 0.03,
+	_check(spine_local.z > ShelfUnit.DEPTH / 2 and absf(spine_local.x - unit.space_position(0).x) < 0.001,
 		"the binder stands spine out in its space")
 	_check(not unit.is_section_complete(0), "an incomplete binder doesn't light its shelf")
 
 	# Fill every binder on the top shelf, shelve them all: the shelf lights up.
 	var shelf_binders: Array[Binder] = [right]
-	for space in range(1, unit.spaces_per_shelf):
-		if unit.spaces[space] == null:
+	for space in range(1, unit.spaces.size()):
+		if unit.shelf_of(space) != 0:
 			continue
 		var b := Binder.new()
 		b.setup(unit.spaces[space], Color.WHITE, null)
@@ -580,11 +594,8 @@ func _test_real_data_format() -> void:
 	_check(material.get_shader_parameter("has_back") == true, "single-card materials get the real card back")
 
 	# One set, one binder: one labelled shelf space, the rest blank.
-	var units := ShelfLayout.assign(CardDatabase.all_binders(), [54, 79, 54] as Array[int])
-	var labelled := 0
-	for unit in units:
-		labelled += unit.filter(func(b): return b != null).size()
-	_check(labelled == 1 and units[0][0] == CardDatabase.all_binders()[0], "one set gets one labelled shelf space")
+	var layout := ShelfLayout.plan(CardDatabase.all_binders(), 2, [Vector2(0.0, 7.9)] as Array[Vector2])
+	_check(layout.binders.size() == 1 and layout.binders[0] == CardDatabase.all_binders()[0], "one set gets one labelled shelf space")
 
 	# The pile hands each card's atlas slot to the floor shader (in the
 	# instance colour's alpha; the headless renderer keeps no buffers to check).
@@ -1184,7 +1195,10 @@ func _test_progression() -> void:
 	_check(Progression.mana == ids.size() + bonus, "every card plus the binder bonus, got %d" % Progression.mana)
 
 	var unit := ShelfUnit.new()
-	unit.build(ShelfLayout.assign(CardDatabase.all_binders(), [12, 12, 12] as Array[int])[0], StandardMaterial3D.new())
+	# Its shelf has other binders on it, so shelving this one doesn't light it.
+	var few: Array[BinderRange] = []
+	few.assign(CardDatabase.all_binders().slice(0, 6))
+	unit.build(few, StandardMaterial3D.new(), 2.4)
 	add_child(unit)
 	var before := Progression.mana
 	unit.shelve(0, binder)
@@ -1739,6 +1753,8 @@ func _test_table_cards() -> void:
 	var store := preload("res://scripts/store/store_builder.gd")
 	var center: Vector2 = store.TABLE_CENTERS[0]
 	var top_y: float = store.TABLE_SIZE.y
+	var table_size := Vector2(store.TABLE_SIZE.x, store.TABLE_SIZE.z)
+	pile.surfaces = [Rect2(center - table_size / 2, table_size)] as Array[Rect2]
 	var table := StaticBody3D.new()
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
