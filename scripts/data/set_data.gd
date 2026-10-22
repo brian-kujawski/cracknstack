@@ -1,6 +1,6 @@
 class_name SetData
 extends RefCounted
-## One set, plus the binder volumes its cards are filed into.
+## One set, plus the binder its cards are filed into.
 
 var code: String
 var name: String
@@ -10,24 +10,16 @@ var card_count: int
 var accent_color: Color
 ## Artists credited for this set's card images (real data only).
 var artists: PackedStringArray
-## One entry per binder volume, in shelf order.
-var binder_ranges: Array[BinderRange] = []
+## The set's one binder, however many cards it has (plan §3.2).
+var binder: BinderRange
 
 
-func build_binder_ranges(capacity: int) -> void:
-	binder_ranges.clear()
-	var volume_count := ceili(float(card_count) / capacity)
-	for v in volume_count:
-		var binder := BinderRange.new()
-		binder.set_code = code
-		binder.volume = v + 1
-		binder.first = v * capacity + 1
-		binder.last = mini((v + 1) * capacity, card_count)
-		if volume_count == 1:
-			binder.label = "%s, %d–%d" % [name, binder.first, binder.last]
-		else:
-			binder.label = "%s, Vol. %d (%d–%d)" % [name, binder.volume, binder.first, binder.last]
-		binder_ranges.append(binder)
+func build_binder() -> void:
+	binder = BinderRange.new()
+	binder.set_code = code
+	binder.first = 1
+	binder.last = card_count
+	binder.label = "%s, %d–%d" % [name, binder.first, binder.last]
 
 
 ## A collector number as printed on the cards: zero-padded to three digits,
@@ -36,9 +28,6 @@ func number_text(collector_number: int) -> String:
 	return str(collector_number).pad_zeros(maxi(3, str(card_count).length()))
 
 
-## The binder volume holding this collector number, or null if out of range.
+## The set's binder if it holds this collector number, else null.
 func binder_for(collector_number: int) -> BinderRange:
-	for binder in binder_ranges:
-		if collector_number >= binder.first and collector_number <= binder.last:
-			return binder
-	return null
+	return binder if binder.contains(collector_number) else null

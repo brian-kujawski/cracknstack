@@ -46,14 +46,11 @@ const FIXTURE_LIGHT := Color(1.0, 0.82, 0.6)
 ## into the room, centred at these z, back one first. They line up with the
 ## table rows.
 const CABINET_ZS := [2.9, 5.3]
-## The tables' and cabinets' wood (assets/store/table_wood), and how many
-## metres of real wood one copy of its texture covers.
+## The store's wood (assets/store/table_wood): tables, cabinets, the binder
+## shelf, window frames and the door. And how many metres of real wood one
+## copy of its texture covers.
 const TABLE_WOOD := "table_wood"
 const TABLE_WOOD_SIZE := 0.6
-## The shelving's and window frames' wood (assets/store/shelf_wood), and
-## how many metres one copy of it covers.
-const SHELF_WOOD := "shelf_wood"
-const SHELF_WOOD_SIZE := 0.8
 ## The green baize on the tables' playing surface and lining the cabinets'
 ## backs (assets/store/felt), and how many metres one copy of it covers.
 const FELT := "felt"
@@ -79,6 +76,9 @@ const CURTAIN_SIZE := 0.2
 ## table legs), as x/z rectangles. The space under a table top is open:
 ## cards can end up underneath.
 var obstacles: Array[Rect2] = []
+## Tops that cards and binders can be put down on, like the floor: the
+## tables and the binder shelf, as x/z rectangles.
+var surfaces: Array[Rect2] = []
 ## For the DayCycle: the light from each window, the curtains, and the sky
 ## seen between them.
 var window_lights: Array[Light3D] = []
@@ -90,7 +90,6 @@ var display_slots: Array[Marker3D] = []
 
 var _wall_material := _textured(PLASTER, PLASTER_SIZE)
 var _floor_material := _textured(CARPET, CARPET_SIZE)
-var _shelf_material := _textured(SHELF_WOOD, SHELF_WOOD_SIZE)
 var _table_material := _textured(TABLE_WOOD, TABLE_WOOD_SIZE)
 ## The same wood for the legs, mapped by the legs' own UVs so the grain runs
 ## up them (world mapping would lay it across, like the top's).
@@ -126,16 +125,28 @@ func _build_shell() -> void:
 	_add_wall_z(WIDTH + half, 0.0, DEPTH)
 
 
-## One wall-length shelf on the back wall, facing the door, holding every
-## binder.
+## One wall-length, two-shelf unit on the back wall, facing the door,
+## holding every binder. It's built of the tables' dark wood, stands raised
+## on pairs of legs in their style, and its top is a surface like a table's.
 func _build_binder_shelves() -> void:
-	var per_shelf: Array[int] = [int((BACK_SHELF.y - BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS) / ShelfUnit.SPACE_WIDTH)]
-	var assignments := ShelfLayout.assign(CardDatabase.all_binders(), per_shelf)
+	## Legs: square, wider at the top than at the foot, like the tables'.
+	const LEG_TOP := 0.07
+	const LEG_FOOT := 0.05
 	var unit := ShelfUnit.new()
 	unit.name = "BinderShelf"
-	unit.build(assignments[0], _shelf_material, per_shelf[0])
+	unit.build(CardDatabase.all_binders(), _table_material, BACK_SHELF.y - BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS)
 	unit.position = Vector3((BACK_SHELF.x + BACK_SHELF.y) / 2, 0, ShelfUnit.DEPTH / 2)
+	var leg_mesh := _tapered_leg(LEG_TOP, LEG_FOOT, ShelfUnit.leg_height())
+	for x in unit.leg_spots():
+		for z in [-1, 1]:
+			var leg := MeshInstance3D.new()
+			leg.mesh = leg_mesh
+			leg.material_override = _leg_material
+			leg.position = Vector3(x, 0, z * (ShelfUnit.DEPTH / 2 - ShelfUnit.LEG_INSET))
+			unit.add_child(leg)
 	_add_shelf(unit)
+	var top := unit.top_rect()
+	surfaces.append(Rect2(top.position + Vector2(unit.position.x, unit.position.z), top.size))
 
 
 ## Each table is a heavy solid-wood games table: a thick top with a stepped
@@ -163,6 +174,7 @@ func _build_table(center: Vector2) -> void:
 	add_child(body)
 	var size := Vector2(TABLE_SIZE.x, TABLE_SIZE.z)
 	var top_y := TABLE_SIZE.y
+	surfaces.append(Rect2(center - size / 2, size))
 	# The top and apron are their own body, so the player can lean over them.
 	var top := StaticBody3D.new()
 	top.add_to_group(TABLE_TOPS)
@@ -285,10 +297,10 @@ func _build_windows() -> void:
 		# Frame: head, jambs, a cross bar, and a sill that sticks out.
 		var frame_z := DEPTH - FRAME_DEPTH / 2
 		for side in [-1, 1]:
-			_add_part(self, Vector3(FRAME, size.y + 2 * FRAME, FRAME_DEPTH), Vector3(x + side * (size.x + FRAME) / 2, mid_y, frame_z), _shelf_material, false)
-		_add_part(self, Vector3(size.x + 2 * FRAME, FRAME, FRAME_DEPTH), Vector3(x, WINDOW_SILL + size.y + FRAME / 2, frame_z), _shelf_material, false)
-		_add_part(self, Vector3(size.x, FRAME * 0.6, FRAME_DEPTH * 0.6), Vector3(x, mid_y, DEPTH - FRAME_DEPTH * 0.3), _shelf_material, false)
-		_add_part(self, Vector3(size.x + 2 * FRAME + 0.06, 0.04, 0.16), Vector3(x, WINDOW_SILL - 0.02, DEPTH - 0.08), _shelf_material, false)
+			_add_part(self, Vector3(FRAME, size.y + 2 * FRAME, FRAME_DEPTH), Vector3(x + side * (size.x + FRAME) / 2, mid_y, frame_z), _table_material, false)
+		_add_part(self, Vector3(size.x + 2 * FRAME, FRAME, FRAME_DEPTH), Vector3(x, WINDOW_SILL + size.y + FRAME / 2, frame_z), _table_material, false)
+		_add_part(self, Vector3(size.x, FRAME * 0.6, FRAME_DEPTH * 0.6), Vector3(x, mid_y, DEPTH - FRAME_DEPTH * 0.3), _table_material, false)
+		_add_part(self, Vector3(size.x + 2 * FRAME + 0.06, 0.04, 0.16), Vector3(x, WINDOW_SILL - 0.02, DEPTH - 0.08), _table_material, false)
 		# Curtains drawn to within a hand's width of each other.
 		var rod_y := WINDOW_SILL + size.y + FRAME + 0.08
 		var rod := MeshInstance3D.new()
@@ -326,7 +338,7 @@ func _build_windows() -> void:
 func _build_door() -> void:
 	var door := ShopDoor.new()
 	door.name = "ShopDoor"
-	door.build(_brass_material)
+	door.build(_table_material, _brass_material)
 	door.position = Vector3(WIDTH / 2, 0, DEPTH)
 	door.rotation.y = PI
 	add_child(door)
@@ -423,7 +435,7 @@ func _build_track_light() -> void:
 	lens_material.emission_enabled = true
 	lens_material.emission = FIXTURE_LIGHT
 	lens_material.emission_energy_multiplier = 3.0
-	var target_y := 1.15
+	var target_y := 0.95
 	var target_z := ShelfUnit.DEPTH
 	for i in TRACK_HEADS:
 		var x: float = BACK_SHELF.x + length * (i + 0.5) / TRACK_HEADS
@@ -465,7 +477,7 @@ func _add_cylinder(center: Vector3, top: float, bottom: float, height: float, ma
 func _add_shelf(unit: ShelfUnit) -> void:
 	add_child(unit)
 	# Footprint is width × depth, turned with the unit (always a multiple of 90°).
-	var size := Vector2(ShelfUnit.outer_width(unit.spaces_per_shelf), ShelfUnit.DEPTH)
+	var size := Vector2(ShelfUnit.outer_width(unit.width), ShelfUnit.DEPTH)
 	if absf(sin(unit.rotation.y)) > 0.5:
 		size = Vector2(size.y, size.x)
 	obstacles.append(Rect2(Vector2(unit.position.x, unit.position.z) - size / 2, size))

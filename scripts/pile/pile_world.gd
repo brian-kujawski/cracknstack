@@ -36,7 +36,7 @@ const FLIP_RADIUS := 0.15
 ## A pile flip tosses cards lying within this height of where you aim, so
 ## one aimed at a table leaves the pile under it alone.
 const FLIP_HEIGHT := 0.1
-## Cards landing on a table stay this far in from its edge.
+## Cards landing on a table (or the shelf top) stay this far in from its edge.
 const TABLE_MARGIN := 0.01
 ## Collision layer of the pile's surface: a coarse height field that only
 ## binders collide with, so they can rest on the cards.
@@ -53,6 +53,9 @@ const Store := preload("res://scripts/store/store_builder.gd")
 var bounds: Rect2
 ## Floor footprints nothing may overlap (walls are the edge of `bounds`).
 var obstacles: Array[Rect2] = []
+## Table tops and the like that cards landing on them are kept on, as x/z
+## rectangles (Store.surfaces).
+var surfaces: Array[Rect2] = []
 ## Every binder in the store, in shelf order (wherever each one is now).
 var binders: Array[Binder] = []
 
@@ -131,7 +134,7 @@ func build(floor_bounds: Rect2, floor_obstacles: Array[Rect2], random_seed: int)
 	_build_surface()
 
 
-## Drops each binder volume closed somewhere on top of the pile, with room to
+## Drops each set's binder closed somewhere on top of the pile, with room to
 ## open it where it lies. Where binders land on each other they start a
 ## little apart, one above the other, and physics settles them.
 func spawn_binders(random_seed: int) -> void:
@@ -145,7 +148,7 @@ func spawn_binders(random_seed: int) -> void:
 		var y := height_under(p, Vector2(Binder.COVER.x, Binder.COVER.y) / 2, placements[i].rotation) + 0.01
 		for other in binders:
 			if Vector2(other.position.x, other.position.z).distance_to(p) < reach:
-				y = maxf(y, other.position.y + Binder.THICKNESS + 0.01)
+				y = maxf(y, other.position.y + other.thickness + 0.01)
 		add_child(binder)
 		binder.rotation = Vector3(0, placements[i].rotation, 0)
 		binder.position = Vector3(p.x, y, p.y)
@@ -304,22 +307,23 @@ func land(id: int, point: Vector3, rotation_y: float, face_up := true, exclude: 
 		drop(id, point, rotation_y, face_up)
 		return
 	var on := Vector3(point.x, hit.position.y, point.z)
-	var p := onto_table(Vector2(on.x, on.z), rotation_y)
+	var p := onto_surface(Vector2(on.x, on.z), rotation_y)
 	lay_loose(id, Vector3(p.x, on.y, p.y), rotation_y, face_up)
 
 
 ## Nudges a card at `p` (x/z), turned by rotation_y, so all of it is on the
-## table under it, if there is one.
-static func onto_table(p: Vector2, rotation_y: float) -> Vector2:
-	var half_table := Vector2(Store.TABLE_SIZE.x, Store.TABLE_SIZE.z) / 2 - Vector2(TABLE_MARGIN, TABLE_MARGIN)
+## table (or other surface) under it, if there is one.
+func onto_surface(p: Vector2, rotation_y: float) -> Vector2:
 	var half := CARD_SIZE / 2
 	var reach := Vector2(
 		absf(cos(rotation_y)) * half.x + absf(sin(rotation_y)) * half.y,
 		absf(sin(rotation_y)) * half.x + absf(cos(rotation_y)) * half.y)
-	for center: Vector2 in Store.TABLE_CENTERS:
-		var offset := p - center
-		if absf(offset.x) <= half_table.x + TABLE_MARGIN and absf(offset.y) <= half_table.y + TABLE_MARGIN:
-			var room := half_table - reach
+	for surface in surfaces:
+		# Grown a hair so a card landing right on the edge still counts.
+		if surface.grow(0.001).has_point(p):
+			var center := surface.get_center()
+			var room := surface.size / 2 - Vector2(TABLE_MARGIN, TABLE_MARGIN) - reach
+			var offset := p - center
 			return center + Vector2(clampf(offset.x, -room.x, room.x), clampf(offset.y, -room.y, room.y))
 	return p
 

@@ -6,8 +6,11 @@ extends RefCounted
 const POCKETS_PER_PAGE := 9
 const COLUMNS := 3
 const PAGES_PER_SHEET := 2
-## Cards per binder volume: 20 sheets × 2 sides × 9 pockets. A tuning number.
-const BINDER_CAPACITY := 360
+## Binders come in three sizes, like real 1", 1.5" and 2" ring binders
+## (plan §3.2.1): the most cards each holds and its thickness, in metres. A
+## set's binder is the smallest that fits it; the covers are all the same.
+const SIZE_CAPACITIES := [216, 324, 450]
+const SIZE_THICKNESSES := [0.035, 0.05, 0.065]
 
 
 ## Zero-based page index within the binder (front of sheet 1 is page 0).
@@ -31,6 +34,19 @@ static func sheet_of_page(page: int) -> int:
 
 static func is_back_of_sheet(page: int) -> bool:
 	return page % PAGES_PER_SHEET == 1
+
+
+## Which size a binder is: 0 small, 1 standard, 2 large. Anything bigger
+## than the largest still gets the largest.
+static func size_class(binder: BinderRange) -> int:
+	for i in SIZE_CAPACITIES.size():
+		if binder.card_capacity() <= SIZE_CAPACITIES[i]:
+			return i
+	return SIZE_CAPACITIES.size() - 1
+
+
+static func thickness(binder: BinderRange) -> float:
+	return SIZE_THICKNESSES[size_class(binder)]
 
 
 static func page_count(binder: BinderRange) -> int:

@@ -1,34 +1,66 @@
 class_name ShelfLayout
 extends RefCounted
-## Which shelf space each binder belongs in. Binders are split as evenly as
-## possible across the labelled units, in shelf order (release date, then
-## volume), so walking from one unit to the next reads the game's timeline
-## (plan §3.2, Layer 2). Within a unit, spaces read like a book: left to
-## right along a shelf, top shelf first.
+## Where each binder's space is on a shelving unit (plan §3.2, Layer 2).
+## Binders go in shelf order (release date): left to right along the top
+## shelf, then the next one down, like a book. They're split as evenly as
+## possible between the shelves, so every shelf ends with the same room to
+## spare. Each space is as wide as its binder plus SPACE_GAP, and none
+## straddles a bay divider.
 
-const SHELVES_PER_UNIT := 5
-## Spaces per shelf on a standard (unlabelled) unit. Labelled units are as
-## wide as the wall they stand on.
-const SPACES_PER_SHELF := 12
+## Room around a binder in its space, so its label fits under it and it's
+## easy to aim at.
+const SPACE_GAP := 0.03
+
+## Per space, in shelf order: the binder that belongs there, which shelf
+## (0 = top) it's on, and its left edge and width along the shelf (in metres
+## from the unit's inside left edge).
+var binders: Array[BinderRange] = []
+var shelves := PackedInt32Array()
+var lefts := PackedFloat32Array()
+var widths := PackedFloat32Array()
 
 
-## Per unit, a flat array of SHELVES_PER_UNIT * spaces_per_shelf[unit] entries
-## (BinderRange, or null for an unlabelled space), indexed by
-## shelf * spaces_per_shelf[unit] + space.
-static func assign(binders: Array[BinderRange], spaces_per_shelf: Array[int]) -> Array[Array]:
-	var units: Array[Array] = []
-	var unit_count := spaces_per_shelf.size()
-	var next := 0
-	for u in unit_count:
-		var spaces := []
-		spaces.resize(SHELVES_PER_UNIT * spaces_per_shelf[u])
-		units.append(spaces)
-		# The first (count % units) units take one extra binder.
-		var share := binders.size() / unit_count + (1 if u < binders.size() % unit_count else 0)
-		if share > spaces.size():
-			push_error("ShelfLayout: unit %d holds %d binders, %d needed" % [u, spaces.size(), share])
-			share = spaces.size()
-		for i in share:
-			spaces[i] = binders[next]
-			next += 1
-	return units
+static func space_width(binder: BinderRange) -> float:
+	return BinderLayout.thickness(binder) + SPACE_GAP
+
+
+## Lays `all` out over `shelf_count` shelves split into bays, given as the
+## (start, end) of each bay along the shelf. Binders that don't fit are left
+## out, with an error.
+static func plan(all: Array[BinderRange], shelf_count: int, bays: Array[Vector2]) -> ShelfLayout:
+	var layout := ShelfLayout.new()
+	var total := 0.0
+	for binder in all:
+		total += space_width(binder)
+	var share := total / shelf_count
+	var shelf := 0
+	var bay := 0
+	var cursor := bays[0].x
+	var filled := 0.0
+	for binder in all:
+		var width := space_width(binder)
+		# A binder goes on the shelf its middle falls on, if the shelves were
+		# filled to exactly their share.
+		var wanted := mini(floori((filled + width / 2) / share), shelf_count - 1) if share > 0.0 else 0
+		filled += width
+		if wanted > shelf:
+			shelf = wanted
+			bay = 0
+			cursor = bays[0].x
+		while bay < bays.size() and cursor + width > bays[bay].y:
+			bay += 1
+			cursor = bays[bay].x if bay < bays.size() else 0.0
+		if bay == bays.size():
+			# This shelf's full: carry on along the next one, if there is one.
+			if shelf == shelf_count - 1:
+				push_error("ShelfLayout: no room for %s" % binder.label)
+				continue
+			shelf += 1
+			bay = 0
+			cursor = bays[0].x
+		layout.binders.append(binder)
+		layout.shelves.append(shelf)
+		layout.lefts.append(cursor)
+		layout.widths.append(width)
+		cursor += width
+	return layout
