@@ -1,10 +1,9 @@
 class_name BinderRange
 extends RefCounted
-## One binder volume: a contiguous run of collector numbers from one set.
+## One set's binder: the run of collector numbers it holds.
 ## The same label is printed on the binder's spine and on its shelf space.
 
 var set_code: String
-var volume: int
 var first: int
 var last: int
 var label: String

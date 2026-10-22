@@ -110,7 +110,7 @@ func space_at(global_point: Vector3) -> int:
 func shelve(space: int, binder: Binder) -> bool:
 	var correct: bool = spaces[space] == binder.binder
 	shelved[space] = binder
-	binder.stand_on_shelf(self, space, binder_transform(space), correct)
+	binder.stand_on_shelf(self, space, binder_transform(space, binder.thickness), correct)
 	if correct:
 		Progression.earn_once("shelved:" + binder.key(), Progression.BINDER_SHELVED)
 	if refresh_section(shelf_of(space)):
@@ -146,15 +146,16 @@ func refresh_section(shelf: int) -> bool:
 	return lit
 
 
-## Where a binder stands in a space, spine out (in the unit's local space).
+## Where a binder this thick stands in a space, spine out (in the unit's
+## local space), centred in the space.
 ## The spine sits a few millimetres proud of the unit's front so it's the
 ## binder, not the shelf, under the crosshair.
-func binder_transform(space: int) -> Transform3D:
+func binder_transform(space: int, thickness: float) -> Transform3D:
 	var floor_point := space_position(shelf_of(space), space % spaces_per_shelf)
 	# Binder axes: thickness (y) runs along the shelf, the spine (-x) faces
 	# out, and the binder's length (z) stands upright.
 	var basis := Basis(Vector3(0, 0, -1), Vector3(1, 0, 0), Vector3(0, -1, 0))
-	var origin := Vector3(floor_point.x - Binder.THICKNESS / 2, floor_point.y + Binder.COVER.y / 2 + 0.002,
+	var origin := Vector3(floor_point.x - thickness / 2, floor_point.y + Binder.COVER.y / 2 + 0.002,
 		DEPTH / 2 + 0.004 - Binder.COVER.x / 2)
 	return Transform3D(basis, origin)
 

@@ -235,9 +235,7 @@ func _ready() -> void:
 	_ghost_card = MeshInstance3D.new()
 	_ghost_card.mesh = quad
 	_ghost_binder = MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Binder.SIZE
-	_ghost_binder.mesh = box
+	_ghost_binder.mesh = BoxMesh.new()  # Sized to the carried binder when shown.
 	for ghost in [_ghost_card, _ghost_binder]:
 		ghost.material_override = ghost_material
 		ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -396,7 +394,7 @@ func _try_file_held_card() -> bool:
 	if pocket >= 0 and not binder.is_open():
 		# Shunt III: in through the closed cover.
 		var id := held_card_id
-		_put_down_card(Glide.flat_card(binder.global_position + binder.global_basis.y * Binder.THICKNESS, binder.global_basis),
+		_put_down_card(Glide.flat_card(binder.global_position + binder.global_basis.y * binder.thickness, binder.global_basis),
 			func() -> void: _file(binder, pocket, id))
 		return true
 	if not binder.is_open():
@@ -639,7 +637,7 @@ func _fly_to_pocket(id: int, from: Transform3D, binder: Binder, pocket: int, lan
 	var to := func() -> Transform3D:
 		if binder.is_open():
 			return binder.pocket_pose(pocket)
-		return Glide.flat_card(binder.global_position + binder.global_basis.y * Binder.THICKNESS, binder.global_basis)
+		return Glide.flat_card(binder.global_position + binder.global_basis.y * binder.thickness, binder.global_basis)
 	var flight := minf(teleport_seconds + teleport_seconds_per_metre * from.origin.distance_to(to.call().origin),
 		teleport_seconds_max)
 	Glide.start(card, from, to, glide_seconds(flight), teleport_lift).tween_callback(func() -> void:
@@ -649,7 +647,7 @@ func _fly_to_pocket(id: int, from: Transform3D, binder: Binder, pocket: int, lan
 		else:
 			# Its pocket filled while it flew: it falls beside the binder,
 			# onto the pile or the table it's on.
-			pile.land(id, binder.global_position + binder.global_basis.y * Binder.THICKNESS, binder.rotation.y,
+			pile.land(id, binder.global_position + binder.global_basis.y * binder.thickness, binder.rotation.y,
 				true, [binder.get_rid()]))
 
 
@@ -789,7 +787,8 @@ func _update_ghost(delta: float) -> void:
 		return
 	if ghost == _ghost_binder:
 		# The box mesh is centred; a binder's origin is its underside.
-		pose = pose.translated_local(Vector3(0, Binder.THICKNESS / 2, 0))
+		(_ghost_binder.mesh as BoxMesh).size = carried_binder.size
+		pose = pose.translated_local(Vector3(0, carried_binder.thickness / 2, 0))
 	ghost.global_transform = pose
 
 

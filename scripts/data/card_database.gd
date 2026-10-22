@@ -46,7 +46,7 @@ func load_file(path: String) -> Error:
 	_sets.clear()
 	_cards_by_set.clear()
 	for set_data in result.sets:
-		set_data.build_binder_ranges(BinderLayout.BINDER_CAPACITY)
+		set_data.build_binder()
 		_sets[set_data.code] = set_data
 		_cards_by_set[set_data.code] = [] as Array[CardData]
 	for card in _cards:
@@ -106,14 +106,14 @@ func cards_in_set(code: String) -> Array[CardData]:
 	return _cards_by_set.get(code, [] as Array[CardData])
 
 
-## Every binder volume in the store, in shelf order.
+## Every binder in the store (one per set), in shelf order.
 func all_binders() -> Array[BinderRange]:
 	var binders: Array[BinderRange] = []
 	for set_data in _sets_in_shelf_order:
-		binders.append_array(set_data.binder_ranges)
+		binders.append(set_data.binder)
 	return binders
 
 
-## The binder volume a card belongs in.
+## The binder a card belongs in.
 func binder_for(card: CardData) -> BinderRange:
 	return get_set(card.set_code).binder_for(card.collector_number)

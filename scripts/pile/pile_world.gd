@@ -131,7 +131,7 @@ func build(floor_bounds: Rect2, floor_obstacles: Array[Rect2], random_seed: int)
 	_build_surface()
 
 
-## Drops each binder volume closed somewhere on top of the pile, with room to
+## Drops each set's binder closed somewhere on top of the pile, with room to
 ## open it where it lies. Where binders land on each other they start a
 ## little apart, one above the other, and physics settles them.
 func spawn_binders(random_seed: int) -> void:
@@ -145,7 +145,7 @@ func spawn_binders(random_seed: int) -> void:
 		var y := height_under(p, Vector2(Binder.COVER.x, Binder.COVER.y) / 2, placements[i].rotation) + 0.01
 		for other in binders:
 			if Vector2(other.position.x, other.position.z).distance_to(p) < reach:
-				y = maxf(y, other.position.y + Binder.THICKNESS + 0.01)
+				y = maxf(y, other.position.y + other.thickness + 0.01)
 		add_child(binder)
 		binder.rotation = Vector3(0, placements[i].rotation, 0)
 		binder.position = Vector3(p.x, y, p.y)

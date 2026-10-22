@@ -19,7 +19,7 @@ func _ready() -> void:
 	_test_database_loaded()
 	_test_collector_numbers_are_contiguous()
 	_test_shelf_order()
-	_test_binder_ranges()
+	_test_binders_per_set()
 	_test_binder_layout()
 	_test_card_sort()
 	_test_shelf_layout()
@@ -96,24 +96,23 @@ func _test_shelf_order() -> void:
 		_check(CardDatabase.binder_for(card) != null, "card %d has no binder" % card.id)
 
 
-func _test_binder_ranges() -> void:
-	var small := SetData.new()
-	small.code = "TST"
-	small.name = "Test Set"
-	small.card_count = 269
-	small.build_binder_ranges(360)
-	_check(small.binder_ranges.size() == 1, "269 cards should fit one binder")
-	_check(small.binder_ranges[0].label == "Test Set, 1–269", "single-volume label: " + small.binder_ranges[0].label)
-
-	var big := SetData.new()
-	big.code = "BIG"
-	big.name = "Big Set"
-	big.card_count = 700
-	big.build_binder_ranges(360)
-	_check(big.binder_ranges.size() == 2, "700 cards should need two binders")
-	_check(big.binder_ranges[1].label == "Big Set, Vol. 2 (361–700)", "volume label: " + big.binder_ranges[1].label)
-	_check(big.binder_for(360).volume == 1 and big.binder_for(361).volume == 2, "binder_for picks the right volume")
-	_check(big.binder_for(701) == null, "out-of-range number has no binder")
+func _test_binders_per_set() -> void:
+	var sizes := []
+	for count in [143, 216, 217, 269, 324, 325, 449, 700]:
+		var set_data := SetData.new()
+		set_data.code = "TST"
+		set_data.name = "Test Set"
+		set_data.card_count = count
+		set_data.build_binder()
+		_check(set_data.binder.first == 1 and set_data.binder.last == count, "one binder holds all %d cards" % count)
+		sizes.append(BinderLayout.size_class(set_data.binder))
+		if count == 269:
+			_check(set_data.binder.label == "Test Set, 1–269", "binder label: " + set_data.binder.label)
+			_check(set_data.binder_for(269) == set_data.binder and set_data.binder_for(270) == null,
+				"binder_for finds the set's binder, null past its last card")
+	_check(sizes == [0, 0, 1, 1, 1, 2, 2, 2], "small up to 216, standard up to 324, large beyond: %s" % [sizes])
+	_check(BinderLayout.SIZE_THICKNESSES[0] < BinderLayout.SIZE_THICKNESSES[1]
+		and BinderLayout.SIZE_THICKNESSES[1] < BinderLayout.SIZE_THICKNESSES[2], "bigger binders are thicker")
 
 
 func _test_binder_layout() -> void:
@@ -128,11 +127,8 @@ func _test_binder_layout() -> void:
 	_check(BinderLayout.sheet_of_page(BinderLayout.page_of(binder, 19)) == 1, "card 19 is on the second sheet")
 	_check(BinderLayout.page_count(binder) == 40, "360 cards fill 40 pages")
 
-	var volume_two := BinderRange.new()
-	volume_two.first = 361
-	volume_two.last = 700
-	_check(BinderLayout.page_of(volume_two, 361) == 0 and BinderLayout.pocket_of(volume_two, 361) == 0,
-		"each volume starts at page 0 pocket 0")
+	binder.last = 449
+	_check(BinderLayout.page_count(binder) == 50, "449 cards fill 50 pages, the last one partly")
 
 
 func _test_card_sort() -> void:
@@ -170,8 +166,7 @@ func _test_shelf_layout() -> void:
 			if previous != null:
 				var prev_set := CardDatabase.get_set(previous.set_code)
 				var this_set := CardDatabase.get_set(binder.set_code)
-				var same_set_later_volume: bool = previous.set_code == binder.set_code and previous.volume < binder.volume
-				in_order = in_order and (same_set_later_volume or CardSort.compare_sets(prev_set, this_set))
+				in_order = in_order and CardSort.compare_sets(prev_set, this_set)
 			previous = binder
 	_check(seen == binders.size(), "every binder gets exactly one shelf space (%d of %d)" % [seen, binders.size()])
 	_check(in_order, "shelf spaces read in release-date order")
@@ -449,7 +444,7 @@ func _test_shelving() -> void:
 	_check(wrong.state == Binder.State.SHELVED and unit.shelved[0] == wrong, "but it stands there anyway")
 	unit.unshelve(0)
 	_check(unit.shelve(0, right), "a binder in its own space locks in")
-	var spine := right.to_global(Vector3(-Binder.COVER.x / 2, Binder.THICKNESS / 2, 0))
+	var spine := right.to_global(Vector3(-Binder.COVER.x / 2, right.thickness / 2, 0))
 	var spine_local := unit.to_local(spine)
 	_check(spine_local.z > ShelfUnit.DEPTH / 2 and absf(spine_local.x - unit.space_position(0, 0).x) < 0.03,
 		"the binder stands spine out in its space")
