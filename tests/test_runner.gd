@@ -2193,6 +2193,20 @@ func _test_shop_save() -> void:
 		values.append_array(changed.cards[key].slice(0, 2))
 		changed.cards[key] = values
 	changed.binders.erase(last_code)
+	# New furniture over some floor cards, and a table that's gone.
+	var furniture := Rect2(0.0, 0.0, 0.0, 0.0)
+	var buried: Array[int] = []
+	var order_now := ShopSave.card_order()
+	for i in keep:
+		var at: Vector3 = changed.cards.positions[i]
+		if changed.cards.where[i] == 0 and buried.size() < 3 and at.x > 3.0 and at.x < 9.0:
+			buried.append(order_now[i])
+			furniture = Rect2(at.x - 0.05, at.z - 0.05, 0.1, 0.1) if furniture.size == Vector2.ZERO else furniture.expand(Vector2(at.x, at.z))
+	var on_gone_table: Vector3 = changed.cards.positions[order_now.find(ids[10])]
+	var moved_table_card := order_now.find(ids[10])
+	var positions_moved: PackedVector3Array = changed.cards.positions
+	positions_moved[moved_table_card] = Vector3(on_gone_table.x + 20.0, on_gone_table.y, on_gone_table.z)
+	changed.cards.positions = positions_moved
 	main.free()
 	Saves._pending = changed
 	main = load(SceneFlow.SHOP_SCENE).instantiate()
@@ -2205,6 +2219,19 @@ func _test_shop_save() -> void:
 	_check(new_binder.binder.set_code == last_code and new_binder.is_inside_tree() and new_binder.state == Binder.State.CLOSED,
 		"and its binder is dropped on top")
 	_check(pile.binders[0].contents.locked_count == 5, "the rest of the save loads as before")
+	var test_pile := PileWorld.new()
+	add_child(test_pile)
+	test_pile.surfaces = main.get_node("Store").surfaces
+	var obstacles_now: Array[Rect2] = main.get_node("Store").obstacles.duplicate()
+	obstacles_now.append(furniture.grow(0.05))
+	test_pile.restore_cards(main.get_node("Store").floor_bounds(), obstacles_now, changed.cards, ShopSave.id_map(changed.sets), 1)
+	var clear_now := buried.all(func(id: int) -> bool:
+		var at := test_pile.card_position(id)
+		return test_pile.is_on_floor(id) and not furniture.grow(0.05).has_point(Vector2(at.x, at.z)))
+	_check(not buried.is_empty() and clear_now, "cards under new furniture move to the nearest clear spot")
+	_check(test_pile.is_on_floor(ids[10]), "and a card on a table that's gone lands on the floor")
+	_check(test_pile.card_position(ids[20]).is_equal_approx(pile.card_position(ids[20])), "while the rest stay put")
+	test_pile.free()
 	main.free()
 	Progression.reset()
 	Saves.begin_new_game()

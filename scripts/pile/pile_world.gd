@@ -193,7 +193,9 @@ func snapshot_cards() -> Dictionary:
 ## "cards" (ShopSave.finish) and `ids` maps each of its entries to a card id now (-1 for a card
 ## that's gone). Cards the save doesn't know (a set imported since) are
 ## scattered on top, as in a new game. Every other card starts in hand
-## (HELD), for the save's binders and hands to take. Returns the ids
+## (HELD), for the save's binders and hands to take. A card where furniture
+## now stands, or on a table that's gone, moves to the nearest clear spot
+## on the floor; nothing else moves. Set `surfaces` first. Returns the ids
 ## scattered.
 func restore_cards(floor_bounds: Rect2, floor_obstacles: Array[Rect2], cards: Dictionary, ids: PackedInt32Array,
 		random_seed: int) -> PackedInt32Array:
@@ -223,14 +225,26 @@ func restore_cards(floor_bounds: Rect2, floor_obstacles: Array[Rect2], cards: Di
 	# Lowest first, so each card's height map cells end up under the highest
 	# card covering them.
 	on_floor.sort_custom(func(a: int, b: int) -> bool: return positions[a].y < positions[b].y)
+	# Cards where furniture now stands (or past a wall that moved), and table
+	# cards whose table is gone, move to the nearest clear spot and go on
+	# top there once the rest is down. Nothing else moves.
+	var moved: Array[int] = []
 	for i in on_floor:
-		var id := ids[i]
 		var p := Vector2(positions[i].x, positions[i].z)
-		if not bounds.has_point(p):
-			p = clear_point(p, CARD_SIZE / 2, rotations[i])
-		_states[id] = State.ON_FLOOR
-		_face_up[id] = face_up[i]
-		_put_on_floor(id, p, rotations[i], positions[i].y)
+		if not PileGenerator.footprint_clear(p, CARD_SIZE / 2, rotations[i], bounds, obstacles):
+			moved.append(i)
+			continue
+		_states[ids[i]] = State.ON_FLOOR
+		_face_up[ids[i]] = face_up[i]
+		_put_on_floor(ids[i], p, rotations[i], positions[i].y)
+	for i in on_tables.duplicate():
+		if not surfaces.any(func(top: Rect2) -> bool: return top.has_point(Vector2(positions[i].x, positions[i].z))):
+			on_tables.erase(i)
+			moved.append(i)
+	for i in moved:
+		_states[ids[i]] = State.ON_FLOOR
+		_face_up[ids[i]] = face_up[i]
+		_put_on_floor(ids[i], clear_point(Vector2(positions[i].x, positions[i].z), CARD_SIZE / 2, rotations[i]), rotations[i])
 	var unknown := PackedInt32Array()
 	for id in count:
 		if known[id] == 0:
