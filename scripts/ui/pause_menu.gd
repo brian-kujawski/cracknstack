@@ -13,7 +13,7 @@ extends CanvasLayer
 
 ## Set by the main scene; the developer time-of-day buttons drive it.
 var day_cycle: DayCycle
-## Each step's buttons by label, for the tests and for focus.
+## Each step's buttons by label, for the tests.
 var buttons := {}
 var exit_buttons := {}
 var save_buttons := {}
@@ -40,8 +40,8 @@ func _ready() -> void:
 	# Fires when the click comes back up, so neither half of it reaches the game.
 	_add_button(_menu, buttons, "Resume").pressed.connect(resume)
 	_add_button(_menu, buttons, "Save/Load", false)
-	_add_button(_menu, buttons, "Achievements").pressed.connect(_open.bind("Achievements", AchievementsScreen.make))
-	_add_button(_menu, buttons, "Settings").pressed.connect(_open.bind("Settings", func() -> MenuScreen: return MenuScreen.new("Settings")))
+	_add_button(_menu, buttons, "Achievements").pressed.connect(_open.bind(AchievementsScreen.make))
+	_add_button(_menu, buttons, "Settings").pressed.connect(_open.bind(func() -> MenuScreen: return MenuScreen.new("Settings")))
 	_add_button(_menu, buttons, "Exit Game").pressed.connect(_ask_to_exit)
 	if OS.is_debug_build():
 		_add_time_buttons(_menu)
@@ -105,9 +105,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			pause()
 		get_viewport().set_input_as_handled()
-	elif visible and MenuStyle.wants_focus(_menu, event):
-		get_viewport().set_input_as_handled()
-		_first_button().grab_focus()
 
 
 func _notification(what: int) -> void:
@@ -129,7 +126,6 @@ func pause() -> void:
 func resume() -> void:
 	visible = false
 	get_tree().paused = false
-	get_viewport().gui_release_focus()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -145,21 +141,20 @@ func is_asking_to_save() -> bool:
 
 
 func _ask_to_exit() -> void:
-	_show(_exit_question, buttons["Exit Game"], exit_buttons["Quit to Menu"])
+	_show(_exit_question)
 
 
 func _back_from_exit() -> void:
-	_show(_menu, exit_buttons["Back"], buttons["Exit Game"])
+	_show(_menu)
 
 
 func _ask_to_save(quit_to: Callable, label: String) -> void:
 	_quit_to = quit_to
-	_show(_save_question, exit_buttons[label], save_buttons["Save And Quit"])
+	_show(_save_question)
 
 
 func _back_from_save() -> void:
-	var label := "Quit to Menu" if _quit_to == SceneFlow.to_main_menu else "Quit to Desktop"
-	_show(_exit_question, null, exit_buttons[label], true)
+	_show(_exit_question)
 
 
 ## Save And Quit saves first; Quit Without Saving never does, even once
@@ -171,37 +166,16 @@ func _quit(save: bool) -> void:
 
 
 func _show_menu() -> void:
-	_show(_menu, null, null)
+	_show(_menu)
 
 
-## Shows one step of the menu. Focus follows the keyboard: if `from` had it
-## (or `keep_focus`), `to` takes it; otherwise nothing is highlighted. A
-## click focuses a button with its outline hidden, which doesn't count.
-func _show(column: VBoxContainer, from: Button, to: Button, keep_focus := false) -> void:
-	var had_focus := keep_focus or (from != null and from.has_focus(true))
+## Shows one step of the menu.
+func _show(column: VBoxContainer) -> void:
 	for step in [_menu, _exit_question, _save_question]:
 		step.visible = step == column
-	get_viewport().gui_release_focus()
-	if had_focus and to != null:
-		to.grab_focus()
-
-
-func _first_button() -> Button:
-	if _save_question.visible:
-		return save_buttons["Save And Quit"]
-	if _exit_question.visible:
-		return exit_buttons["Quit to Menu"]
-	return buttons["Resume"]
 
 
 ## Opens the Achievements or Settings page over the menu; Back or Esc
 ## returns to it, still paused.
-func _open(title: String, make: Callable) -> void:
-	var button: Button = buttons[title]
-	var had_focus := button.has_focus(true)
-	get_viewport().gui_release_focus()
-	var page: MenuScreen = make.call()
-	page.closed.connect(func() -> void:
-		if had_focus:
-			button.grab_focus())
-	add_child(page)
+func _open(make: Callable) -> void:
+	add_child(make.call())

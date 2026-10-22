@@ -9,7 +9,6 @@ signal closed
 
 ## The page's own controls go in here, between the heading and Back.
 var content: VBoxContainer
-var _back: Button
 
 
 func _init(title: String) -> void:
@@ -29,18 +28,15 @@ func _init(title: String) -> void:
 	content = VBoxContainer.new()
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(content)
-	_back = MenuStyle.menu_button("Back")
-	_back.pressed.connect(close)
-	column.add_child(_back)
+	var back := MenuStyle.menu_button("Back")
+	back.pressed.connect(close)
+	column.add_child(back)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(Controls.PAUSE):
 		get_viewport().set_input_as_handled()
 		close()
-	elif MenuStyle.wants_focus(self, event):
-		get_viewport().set_input_as_handled()
-		_back.grab_focus()
 
 
 func close() -> void:
