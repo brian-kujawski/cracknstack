@@ -463,6 +463,7 @@ func _test_shelving() -> void:
 	_check(spine_local.z > ShelfUnit.DEPTH / 2 and absf(spine_local.x - unit.space_position(0).x) < 0.001,
 		"the binder stands spine out in its space")
 	_check(not unit.is_section_complete(0), "an incomplete binder doesn't light its shelf")
+	_check(not unit.nameplates.is_gold(0), "an incomplete binder leaves its nameplate black")
 
 	# Fill every binder on the top shelf, shelve them all: the shelf lights up.
 	var shelf_binders: Array[Binder] = [right]
@@ -479,8 +480,10 @@ func _test_shelving() -> void:
 			if b.binder.contains(card.collector_number):
 				b.contents.insert(card.collector_number - b.binder.first, card.id)
 	_check(unit.refresh_section(0), "a shelf of complete binders in their own spaces lights up")
+	_check(unit.nameplates.is_gold(0) and unit.nameplates.is_gold(1), "complete binders in their own spaces turn their nameplates gold")
 	unit.unshelve(0)
 	_check(not unit.is_section_complete(0), "taking one down turns it off again")
+	_check(not unit.nameplates.is_gold(0) and unit.nameplates.is_gold(1), "and turns its nameplate back to black")
 	unit.queue_free()
 	wrong.queue_free()
 	for b in shelf_binders:

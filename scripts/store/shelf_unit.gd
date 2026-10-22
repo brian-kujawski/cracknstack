@@ -7,11 +7,12 @@ extends StaticBody3D
 ## a table's, for cards and binders. Its origin is on the floor, centred
 ## under the unit, and its open front faces local +Z.
 ##
-## Every space is labelled for one binder, with its set code on the shelf
-## lip under it, and is as wide as that binder (ShelfLayout). A binder stood
-## in its own space locks in; in any other labelled space it glows red. When
-## every labelled space on a shelf holds its own completed binder, the light
-## under the shelf above comes on.
+## Every space is labelled for one binder, with a nameplate on the shelf's
+## edge under it (Nameplates), and is as wide as that binder (ShelfLayout).
+## A binder stood in its own space locks in; in any other labelled space it
+## glows red. Once its own completed binder stands there, a space's plate
+## turns from black to gold; when every space on a shelf has, the light under
+## the shelf above comes on.
 ##
 ## The unit's collision is one solid box from the floor up, so nothing gets
 ## under or behind it; only the top is a separate body (`top`), which aiming
@@ -36,6 +37,8 @@ const BAND_DROP := 0.008
 const CAP_THICKNESS := 0.025
 ## How far the top cap overhangs the sides and front.
 const CAP_OVERHANG := 0.012
+## How much narrower than its space a nameplate is, at least (half each side).
+const PLATE_CLEARANCE := 0.008
 ## Leg pairs stand under every so many bay boundaries, evenly, no further
 ## apart than this.
 const LEG_SPACING := 2.0
@@ -50,6 +53,7 @@ var spaces: Array = []
 var shelved: Array = []
 ## The top's body: cards and binders put down on it rest there.
 var top: StaticBody3D
+var nameplates: Nameplates
 
 var _layout: ShelfLayout
 var _bays := 1
@@ -67,7 +71,7 @@ static func leg_height() -> float:
 	return SHELF_HEIGHTS[-1] - BOARD_THICKNESS
 
 
-## Builds the meshes, collision and labels, with a labelled space for each
+## Builds the meshes, collision and nameplates, with a labelled space for each
 ## binder, in order. Call once before adding to the tree.
 func build(binders: Array[BinderRange], material: Material, inner_width: float) -> void:
 	width = inner_width
@@ -103,21 +107,20 @@ func build(binders: Array[BinderRange], material: Material, inner_width: float) 
 	cap_shape.position = Vector3(cap.get_center().x, HEIGHT + CAP_THICKNESS / 2, cap.get_center().y)
 	top.add_child(cap_shape)
 
+	nameplates = Nameplates.new()
+	nameplates.name = "Nameplates"
+	var codes: Array[String] = []
+	var centers: Array[Vector3] = []
+	var plate_widths: Array[float] = []
 	for i in spaces.size():
-		var binder: BinderRange = spaces[i]
-		var label := Label3D.new()
-		label.text = binder.set_code
-		label.font_size = 28
-		label.pixel_size = 0.0007
-		label.modulate = Color(0.15, 0.15, 0.15)
-		label.outline_size = 0
-		label.double_sided = false
-		label.position = space_position(i)
-		label.position.y -= BOARD_THICKNESS / 2
-		label.position.z = DEPTH / 2 + 0.002
-		label.set_meta("binder_label", binder.label)
-		label.visibility_range_end = 6.0
-		add_child(label)
+		codes.append(spaces[i].set_code)
+		var center := space_position(i)
+		center.y -= (BOARD_THICKNESS + BAND_DROP) / 2
+		center.z = DEPTH / 2
+		centers.append(center)
+		plate_widths.append(_layout.widths[i] - PLATE_CLEARANCE)
+	nameplates.build(codes, centers, plate_widths)
+	add_child(nameplates)
 
 	for shelf in SHELF_HEIGHTS.size():
 		_section_lights.append(_build_section_light(shelf))
@@ -180,6 +183,12 @@ func unshelve(space: int) -> void:
 	refresh_section(shelf_of(space))
 
 
+## True when a space holds its own completed binder.
+func is_space_complete(space: int) -> bool:
+	var binder: Binder = shelved[space]
+	return binder != null and binder.binder == spaces[space] and binder.contents.is_complete()
+
+
 ## True when every labelled space on a shelf holds its own completed binder.
 func is_section_complete(shelf: int) -> bool:
 	var any := false
@@ -187,14 +196,17 @@ func is_section_complete(shelf: int) -> bool:
 		if _layout.shelves[index] != shelf:
 			continue
 		any = true
-		var binder: Binder = shelved[index]
-		if binder == null or binder.binder != spaces[index] or not binder.contents.is_complete():
+		if not is_space_complete(index):
 			return false
 	return any
 
 
-## Turns the shelf's light on or off to match. Returns whether it's on.
+## Turns the shelf's nameplates and light to match what stands there.
+## Returns whether the light is on.
 func refresh_section(shelf: int) -> bool:
+	for index in spaces.size():
+		if _layout.shelves[index] == shelf:
+			nameplates.set_gold(index, is_space_complete(index))
 	var lit := is_section_complete(shelf)
 	var material: StandardMaterial3D = _section_lights[shelf].material_override
 	material.emission_energy_multiplier = 3.0 if lit else 0.0
