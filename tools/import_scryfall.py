@@ -37,6 +37,7 @@ line intact), and no paywall.
 
 import argparse
 import gzip
+import importlib.util
 import json
 import os
 import re
@@ -127,6 +128,11 @@ def main(argv=None):
         list_sets(client, out, args.types, args.refetch, args.listing)
         print(usage_line(client, started))
         return 0
+
+    # Every run that isn't a dry run ends by packing the atlas; stop before
+    # downloading anything rather than leave cards.json from the last run.
+    if not args.no_images and not args.dry_run and importlib.util.find_spec("PIL") is None:
+        sys.exit("Packing the atlas needs Pillow: python3 -m pip install pillow")
 
     failed = []
     bulk = load_bulk(args.bulk, codes) if args.bulk and codes else None
