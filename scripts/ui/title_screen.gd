@@ -1,9 +1,12 @@
+class_name TitleScreen
 extends Control
 ## The title screen and main menu: one scene in two states. It opens on the
-## title, a PRESS ANY KEY TO START line and the Fan Content disclaimer; any
-## key or mouse button brings up the menu under the title, which glides up
-## to make room. The disclaimer stays put the whole time. Continue and Load Game stay greyed out until
-## there are saves (M8).
+## title and a PRESS ANY KEY TO START line; any key or mouse button brings
+## up the menu under the title, which glides up to make room. Nothing here
+## says what the game is: the Fan Content disclaimer is shown in the New
+## Game intro instead (SceneFlow), and Credits stays greyed out until a game
+## has been started, so the menu can't give it away. Continue and Load Game
+## stay greyed out until there are saves (M8).
 
 enum State { TITLE, MENU }
 
@@ -59,10 +62,10 @@ func _ready() -> void:
 	_add_button("Load Game", false)
 	_add_button("Achievements").pressed.connect(_open.bind(AchievementsScreen.make, "Achievements"))
 	_add_button("Settings").pressed.connect(_open.bind(func() -> MenuScreen: return MenuScreen.new("Settings"), "Settings"))
-	_add_button("Credits").pressed.connect(_open.bind(CreditsRoll.new, "Credits"))
+	_add_button("Credits", SceneFlow.has_started()).pressed.connect(_open.bind(CreditsRoll.new, "Credits"))
 	_add_button("Exit").pressed.connect(SceneFlow.quit)
 	_menu.visible = false
-	_add_footer()
+	_add_prompt()
 	if straight_to_menu:
 		show_menu(false, true)
 	if roll_credits:
@@ -79,28 +82,17 @@ func _add_button(text: String, enabled := true) -> Button:
 	return button
 
 
-## PRESS ANY KEY TO START near the bottom, and the disclaimer under it.
-func _add_footer() -> void:
-	var footer := VBoxContainer.new()
-	footer.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	footer.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	footer.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	footer.offset_bottom = -24
-	footer.add_theme_constant_override("separation", 32)
-	add_child(footer)
+## PRESS ANY KEY TO START near the bottom.
+func _add_prompt() -> void:
 	_prompt = MenuStyle.heading("PRESS ANY KEY TO START", 22)
-	footer.add_child(_prompt)
+	_prompt.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_prompt.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_prompt.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_prompt.offset_bottom = -64
+	add_child(_prompt)
 	_prompt_tween = create_tween().set_loops()
 	_prompt_tween.tween_property(_prompt, "modulate:a", PROMPT_DIM, PROMPT_PULSE / 2).set_trans(Tween.TRANS_SINE)
 	_prompt_tween.tween_property(_prompt, "modulate:a", 1.0, PROMPT_PULSE / 2).set_trans(Tween.TRANS_SINE)
-	var disclaimer := Label.new()
-	disclaimer.text = Credits.DISCLAIMER
-	disclaimer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	disclaimer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	disclaimer.custom_minimum_size.x = 900
-	disclaimer.modulate = Color(1, 1, 1, 0.6)
-	disclaimer.add_theme_font_size_override("font_size", MenuStyle.SMALL_FONT_SIZE)
-	footer.add_child(disclaimer)
 
 
 func _input(event: InputEvent) -> void:
