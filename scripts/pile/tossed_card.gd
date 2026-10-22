@@ -1,11 +1,14 @@
 class_name TossedCard
 extends MeshInstance3D
 ## A card the player tossed: a short scripted arc that tumbles mostly end over end
-## and lands on the pile. Not a physics body (the pile stays klunky): it
-## integrates its own gentle arc, bounces softly off walls and furniture, and
-## when it reaches the top of the pile it hands itself back to PileWorld,
-## face up or down depending on how it landed. PileWorld nudges it clear of
-## anything solid as it lands, so a card never ends up poking into a wall.
+## and lands on the pile, or on a table. Not a physics body (the pile stays
+## klunky): it integrates its own gentle arc, bounces softly off walls and
+## furniture (and the underside of a table, tossed from under one), and when
+## it comes down on the top of the pile, a table or a card lying on one, it
+## hands itself back to PileWorld, face up or down depending on how it
+## landed. PileWorld nudges it clear of anything solid as it lands, so a card
+## never ends up poking into a wall or hanging off a table's edge. Binders
+## it falls past.
 
 const GRAVITY := 9.8
 const AIR_DRAG := 1.2 # per second, horizontal only; keeps the toss soft
@@ -50,13 +53,23 @@ func _physics_process(delta: float) -> void:
 	var to := from + velocity * delta
 
 	# Anything solid in the way (wall, shelf, table leg) bounces the card
-	# back softly; it stays where it is this step.
+	# back softly; it stays where it is this step. Binders it passes
+	# through, so it doesn't skip off their covers.
 	var heading := Vector3(velocity.x, 0, velocity.z).normalized() * EDGE_REACH
 	var query := PhysicsRayQueryParameters3D.create(from, to + heading)
 	query.exclude = exclude
-	query.collision_mask = 1 # the store itself, not binders or stacks
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	if not hit.is_empty() and hit.normal.y < 0.7:
+	query.collision_mask = 1 | Binder.PHYSICS_LAYER # the store, and cards on tables
+	var space := get_world_3d().direct_space_state
+	var hit := space.intersect_ray(query)
+	while not hit.is_empty() and hit.collider is Binder:
+		exclude.append(hit.rid)
+		query.exclude = exclude
+		hit = space.intersect_ray(query)
+	if not hit.is_empty() and hit.normal.y < -0.7:
+		# The underside of a table: it drops back down.
+		velocity.y = -absf(velocity.y) * BOUNCE
+		to = Vector3(to.x, from.y, to.z)
+	elif not hit.is_empty() and hit.normal.y < 0.7:
 		var wall := Vector2(hit.normal.x, hit.normal.z).normalized()
 		var across := Vector2(velocity.x, velocity.z)
 		if across.dot(wall) < 0.0:
@@ -82,5 +95,5 @@ func _land(point: Vector3) -> void:
 	# pointing at the ceiling more than the floor.
 	var face_up := global_transform.basis.z.y > 0.0 if land_face_up < 0 else land_face_up == 1
 	var yaw := atan2(-global_transform.basis.y.x, -global_transform.basis.y.z)
-	pile.drop(card_id, point, yaw, face_up)
+	pile.land(card_id, point, yaw, face_up, exclude)
 	queue_free()

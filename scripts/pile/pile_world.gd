@@ -4,6 +4,11 @@ extends Node3D
 ## live in packed arrays indexed by card id (one instance per card), and are
 ## drawn by one MultiMesh per floor chunk.
 ##
+## It also keeps track of the few cards lying on tables, which are nodes of
+## their own (LooseCard) so they can sit at any height. The split is only for
+## drawing them: anything that finds, lights up, flips or picks up a card
+## lying about (is_lying) treats both kinds the same.
+##
 ## The pile is static and deliberately klunky. Walking never moves a card.
 ## The only movement is the one-step gap fill when a card is picked up: the
 ## few cards that directly overlapped it slide a little toward the gap, and
@@ -34,13 +39,22 @@ const GAP_FILL_SECONDS := 0.18
 const OVERLAP_DISTANCE := 0.075
 ## A pile flip tosses the topmost cards within this distance of where you aim.
 const FLIP_RADIUS := 0.15
+## A pile flip tosses cards lying within this height of where you aim, so
+## one aimed at a table leaves the pile under it alone.
+const FLIP_HEIGHT := 0.1
+## Cards landing on a table stay this far in from its edge.
+const TABLE_MARGIN := 0.01
 ## Collision layer of the pile's surface: a coarse height field that only
 ## binders collide with, so they can rest on the cards.
 const SURFACE_LAYER := 8
 ## Surface grid: one height per this many height map cells (the highest).
 const SURFACE_STRIDE := 3
 
-enum State { ON_FLOOR, HELD }
+## HELD is anywhere a card isn't lying about: in hand, in flight, in a
+## binder or hovering (HoveringCard).
+enum State { ON_FLOOR, HELD, ON_TABLE }
+
+const Store := preload("res://scripts/store/store_builder.gd")
 
 var bounds: Rect2
 ## Floor footprints nothing may overlap (walls are the edge of `bounds`).
@@ -73,6 +87,9 @@ var _grid_cell_of := PackedInt32Array()
 
 var _height_columns := 0
 var _heights := PackedFloat32Array()
+
+## Cards lying on tables: card id -> LooseCard.
+var _loose := {}
 
 var _highlighted := -1
 var _material: ShaderMaterial
@@ -151,7 +168,10 @@ func card_count_on_floor() -> int:
 	return _states.count(State.ON_FLOOR)
 
 
+## Where a card lying on the floor or a table is, in the pile's space.
 func card_position(id: int) -> Vector3:
+	if _states[id] == State.ON_TABLE:
+		return _loose[id].position
 	return _positions[id]
 
 
@@ -159,8 +179,28 @@ func is_on_floor(id: int) -> bool:
 	return _states[id] == State.ON_FLOOR
 
 
-## Where a floor card lies, as a global pose for a card quad (see Glide).
+## Whether card `id` is lying about, on the floor or on a table, rather than
+## in hand, in flight or in a binder.
+func is_lying(id: int) -> bool:
+	return _states[id] == State.ON_FLOOR or _states[id] == State.ON_TABLE
+
+
+func is_face_up(id: int) -> bool:
+	if _states[id] == State.ON_TABLE:
+		return _loose[id].face_up
+	return _face_up[id] == 1
+
+
+## The LooseCard card `id` is lying on a table as, or null.
+func loose_card(id: int) -> LooseCard:
+	return _loose.get(id)
+
+
+## Where a card lying on the floor or a table is, as a global pose for a
+## card quad (see Glide).
 func card_pose(id: int) -> Transform3D:
+	if _states[id] == State.ON_TABLE:
+		return _loose[id].card_pose()
 	return Glide.flat_card(to_global(_positions[id]), global_basis * Basis(Vector3.UP, _rotations[id]), _face_up[id] == 1)
 
 
@@ -179,8 +219,16 @@ func top_card_at(point: Vector3) -> int:
 
 
 ## Lifts a card out of the pile. Its overlapping neighbours slide toward the
-## gap (one step, see class comment).
+## gap (one step, see class comment). A card on a table just goes.
 func pick_up(id: int) -> void:
+	if _states[id] == State.ON_TABLE:
+		if id == _highlighted:
+			_highlighted = -1
+		_stop_glow(id)
+		_states[id] = State.HELD
+		_loose[id].queue_free()
+		_loose.erase(id)
+		return
 	if _states[id] != State.ON_FLOOR:
 		return
 	if id == _highlighted:
@@ -204,12 +252,12 @@ func binder_for(id: int) -> Binder:
 	return null
 
 
-## Takes card `id` from wherever it lies: the floor, a table, or another
-## binder's pocket it was misplaced in. Returns the global card pose it left
-## (see Glide), or null if it can't be had (in hand, in flight, or locked
-## into its own pocket).
+## Takes card `id` from wherever it lies: the floor, a table, hovering, or
+## another binder's pocket it was misplaced in. Returns the global card pose
+## it left (see Glide), or null if it can't be had (in hand, in flight, or
+## locked into its own pocket).
 func take_from_anywhere(id: int):
-	if is_on_floor(id):
+	if is_lying(id):
 		var from := card_pose(id)
 		pick_up(id)
 		return from
@@ -238,6 +286,58 @@ func drop(id: int, point: Vector3, rotation_y: float, face_up := true) -> void:
 	_rebuild_chunk(_chunk_of[id])
 
 
+## Lays a held card on a table at `point` (global, its underside), turned to
+## `yaw`, face up or down. Returns the card as it lies there.
+func lay_loose(id: int, point: Vector3, yaw: float, face_up := true) -> LooseCard:
+	if _states[id] != State.HELD:
+		return null
+	var card := LooseCard.new()
+	add_child(card)
+	card.setup(id, point, yaw, face_up)
+	_states[id] = State.ON_TABLE
+	_loose[id] = card
+	return card
+
+
+## A card coming down at `point` (global) without anyone placing it: tossed,
+## flipped, or falling. It lands on whatever is under it: a table (or a card
+## lying on one), kept clear of the table's edge, or else the pile. Binders,
+## and anything in `exclude`, it falls past.
+func land(id: int, point: Vector3, rotation_y: float, face_up := true, exclude: Array[RID] = []) -> void:
+	var query := PhysicsRayQueryParameters3D.create(point + Vector3.UP * 0.03, Vector3(point.x, -1.0, point.z))
+	query.collision_mask = 1 | Binder.PHYSICS_LAYER
+	var skip := exclude.duplicate()
+	query.exclude = skip
+	var space := get_world_3d().direct_space_state
+	var hit := space.intersect_ray(query)
+	while not hit.is_empty() and hit.collider is Binder:
+		skip.append(hit.rid)
+		query.exclude = skip
+		hit = space.intersect_ray(query)
+	if hit.is_empty() or hit.position.y < 0.05 or hit.normal.y < 0.7:
+		drop(id, point, rotation_y, face_up)
+		return
+	var on := Vector3(point.x, hit.position.y, point.z)
+	var p := onto_table(Vector2(on.x, on.z), rotation_y)
+	lay_loose(id, Vector3(p.x, on.y, p.y), rotation_y, face_up)
+
+
+## Nudges a card at `p` (x/z), turned by rotation_y, so all of it is on the
+## table under it, if there is one.
+static func onto_table(p: Vector2, rotation_y: float) -> Vector2:
+	var half_table := Vector2(Store.TABLE_SIZE.x, Store.TABLE_SIZE.z) / 2 - Vector2(TABLE_MARGIN, TABLE_MARGIN)
+	var half := CARD_SIZE / 2
+	var reach := Vector2(
+		absf(cos(rotation_y)) * half.x + absf(sin(rotation_y)) * half.y,
+		absf(sin(rotation_y)) * half.x + absf(cos(rotation_y)) * half.y)
+	for center: Vector2 in Store.TABLE_CENTERS:
+		var offset := p - center
+		if absf(offset.x) <= half_table.x + TABLE_MARGIN and absf(offset.y) <= half_table.y + TABLE_MARGIN:
+			var room := half_table - reach
+			return center + Vector2(clampf(offset.x, -room.x, room.x), clampf(offset.y, -room.y, room.y))
+	return p
+
+
 ## Where drop() would lay a card aimed at `point`, as a global pose for a
 ## card quad (see Glide).
 func drop_pose(point: Vector3, rotation_y: float) -> Transform3D:
@@ -249,22 +349,24 @@ func drop_pose(point: Vector3, rotation_y: float) -> Transform3D:
 		global_basis * Basis(Vector3.UP, rotation_y))
 
 
+## Lights up the card lying under the crosshair (on the floor or a table),
+## or none for -1.
 func set_highlight(id: int) -> void:
 	if id == _highlighted:
 		return
 	var previous := _highlighted
 	_highlighted = id
-	if previous >= 0 and _states[previous] == State.ON_FLOOR:
+	if previous >= 0:
 		_update_instance_custom(previous)
 	if id >= 0:
 		_update_instance_custom(id)
 
 
-## Makes floor cards glow for `seconds`, wherever they lie. Cards not on the
-## floor are skipped.
+## Makes cards lying about glow for `seconds`, wherever they lie, on the
+## floor or a table. Cards not lying about are skipped.
 func glow(ids: Array, seconds: float) -> void:
 	for id in ids:
-		if is_on_floor(id):
+		if is_lying(id):
 			_glowing[id] = seconds
 			_update_instance_custom(id)
 			if not _glow_markers.has(id):
@@ -275,7 +377,7 @@ func glow(ids: Array, seconds: float) -> void:
 				marker.material_override = _glow_marker_material()
 				marker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 				add_child(marker)
-				marker.position = _positions[id] + Vector3.UP * 0.02
+				marker.position = card_position(id) + Vector3.UP * 0.02
 				_glow_markers[id] = marker
 
 
@@ -284,14 +386,20 @@ func is_glowing(id: int) -> bool:
 
 
 ## The cards a pile flip aimed at `point` tosses: up to `count` of the
-## topmost cards lying within FLIP_RADIUS, highest first.
+## topmost cards lying within FLIP_RADIUS, highest first. Aimed at the floor
+## that's floor cards; aimed at a table, the cards lying on it there.
 func flip_cards(point: Vector3, count: int) -> Array[int]:
 	var p := Vector2(point.x, point.z)
 	var found: Array[int] = []
-	for id in _cards_near(p):
-		if _states[id] == State.ON_FLOOR and Vector2(_positions[id].x, _positions[id].z).distance_to(p) < FLIP_RADIUS:
+	if point.y < height_at(p) + FLIP_HEIGHT:
+		for id in _cards_near(p):
+			if _states[id] == State.ON_FLOOR and Vector2(_positions[id].x, _positions[id].z).distance_to(p) < FLIP_RADIUS:
+				found.append(id)
+	for id in _loose:
+		var at: Vector3 = _loose[id].position
+		if Vector2(at.x, at.z).distance_to(p) < FLIP_RADIUS and absf(at.y - point.y) < FLIP_HEIGHT:
 			found.append(id)
-	found.sort_custom(func(a: int, b: int) -> bool: return _positions[a].y > _positions[b].y)
+	found.sort_custom(func(a: int, b: int) -> bool: return card_position(a).y > card_position(b).y)
 	return found.slice(0, count)
 
 
@@ -361,6 +469,8 @@ func _fade_glows(delta: float) -> void:
 
 func _stop_glow(id: int) -> void:
 	_glowing.erase(id)
+	if _loose.has(id):
+		_loose[id].set_glowing(false)
 	if _glow_markers.has(id):
 		_glow_markers[id].queue_free()
 		_glow_markers.erase(id)
@@ -700,8 +810,13 @@ func _instance_custom(id: int) -> Color:
 	return Color(card.collector_number, _set_numbers[id], flags, _face_up[id])
 
 
+## Shows a card's highlight and glow, on the floor or a table.
 func _update_instance_custom(id: int) -> void:
-	_chunks[_chunk_of[id]].multimesh.set_instance_custom_data(_slot_of[id], _instance_custom(id))
+	if _states[id] == State.ON_TABLE:
+		_loose[id].set_highlighted(id == _highlighted)
+		_loose[id].set_glowing(_glowing.has(id))
+	elif _states[id] == State.ON_FLOOR:
+		_chunks[_chunk_of[id]].multimesh.set_instance_custom_data(_slot_of[id], _instance_custom(id))
 
 
 func _rebuild_chunk(chunk: int) -> void:

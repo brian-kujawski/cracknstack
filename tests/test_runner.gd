@@ -51,6 +51,7 @@ func _ready() -> void:
 	_test_display_cabinets()
 	await _test_crouch()
 	await _test_lean_over_table()
+	await _test_table_cards()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -1569,6 +1570,117 @@ func _test_steps_five_to_seven() -> void:
 	binder.close()
 	hands._update_blessing(1.0)
 	_check(hands._blessed == null, "until the binder is closed")
+
+	holder.free()
+	pile.free()
+	Progression.reset()
+	Progression.allow_debt = OS.is_debug_build()
+
+
+## Cards lying on a table work just like cards on the floor: tosses and
+## flips land on it, magic finds them, and their details follow the same
+## rules.
+func _test_table_cards() -> void:
+	Progression.reset()
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
+	var store := preload("res://scripts/store/store_builder.gd")
+	var center: Vector2 = store.TABLE_CENTERS[0]
+	var top_y: float = store.TABLE_SIZE.y
+	var table := StaticBody3D.new()
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(store.TABLE_SIZE.x, 0.05, store.TABLE_SIZE.z)
+	shape.shape = box
+	table.add_child(shape)
+	pile.add_child(table)
+	table.position = Vector3(center.x, top_y - 0.025, center.y)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var ids := _first_binder_cards()
+
+	# A toss over the table lands on it, not on the floor under it.
+	pile.pick_up(ids[0])
+	var tossed := TossedCard.new()
+	pile.add_child(tossed)
+	tossed.launch(ids[0], pile, ShaderMaterial.new(), Transform3D(Basis(), Vector3(center.x - 0.4, top_y + 0.3, center.y)),
+		Vector3(0.6, 0.5, 0.0), Vector3(TAU, 0.0, 0.0))
+	var steps := 0
+	while not tossed.is_queued_for_deletion() and steps < 600:
+		tossed._physics_process(1.0 / 60.0)
+		steps += 1
+	var on_table := pile.loose_card(ids[0])
+	_check(on_table != null and pile.is_lying(ids[0]) and not pile.is_on_floor(ids[0])
+		and absf(on_table.position.y - top_y) < 0.01, "a card tossed over a table lands on it")
+
+	# Landing at the edge it's nudged onto the felt, and it can land face down.
+	pile.pick_up(ids[1])
+	pile.land(ids[1], Vector3(center.x + store.TABLE_SIZE.x / 2 - 0.005, top_y, center.y), 0.0, false)
+	var edge := pile.loose_card(ids[1])
+	_check(edge != null and edge.position.x + PileWorld.CARD_SIZE.x / 2 <= center.x + store.TABLE_SIZE.x / 2,
+		"a card landing on a table's edge is kept on the table")
+	_check(not pile.is_face_up(ids[1]) and not edge.face_up, "and lies face down if it landed that way")
+	_check(edge.card_pose().basis.is_equal_approx(Glide.flat_card(Vector3.ZERO, Basis(), false).basis),
+		"picking it up starts from its face-down pose")
+
+	# A card falling past the table's edge goes to the floor.
+	pile.pick_up(ids[2])
+	pile.land(ids[2], Vector3(center.x + 1.0, 0.0, center.y), 0.0)
+	_check(pile.is_on_floor(ids[2]) and pile.loose_card(ids[2]) == null, "off the table, it lands on the pile")
+
+	# Magic finds table cards like floor cards.
+	var binder := Binder.new()
+	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
+	pile.add_child(binder)
+	pile.binders.append(binder)
+	binder.put_down(pile, Vector3(2.0, 0.75, 2.0), 0.0)
+	binder.open()
+	var hands := Hands.new()
+	var camera := Camera3D.new()
+	camera.name = "Camera3D"
+	var holder := CharacterBody3D.new()
+	holder.add_child(camera)
+	holder.add_child(hands)
+	holder.process_mode = Node.PROCESS_MODE_DISABLED
+	add_child(holder)
+	hands.pile = pile
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._aim_pocket = -1
+	_buy_through(0, 5) # Tithe III: every missing card
+	var lit := hands.cast_tithe()
+	_check(lit.has(ids[0]) and lit.has(ids[1]) and pile.is_glowing(ids[0]), "Tithe finds cards lying on a table")
+	pile.pick_up(ids[0])
+	_check(not pile.is_glowing(ids[0]) and on_table.is_queued_for_deletion() and not pile.is_lying(ids[0]),
+		"picking one up stops its glow and takes it off the table")
+
+	# Details: a card you set down on a table is a mystery again without
+	# Remember the Fallen, as on the floor.
+	Progression.reset()
+	hands.seen_cards[ids[1]] = true
+	hands._aim = Hands.Aim.LOOSE_CARD
+	hands._aim_loose_card = edge
+	_check(hands.shown_card_id() == -1, "without Remember the Fallen, a table card you've held is a mystery")
+	_buy_through(0, 0)
+	_check(hands.shown_card_id() == ids[1], "with it, it's named")
+	hands.seen_cards.erase(ids[1])
+	_buy_through(0, 1)
+	_check(hands.shown_card_id() == -1 and hands.shown_set_card_id() == ids[1],
+		"Enlightened Tutor shows a table card's set")
+
+	# A pile flip aimed at the table flips the cards there, not the floor under it.
+	for i in range(3, 6):
+		pile.pick_up(ids[i])
+		pile.land(ids[i], Vector3(center.x + 0.02 * i, top_y, center.y + 0.3), 0.0)
+	hands._aim = Hands.Aim.SURFACE
+	hands._aim_point = Vector3(center.x + 0.08, top_y, center.y + 0.3)
+	var flipped := hands.flip_pile()
+	_check(flipped.size() == 3 and flipped.all(func(id: int) -> bool: return ids.slice(3, 6).has(id)),
+		"a pile flip on a table flips the cards lying there, got %s" % [flipped])
+	_land_tossed(pile)
+	_check(flipped.all(func(id: int) -> bool: return pile.loose_card(id) != null),
+		"and they land back on the table")
 
 	holder.free()
 	pile.free()
