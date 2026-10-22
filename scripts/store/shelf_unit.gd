@@ -36,7 +36,8 @@ const BAND_DROP := 0.008
 const CAP_THICKNESS := 0.025
 ## How far the top cap overhangs the sides and front.
 const CAP_OVERHANG := 0.012
-## Leg pairs stand no further apart than this.
+## Leg pairs stand under every so many bay boundaries, evenly, no further
+## apart than this.
 const LEG_SPACING := 2.0
 ## How far a leg's centre sits in from the unit's front and back.
 const LEG_INSET := 0.06
@@ -51,6 +52,7 @@ var shelved: Array = []
 var top: StaticBody3D
 
 var _layout: ShelfLayout
+var _bays := 1
 var _dividers: Array[float] = []
 var _section_lights: Array[MeshInstance3D] = []
 
@@ -70,6 +72,7 @@ static func leg_height() -> float:
 func build(binders: Array[BinderRange], material: Material, inner_width: float) -> void:
 	width = inner_width
 	var bays := maxi(1, roundi(width / BAY_WIDTH))
+	_bays = bays
 	var bay_ranges: Array[Vector2] = []
 	for bay in bays:
 		var start := width * bay / bays + (DIVIDER_THICKNESS / 2 if bay > 0 else 0.0)
@@ -129,20 +132,15 @@ func top_rect() -> Rect2:
 
 
 ## The x of each pair of legs, along the unit: one under each end, and more
-## between, under dividers, so no two are more than LEG_SPACING apart.
+## between, under every so many dividers (every second one for 0.8 m bays),
+## so no two are more than LEG_SPACING apart.
 func leg_spots() -> Array[float]:
 	var half := outer_width(width) / 2 - LEG_INSET
+	var bays_per_gap := maxi(1, floori(LEG_SPACING / (width / _bays)))
+	var gaps := ceili(float(_bays) / bays_per_gap)
 	var spots: Array[float] = [-half]
-	var gaps := ceili(2 * half / LEG_SPACING)
 	for i in range(1, gaps):
-		var want := -half + 2 * half * i / gaps
-		var best := want
-		var nearest := INF
-		for x in _dividers:
-			if absf(x - want) < nearest:
-				nearest = absf(x - want)
-				best = x
-		spots.append(best)
+		spots.append(_dividers[roundi(float(i * _bays) / gaps) - 1])
 	spots.append(half)
 	return spots
 

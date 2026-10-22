@@ -130,15 +130,15 @@ func _build_shell() -> void:
 
 
 ## One wall-length, two-shelf unit on the back wall, facing the door,
-## holding every binder. It stands raised on pairs of legs in the tables'
-## style, and its top is a surface like a table's.
+## holding every binder. It's built of the tables' dark wood, stands raised
+## on pairs of legs in their style, and its top is a surface like a table's.
 func _build_binder_shelves() -> void:
 	## Legs: square, wider at the top than at the foot, like the tables'.
 	const LEG_TOP := 0.07
 	const LEG_FOOT := 0.05
 	var unit := ShelfUnit.new()
 	unit.name = "BinderShelf"
-	unit.build(CardDatabase.all_binders(), _shelf_material, BACK_SHELF.y - BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS)
+	unit.build(CardDatabase.all_binders(), _table_material, BACK_SHELF.y - BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS)
 	unit.position = Vector3((BACK_SHELF.x + BACK_SHELF.y) / 2, 0, ShelfUnit.DEPTH / 2)
 	var leg_mesh := _tapered_leg(LEG_TOP, LEG_FOOT, ShelfUnit.leg_height())
 	for x in unit.leg_spots():
