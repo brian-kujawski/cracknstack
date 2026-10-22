@@ -101,6 +101,24 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 
+## Where you stand and look, for a save (ShopSave).
+func save_state() -> Dictionary:
+	return {"position": global_position, "yaw": rotation.y, "pitch": _pitch, "crouched": _crouched}
+
+
+## Stands (or crouches) where a save left you, looking the same way. In
+## Hold mode you stand back up once there's room, unless Crouch is held.
+func restore_state(saved: Dictionary) -> void:
+	global_position = saved.get("position", global_position)
+	rotation.y = saved.get("yaw", rotation.y)
+	_pitch = saved.get("pitch", 0.0)
+	_camera.rotation.x = _pitch
+	if saved.get("crouched", false):
+		_crouch_toggled = crouch_toggle
+		set_crouched(true)
+		_camera.position.y = crouch_eye_height
+
+
 ## Walking or crouch-walking speed, with Fervor if you have it.
 func move_speed() -> float:
 	var speed := crouch_speed if _crouched else walk_speed

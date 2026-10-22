@@ -55,6 +55,8 @@ const ROWS := {
 		["heading", "DAY AND NIGHT"],
 		["dropdown", "day_length", "Day length", ["10 min", "15 min", "30 min", "60 min", "Stopped"]],
 		["dropdown", "stopped_at", "Stopped at", ["Morning", "Noon", "Evening", "Night"]],
+		["heading", "SAVING"],
+		["dropdown", "autosave_every", "Autosave every", ["Off", "2 min", "5 min", "10 min"]],
 		["heading", "INTERFACE"],
 		["slider", "interface_size", "Interface size", 0.75, 1.25, 0.05, "percent"],
 	],

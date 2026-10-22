@@ -204,7 +204,9 @@ func pocket_position(pocket: int) -> Vector3:
 	return Vector3(_page_center_x(side) + (cell.x - 1) * CELL.x, OPEN_HEIGHT, (cell.y - 1) * CELL.y)
 
 
-func open() -> void:
+## Opens the binder flat where it lies, lowered onto whatever is under it
+## (or, without `lower`, just where it is: a binder put back from a save).
+func open(lower := true) -> void:
 	if state != State.CLOSED:
 		return
 	state = State.OPEN
@@ -215,7 +217,8 @@ func open() -> void:
 	freeze = true
 	rotation = Vector3(0, rotation.y, 0)
 	_set_collision_box(Vector3(COVER.x * 2, OPEN_HEIGHT, COVER.y))
-	_lower_onto_what_is_below(position.y + DROP_HEIGHT)
+	if lower:
+		_lower_onto_what_is_below(position.y + DROP_HEIGHT)
 	_refresh_spread()
 
 
@@ -322,9 +325,26 @@ func put_down(parent: Node, point: Vector3, yaw: float) -> void:
 	let_go()
 
 
+## Puts the binder back as a save left it (ShopSave): lying at the global
+## pose `at`, closed, or open at `open_spread`. No flashes, and no physics
+## query, so it works while the shop is still being built.
+func place(parent: Node, at: Transform3D, open_spread := -1) -> void:
+	_move_to(parent)
+	state = State.CLOSED
+	collision_layer = PHYSICS_LAYER
+	collision_mask = PHYSICS_MASK
+	global_transform = at
+	if open_spread >= 0:
+		spread = clampi(open_spread, 0, spread_count() - 1)
+		open(false)
+	else:
+		let_go()
+	_refresh_complete_look()
+
+
 ## Stands the binder in a shelf space. ShelfUnit decides where and whether
-## it's the right space.
-func stand_on_shelf(unit: ShelfUnit, space: int, local_transform: Transform3D, correct: bool) -> void:
+## it's the right space. A `quiet` one (put back from a save) doesn't flash.
+func stand_on_shelf(unit: ShelfUnit, space: int, local_transform: Transform3D, correct: bool, quiet := false) -> void:
 	_move_to(unit)
 	freeze = true
 	transform = local_transform
@@ -333,7 +353,9 @@ func stand_on_shelf(unit: ShelfUnit, space: int, local_transform: Transform3D, c
 	collision_mask = 0
 	shelf_unit = unit
 	shelf_space = space
-	if correct:
+	if correct and quiet:
+		_set_status_glow(Color(1.0, 0.8, 0.35, 0.12))
+	elif correct:
 		_flash_status(FLASH_GLOW)
 	else:
 		_set_status_glow(WRONG_GLOW)

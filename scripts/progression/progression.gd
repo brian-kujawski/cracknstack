@@ -119,6 +119,51 @@ func reset() -> void:
 	sorceries_changed.emit()
 
 
+## Everything here, for a save (ShopSave). Bought steps are kept by name
+## (step_name), not by position, so a reordered tree keeps what was bought.
+func save_state() -> Dictionary:
+	var bought := []
+	for colour in COLOURS.size():
+		var names := PackedStringArray()
+		for step in _bought[colour]:
+			names.append(step_name(colour, step))
+		bought.append(names)
+	var recharging := {}
+	for node in _recharging:
+		recharging[node] = PackedFloat32Array(_recharging[node])
+	return {"mana": mana, "bought": bought, "paid": PackedStringArray(_paid.keys()),
+		"recharging": recharging, "armed": PackedStringArray(_armed.keys())}
+
+
+## Puts back what save_state() kept. Each colour keeps the steps bought, in
+## order, for as long as they match the tree; any saved step that no longer
+## does is refunded at its price.
+func restore_state(saved: Dictionary) -> void:
+	reset()
+	mana = int(saved.get("mana", 0))
+	var bought: Array = saved.get("bought", [])
+	for colour in mini(bought.size(), COLOURS.size()):
+		var names: PackedStringArray = bought[colour]
+		var kept := 0
+		while kept < names.size() and kept < PRICES.size() and step_name(colour, kept) == names[kept]:
+			kept += 1
+		_bought[colour] = kept
+		for step in range(kept, names.size()):
+			mana += PRICES[mini(step, PRICES.size() - 1)]
+	for key in saved.get("paid", PackedStringArray()):
+		_paid[key] = true
+	var recharging: Dictionary = saved.get("recharging", {})
+	for node in recharging:
+		var timer := Array(recharging[node])
+		if COOLDOWNS.has(node) and rank(node) > 0 and timer.size() == 2:
+			_recharging[node] = timer
+	for node in saved.get("armed", PackedStringArray()):
+		if rank(node) > 0:
+			_armed[node] = true
+	mana_changed.emit(mana)
+	sorceries_changed.emit()
+
+
 func _process(delta: float) -> void:
 	tick(delta)
 

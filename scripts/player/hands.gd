@@ -395,7 +395,7 @@ func _try_file_held_card() -> bool:
 		# Shunt III: in through the closed cover.
 		var id := held_card_id
 		_put_down_card(Glide.flat_card(binder.global_position + binder.global_basis.y * binder.thickness, binder.global_basis),
-			func() -> void: _file(binder, pocket, id))
+			func() -> void: _file(binder, pocket, id)).set_meta("pocket", [binder, pocket])
 		return true
 	if not binder.is_open():
 		return false
@@ -410,7 +410,7 @@ func _try_file_held_card() -> bool:
 		return true # The pocket's taken; the card stays in hand.
 	var id := held_card_id
 	_put_down_card(binder.pocket_pose(pocket), func() -> void: _file(binder, pocket, id),
-		binder.pocket_entry_pose(pocket))
+		binder.pocket_entry_pose(pocket)).set_meta("pocket", [binder, pocket])
 	return true
 
 
@@ -634,6 +634,7 @@ func cast_teleport() -> bool:
 ## Your hands are free while it flies.
 func _fly_to_pocket(id: int, from: Transform3D, binder: Binder, pocket: int, landed: Callable) -> void:
 	var card := _card_copy(id)
+	card.set_meta("pocket", [binder, pocket])
 	var to := func() -> Transform3D:
 		if binder.is_open():
 			return binder.pocket_pose(pocket)
@@ -805,16 +806,18 @@ func _put_down_where_aimed() -> void:
 	var id := held_card_id
 	var yaw := _yaw_facing_player(_aim_point)
 	var point := _aim_point
+	var card: MeshInstance3D
 	if _aim == Aim.FLOOR:
-		_put_down_card(pile.drop_pose(point, yaw), func() -> void: pile.drop(id, point, yaw))
+		card = _put_down_card(pile.drop_pose(point, yaw), func() -> void: pile.drop(id, point, yaw))
 	else:
-		_put_down_card(LooseCard.pose_at(point, yaw), func() -> void: pile.lay_loose(id, point, yaw))
+		card = _put_down_card(LooseCard.pose_at(point, yaw), func() -> void: pile.lay_loose(id, point, yaw))
+	card.set_meta("falls_to", [point, yaw])
 
 
 ## Glides the held card to `to` (a global card pose) and calls `land` when it
 ## gets there. Given `via`, it glides there first and then slides on to `to`.
-## The hand is free at once; the card in flight is a copy.
-func _put_down_card(to: Transform3D, land: Callable, via = null) -> void:
+## The hand is free at once; the card in flight is a copy, returned.
+func _put_down_card(to: Transform3D, land: Callable, via = null) -> MeshInstance3D:
 	var card := _card_copy(held_card_id)
 	var from := _held_view.global_transform
 	_release_top()
@@ -826,13 +829,16 @@ func _put_down_card(to: Transform3D, land: Callable, via = null) -> void:
 	_glide.tween_callback(func() -> void:
 		land.call()
 		card.queue_free())
+	return card
 
 
 ## A card on its own, in the world, looking like card `id`: one in flight
 ## somewhere. It has its own material, so the next pick-up can change the
-## hand without changing it.
+## hand without changing it. A save finds where it's going by its metadata:
+## "card_id", and "pocket" ([binder, pocket]) or "falls_to" ([point, yaw]).
 func _card_copy(id: int) -> MeshInstance3D:
 	var card := MeshInstance3D.new()
+	card.set_meta("card_id", id)
 	card.mesh = _held_view.mesh
 	card.material_override = _card_material(id)
 	card.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -889,6 +895,20 @@ func _shelve_carried_binder() -> void:
 		_glide.tween_callback(func() -> void:
 			FeedbackSounds.play(pile, binder.global_position,
 				FeedbackSounds.Kind.SECTION_COMPLETE if lit else FeedbackSounds.Kind.BINDER_SHELVED))
+
+
+## Takes these cards into hand as a save left them (ShopSave): the first on
+## top, the rest behind it, with no glide.
+func restore_hand(ids: Array[int]) -> void:
+	behind.assign(ids.slice(1))
+	_hold(ids[0] if not ids.is_empty() else -1)
+
+
+## Carries a binder as a save left it, with no glide.
+func restore_carried(binder: Binder) -> void:
+	binder.carry(_camera, CARRIED_POSITION, CARRIED_ROTATION)
+	carried_binder = binder
+	held_changed.emit(null, binder.binder)
 
 
 ## How long a glide that takes `seconds` at heart takes now, with Snap.

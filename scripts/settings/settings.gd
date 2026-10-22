@@ -4,8 +4,8 @@ extends Node
 ## change(); the game reads them with value() and redraws on `changed`.
 ## Settings that belong to the engine as a whole (window, frame rate, render
 ## scale, shadows, anti-aliasing, volumes, interface size) are applied here;
-## the rest (look, crouch, field of view, brightness, day length) are read by
-## the player, the main scene and DayCycle. Kept in user://settings.cfg,
+## the rest (look, crouch, field of view, brightness, day length, autosave)
+## are read by the player, the main scene, DayCycle and Saves. Kept in user://settings.cfg,
 ## which New Game and saves never touch.
 
 ## Emitted after a setting changes, with its key.
@@ -27,6 +27,7 @@ const VOLUMES := {
 ## Dropdown choices, by index: what each one means.
 const DAY_LENGTHS := [600.0, 900.0, 1800.0, 3600.0, 0.0] # seconds; 0 = stopped
 const STOPPED_HOURS := [9.0, 12.0, 18.0, 0.0] # morning, noon, evening, night
+const AUTOSAVE_MINUTES := [0, 2, 5, 10] # 0 = off
 const FRAME_LIMITS := [0, 30, 60, 120, 144] # 0 = unlimited
 const RENDER_SCALES := [1.0, 0.85, 0.75, 0.5]
 ## Per shadow level: positional shadow atlas size and soft shadow quality.
@@ -70,6 +71,7 @@ const DEFAULTS := {
 	"crouch_toggle": false,
 	"day_length": 1,
 	"stopped_at": 1,
+	"autosave_every": 2,
 	"interface_size": 1.0,
 	"fullscreen": false,
 	"vsync": true,
@@ -86,7 +88,7 @@ const DEFAULTS := {
 const TABS := {
 	"Audio": ["master_volume", "effects_volume", "ambience_volume", "music_volume", "mute_in_background"],
 	"Controls": ["mouse_sensitivity", "invert_y", "crouch_toggle"],
-	"Gameplay": ["day_length", "stopped_at", "interface_size"],
+	"Gameplay": ["day_length", "stopped_at", "autosave_every", "interface_size"],
 	"Graphics": ["fullscreen", "vsync", "frame_limit", "field_of_view", "brightness", "quality", "render_scale", "shadows", "anti_aliasing"],
 }
 
@@ -161,6 +163,11 @@ func day_seconds() -> float:
 ## The hour the clock stands at when it's stopped.
 func stopped_hour() -> float:
 	return STOPPED_HOURS[value("stopped_at")]
+
+
+## Seconds of play between autosaves, or 0 when autosave is off.
+func autosave_seconds() -> float:
+	return AUTOSAVE_MINUTES[value("autosave_every")] * 60.0
 
 
 ## Writes every setting that differs from its default.

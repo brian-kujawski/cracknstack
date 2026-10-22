@@ -68,6 +68,51 @@ func take(pocket: int) -> int:
 	return id
 
 
+## Each pocket's card id (-1 for empty), and whether it's locked in, for a
+## save (copied on write).
+func pocket_cards() -> PackedInt32Array:
+	return _cards
+
+
+func pocket_locks() -> PackedByteArray:
+	return _locked
+
+
+## Fills the pockets from a save (ShopSave): `cards` holds a card id per
+## pocket (-1 for empty) and `locked` whether it was locked in. A card only
+## locks in again if it still belongs there, so a binder whose numbers
+## changed since keeps what it can. Cards that no longer fit (past the last
+## pocket, or a duplicate) are returned, to go back on the floor.
+func restore(cards: PackedInt32Array, locked: PackedByteArray) -> PackedInt32Array:
+	_cards.fill(-1)
+	_locked.fill(0)
+	locked_count = 0
+	var left := PackedInt32Array()
+	# Cards that belong somewhere here go there first; misplaced ones after,
+	# into the pocket they were in if it's still free.
+	for pocket in cards.size():
+		var id := cards[pocket]
+		if id < 0 or pocket >= locked.size() or locked[pocket] == 0:
+			continue
+		var home := CardDatabase.get_card(id).collector_number - binder.first
+		if CardDatabase.get_card(id).set_code == binder.set_code and binder.contains(binder.first + home) \
+				and _cards[home] < 0:
+			insert(home, id)
+		else:
+			left.append(id)
+	for pocket in cards.size():
+		var id := cards[pocket]
+		if id < 0 or (pocket < locked.size() and locked[pocket] == 1):
+			continue
+		if pocket < _cards.size() and _cards[pocket] < 0 and not belongs(id, pocket):
+			_cards[pocket] = id
+		elif pocket < _cards.size() and _cards[pocket] < 0:
+			insert(pocket, id)
+		else:
+			left.append(id)
+	return left
+
+
 func is_complete() -> bool:
 	return locked_count == _cards.size()
 

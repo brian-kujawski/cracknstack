@@ -23,6 +23,7 @@ Progression="*res://scripts/progression/progression.gd"
 Achievements="*res://scripts/progression/achievements.gd"
 SceneFlow="*res://scripts/ui/scene_flow.gd"
 Settings="*res://scripts/settings/settings.gd"
+Saves="*res://scripts/save/saves.gd"
 
 [display]
 

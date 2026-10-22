@@ -25,7 +25,7 @@ Controls:
 | E | Open or close the binder you're looking at |
 | Mouse wheel | Turn the pages of the open binder you're looking at. Holding several cards (Harmonize), aimed anywhere else: cycle which card is on top |
 | F | Bring the held card up close to inspect it (the view holds still and the mouse tilts the card; F again lowers it) |
-| Esc | Pause menu: Resume (or Esc again), Achievements, Settings, Exit Game (to the main menu or the desktop) |
+| Esc | Pause menu: Resume (or Esc again), Save/Load, Achievements, Settings, Exit Game (to the main menu or the desktop, saving first or not) |
 | Tab | Upgrade menu: spend Mana on upgrades (Tab or Esc to go back in) |
 | 1 | Cast Tithe, once learned: holding or looking at a binder, some of its missing cards light up wherever they lie in the pile |
 | 2 | Cast Teleport, once learned: the top card in hand flies to its own binder, wherever it is, and files itself |
@@ -35,7 +35,9 @@ Controls:
 
 These are the defaults. Every binding is defined in one place, `scripts/input/controls.gd` (the `Controls` autoload), and the hints on screen read their key names from it. The Settings page (main menu or pause) lists them for reference; they aren't rebindable in game.
 
-**Settings** has four tabs: Audio (Master, Effects, Ambience and Music volume, mute in background), Controls (mouse sensitivity, invert Y, crouch Hold/Toggle, the key list), Gameplay (day length or a stopped clock, interface size) and Graphics (window mode, vsync, frame limit, field of view, brightness, and a Low/Medium/High quality preset over render scale, shadows and anti-aliasing). Changes apply at once and are saved to `user://settings.cfg` (the `Settings` autoload, `scripts/settings/settings.gd`).
+**Settings** has four tabs: Audio (Master, Effects, Ambience and Music volume, mute in background), Controls (mouse sensitivity, invert Y, crouch Hold/Toggle, the key list), Gameplay (day length or a stopped clock, how often to autosave, interface size) and Graphics (window mode, vsync, frame limit, field of view, brightness, and a Low/Medium/High quality preset over render scale, shadows and anti-aliasing). Changes apply at once and are saved to `user://settings.cfg` (the `Settings` autoload, `scripts/settings/settings.gd`).
+
+**Saves:** one autosave and three slots, in `user://saves/` (the `Saves` autoload, `scripts/save/`). The autosave is written when a New Game's intro ends, every 5 minutes of play by default, when the ending starts and by Save And Quit; slots are written from the pause menu's Save/Load page. Continue loads the newest save; Load Game lists them all. Achievements and settings are kept apart and never touched by a save or New Game. A change that breaks old saves bumps `SaveGame.SAVE_VERSION`, and older saves then show as *From an older version* and can't be loaded; card data changes (a new import) carry over without that. In developer builds, `godot --path . -- --dump-save <file>` prints a save as JSON.
 
 A card in its own pocket locks in with a chime and a gold edge; anywhere else it glows red, makes no sound and can be taken back out. A binder in its own shelf space locks in with a chime; in another binder's space it glows red. A shelf lights up when every binder on it is in its own space and complete.
 

@@ -135,26 +135,118 @@ func build(floor_bounds: Rect2, floor_obstacles: Array[Rect2], random_seed: int)
 
 
 ## Drops each set's binder closed somewhere on top of the pile, with room to
-## open it where it lies. Where binders land on each other they start a
-## little apart, one above the other, and physics settles them.
+## open it where it lies.
 func spawn_binders(random_seed: int) -> void:
-	var ranges := CardDatabase.all_binders()
-	var placements := PileGenerator.scatter(ranges.size(), bounds, obstacles, random_seed + 2, Binder.OPEN_HALF_FOOTPRINT)
-	var reach := Binder.COVER.length() # centres closer than this may overlap
-	for i in ranges.size():
+	make_binders()
+	scatter_binders(binders, random_seed)
+
+
+## Makes one binder per set, in shelf order, into `binders`, without putting
+## them anywhere yet (spawn_binders, or a save, does that).
+func make_binders() -> void:
+	binders.clear()
+	for range_data in CardDatabase.all_binders():
 		var binder := Binder.new()
-		binder.setup(ranges[i], CardDatabase.get_set(ranges[i].set_code).accent_color, self)
+		binder.setup(range_data, CardDatabase.get_set(range_data.set_code).accent_color, self)
+		binders.append(binder)
+
+
+## Drops binders closed at random on top of the pile. Where they land on each
+## other they start a little apart, one above the other, and physics settles
+## them.
+func scatter_binders(dropped: Array[Binder], random_seed: int) -> void:
+	var placements := PileGenerator.scatter(dropped.size(), bounds, obstacles, random_seed + 2, Binder.OPEN_HALF_FOOTPRINT)
+	var reach := Binder.COVER.length() # centres closer than this may overlap
+	var placed: Array[Binder] = []
+	for other in binders:
+		if other.is_inside_tree() and other not in dropped:
+			placed.append(other)
+	for i in dropped.size():
+		var binder := dropped[i]
 		var p := placements[i].position
 		var y := height_under(p, Vector2(Binder.COVER.x, Binder.COVER.y) / 2, placements[i].rotation) + 0.01
-		for other in binders:
-			if Vector2(other.position.x, other.position.z).distance_to(p) < reach:
+		for other in placed:
+			if other.state == Binder.State.CLOSED and Vector2(other.position.x, other.position.z).distance_to(p) < reach:
 				y = maxf(y, other.position.y + other.thickness + 0.01)
-		add_child(binder)
+		if binder.get_parent() == null:
+			add_child(binder)
 		binder.rotation = Vector3(0, placements[i].rotation, 0)
 		binder.position = Vector3(p.x, y, p.y)
 		binder.state = Binder.State.CLOSED
 		binder.freeze = false
-		binders.append(binder)
+		placed.append(binder)
+
+
+## Every card's place, for a save (ShopSave.snapshot): by card id, its
+## state and floor pose (copied on write, so this is quick), and the cards
+## on tables, id -> [position, turn, face up].
+func snapshot_cards() -> Dictionary:
+	var loose := {}
+	for id in _loose:
+		loose[id] = [_loose[id].position, _loose[id].rotation.y, _loose[id].face_up]
+	return {"states": _states, "positions": _positions, "rotations": _rotations, "face_up": _face_up, "loose": loose}
+
+
+## Builds the pile from a save instead of scattering it: every card the save
+## had on the floor goes back exactly where it lay (no re-stacking), and
+## every one it had on a table is laid there again. `cards` is the save's
+## "cards" (ShopSave.finish) and `ids` maps each of its entries to a card id now (-1 for a card
+## that's gone). Cards the save doesn't know (a set imported since) are
+## scattered on top, as in a new game. Every other card starts in hand
+## (HELD), for the save's binders and hands to take. Returns the ids
+## scattered.
+func restore_cards(floor_bounds: Rect2, floor_obstacles: Array[Rect2], cards: Dictionary, ids: PackedInt32Array,
+		random_seed: int) -> PackedInt32Array:
+	bounds = floor_bounds
+	obstacles = floor_obstacles
+	var count := CardDatabase.card_count()
+	_allocate(count)
+	_build_set_lookup()
+	_states.fill(State.HELD)
+	var where: PackedByteArray = cards.where
+	var positions: PackedVector3Array = cards.positions
+	var rotations: PackedFloat32Array = cards.rotations
+	var face_up: PackedByteArray = cards.face_up
+	var known := PackedByteArray()
+	known.resize(count)
+	var on_floor: Array[int] = []
+	var on_tables: Array[int] = []
+	for i in mini(ids.size(), where.size()):
+		var id := ids[i]
+		if id < 0 or known[id] == 1:
+			continue
+		known[id] = 1
+		if where[i] == 0:
+			on_floor.append(i)
+		elif where[i] == 1:
+			on_tables.append(i)
+	# Lowest first, so each card's height map cells end up under the highest
+	# card covering them.
+	on_floor.sort_custom(func(a: int, b: int) -> bool: return positions[a].y < positions[b].y)
+	for i in on_floor:
+		var id := ids[i]
+		var p := Vector2(positions[i].x, positions[i].z)
+		if not bounds.has_point(p):
+			p = clear_point(p, CARD_SIZE / 2, rotations[i])
+		_states[id] = State.ON_FLOOR
+		_face_up[id] = face_up[i]
+		_put_on_floor(id, p, rotations[i], positions[i].y)
+	var unknown := PackedInt32Array()
+	for id in count:
+		if known[id] == 0:
+			unknown.append(id)
+	var placements := PileGenerator.scatter(unknown.size(), bounds, obstacles, random_seed)
+	for k in unknown.size():
+		var id := unknown[k]
+		_states[id] = State.ON_FLOOR
+		_face_up[id] = 1 if placements[k].face_up else 0
+		_put_on_floor(id, placements[k].position, placements[k].rotation)
+	for c in _chunks.size():
+		_rebuild_chunk(c)
+	_build_surface()
+	for i in on_tables:
+		lay_loose(ids[i], positions[i], rotations[i], face_up[i] == 1)
+	return unknown
 
 
 func card_count_on_floor() -> int:
@@ -669,16 +761,18 @@ static func _build_card_mesh(outline: PackedVector2Array, alpha_outline: PackedV
 	return mesh
 
 
-## Places a card on top of the stack at p and files it in grid and chunk.
-## The caller rebuilds the chunk's buffer.
-func _put_on_floor(id: int, p: Vector2, rotation_y: float) -> void:
+## Places a card on top of the stack at p and files it in grid and chunk,
+## or at height `at_height` if given (a card put back from a save). The
+## caller rebuilds the chunk's buffer.
+func _put_on_floor(id: int, p: Vector2, rotation_y: float, at_height := -1.0) -> void:
 	var footprint := _footprint_cells(p, rotation_y)
-	var top := 0.0
+	var y := at_height
+	if y < 0.0:
+		for cell in footprint:
+			y = maxf(y, _heights[cell])
+		y = maxf(y, 0.0) + CARD_THICKNESS
 	for cell in footprint:
-		top = maxf(top, _heights[cell])
-	var y := top + CARD_THICKNESS
-	for cell in footprint:
-		_heights[cell] = y
+		_heights[cell] = maxf(_heights[cell], y)
 		_mark_surface_dirty(cell)
 	_positions[id] = Vector3(p.x, y, p.y)
 	_rotations[id] = rotation_y
