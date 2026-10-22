@@ -196,23 +196,21 @@ func _test_pile() -> void:
 	var top := pile.top_card_at(point)
 	_check(top >= 0 and pile.card_position(top).y >= point.y, "top_card_at finds the highest card covering a point")
 
-	# Pick up the top card: it leaves the floor and its neighbours slide toward the gap.
+	# Pick up the top card: it leaves the floor and nothing around it moves.
 	var gap := pile.card_position(top)
+	var neighbours := {}
+	for id in total:
+		var p := pile.card_position(id)
+		if id != top and Vector2(p.x, p.z).distance_to(Vector2(gap.x, gap.z)) < 0.1:
+			neighbours[id] = p
 	pile.pick_up(top)
 	_check(not pile.is_on_floor(top) and pile.card_count_on_floor() == total - 1, "picked-up card leaves the floor")
 	_check(pile.top_card_at(gap) != top, "picked-up card can't be picked again")
-	var sliding: Array = pile._slides.keys()
-	_check(sliding.size() <= PileWorld.GAP_FILL_MAX_CARDS, "gap fill moves at most %d cards (moved %d)" % [PileWorld.GAP_FILL_MAX_CARDS, sliding.size()])
-	var before := {}
-	for id in sliding:
-		before[id] = Vector2(pile.card_position(id).x, pile.card_position(id).z).distance_to(Vector2(gap.x, gap.z))
 	pile._process(1.0)
-	var all_closer := true
-	for id in sliding:
-		var after := Vector2(pile.card_position(id).x, pile.card_position(id).z).distance_to(Vector2(gap.x, gap.z))
-		all_closer = all_closer and after < before[id]
-	_check(all_closer, "gap-fill neighbours end closer to the gap")
-	_check(pile._slides.is_empty(), "gap fill finishes and does not chain")
+	var unmoved := true
+	for id in neighbours:
+		unmoved = unmoved and pile.card_position(id) == neighbours[id]
+	_check(unmoved, "neighbours stay put when a card is picked up (%d checked)" % neighbours.size())
 
 	# Put it back down somewhere else: it lands on top.
 	var drop_point := Vector3(3.0, 0.0, 3.0)

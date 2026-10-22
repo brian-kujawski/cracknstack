@@ -9,10 +9,8 @@ extends Node3D
 ## drawing them: anything that finds, lights up, flips or picks up a card
 ## lying about (is_lying) treats both kinds the same.
 ##
-## The pile is static and deliberately klunky. Walking never moves a card.
-## The only movement is the one-step gap fill when a card is picked up: the
-## few cards that directly overlapped it slide a little toward the gap, and
-## nothing else reacts. No physics, no chains.
+## The pile is static and deliberately klunky. Walking never moves a card,
+## and picking one up leaves its neighbours where they lie. No physics.
 
 const CARD_SIZE := Vector2(0.063, 0.088) # metres, real card size
 ## Three times a real card (about 0.3 mm): real thickness is too thin for a
@@ -33,10 +31,6 @@ const GRID_CELL := 0.1
 ## enough that a card only rests on cards that are really under it, rather
 ## than on anything nearby.
 const HEIGHT_CELL := 0.015
-const GAP_FILL_MAX_CARDS := 6
-const GAP_FILL_PULL := 0.35 # fraction of the way toward the gap
-const GAP_FILL_SECONDS := 0.18
-const OVERLAP_DISTANCE := 0.075
 ## A pile flip tosses the topmost cards within this distance of where you aim.
 const FLIP_RADIUS := 0.15
 ## A pile flip tosses cards lying within this height of where you aim, so
@@ -80,9 +74,7 @@ var _slot_of := PackedInt32Array()
 var _grid_columns := 0
 var _grid_rows := 0
 var _grid: Array[PackedInt32Array] = []
-## Per card: the grid cell it's filed under, or -1. Kept so a card that slid
-## during gap fill is removed from the cell it was filed in, not the one it's
-## over now.
+## Per card: the grid cell it's filed under, or -1.
 var _grid_cell_of := PackedInt32Array()
 
 var _height_columns := 0
@@ -95,8 +87,6 @@ var _highlighted := -1
 var _material: ShaderMaterial
 var _mesh: ArrayMesh
 
-## card id -> {from: Vector3, to: Vector3, t: float}
-var _slides := {}
 ## Cards glowing by magic (Chain Lightning, later Tithe): card id -> seconds
 ## left. A card stops glowing when it's picked up or its time runs out.
 var _glowing := {}
@@ -218,8 +208,7 @@ func top_card_at(point: Vector3) -> int:
 	return best
 
 
-## Lifts a card out of the pile. Its overlapping neighbours slide toward the
-## gap (one step, see class comment). A card on a table just goes.
+## Lifts a card out of the pile or off its table. Nothing around it moves.
 func pick_up(id: int) -> void:
 	if _states[id] == State.ON_TABLE:
 		if id == _highlighted:
@@ -233,14 +222,11 @@ func pick_up(id: int) -> void:
 		return
 	if id == _highlighted:
 		set_highlight(-1)
-	_slides.erase(id)
 	_stop_glow(id)
-	var gap := Vector2(_positions[id].x, _positions[id].z)
 	_states[id] = State.HELD
 	_grid_remove(id)
 	_chunk_remove(id)
-	_refresh_cells(_footprint_cells(gap, _rotations[id]))
-	_start_gap_fill(gap)
+	_refresh_cells(_footprint_cells(Vector2(_positions[id].x, _positions[id].z), _rotations[id]))
 
 
 ## The binder card `id` belongs in, wherever it is now.
@@ -434,26 +420,6 @@ func _physics_process(_delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_fade_glows(delta)
-	if _slides.is_empty():
-		return
-	var finished: Array[int] = []
-	for id in _slides:
-		var slide: Dictionary = _slides[id]
-		slide.t = minf(1.0, slide.t + delta / GAP_FILL_SECONDS)
-		var eased: float = 1.0 - pow(1.0 - slide.t, 3.0)
-		_positions[id] = (slide.from as Vector3).lerp(slide.to, eased)
-		_chunks[_chunk_of[id]].multimesh.set_instance_transform(_slot_of[id], _card_transform(id))
-		if slide.t >= 1.0:
-			finished.append(id)
-	for id in finished:
-		var from: Vector3 = _slides[id].from
-		_slides.erase(id)
-		_grid_remove(id)
-		_grid_add(id)
-		var cells := _footprint_cells(Vector2(from.x, from.z), _rotations[id])
-		cells.append_array(_footprint_cells(Vector2(_positions[id].x, _positions[id].z), _rotations[id]))
-		_refresh_cells(cells)
-
 
 func _fade_glows(delta: float) -> void:
 	if _glowing.is_empty():
@@ -496,22 +462,6 @@ func _glow_marker_material() -> StandardMaterial3D:
 		_glow_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 		_glow_material.no_depth_test = true
 	return _glow_material
-
-
-func _start_gap_fill(gap: Vector2) -> void:
-	var neighbours: Array[int] = []
-	for id in _cards_near(gap):
-		if _states[id] == State.ON_FLOOR and not _slides.has(id) \
-				and Vector2(_positions[id].x, _positions[id].z).distance_to(gap) < OVERLAP_DISTANCE:
-			neighbours.append(id)
-	neighbours.sort_custom(func(a: int, b: int) -> bool:
-		return Vector2(_positions[a].x, _positions[a].z).distance_squared_to(gap) \
-			< Vector2(_positions[b].x, _positions[b].z).distance_squared_to(gap))
-	for id in neighbours.slice(0, GAP_FILL_MAX_CARDS):
-		var from := _positions[id]
-		var to := from.lerp(Vector3(gap.x, from.y, gap.y), GAP_FILL_PULL)
-		if PileGenerator.footprint_clear(Vector2(to.x, to.z), CARD_SIZE / 2, _rotations[id], bounds, obstacles):
-			_slides[id] = {"from": from, "to": to, "t": 0.0}
 
 
 func _allocate(count: int) -> void:

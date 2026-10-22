@@ -98,7 +98,7 @@ scripts/data/       CardData, SetData, BinderRange, BinderLayout, CardSort, Card
 scripts/input/      Controls: every bindable action, its defaults, rebinds and key names
 scripts/feedback/   placeholder sounds, synthesised in code
 scripts/player/     first-person controller and Hands (everything you do with a card or binder)
-scripts/pile/       the card pile: PileWorld (packed arrays + chunked MultiMeshes), scatter, picking, gap fill, face atlas
+scripts/pile/       the card pile: PileWorld (packed arrays + chunked MultiMeshes), scatter, picking, face atlas
 scripts/store/      graybox room builder, shelf units, shelf layout (binders split evenly across the three wall shelves)
 scripts/ui/         credits, pause screen
 shaders/            card faces (real images, or placeholders drawn procedurally) and binder pages
