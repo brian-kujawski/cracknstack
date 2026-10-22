@@ -52,6 +52,9 @@ USER_AGENT = "Pickup/0.1 (free private fan game; https://github.com/brian-kujaws
 REQUEST_GAP = 0.1  # seconds between requests to Scryfall
 RETRIES = 3
 FORMAT_VERSION = 1
+# The game reads res://data/real, so the default doesn't depend on the
+# folder the importer is run from.
+DEFAULT_OUT = Path(__file__).resolve().parent.parent / "data" / "real"
 
 # Atlas layout: 2048 px square pages of 128 × 179 px slots (a card's 63:88
 # shape), 16 across and 11 down.
@@ -111,7 +114,8 @@ def main(argv=None):
     parser.add_argument("--yes", action="store_true", help="download without asking first")
     parser.add_argument("--refetch", action="store_true", help="fetch card data again even if it is cached")
     parser.add_argument("--bulk", type=Path, help="card data from a downloaded Scryfall Default Cards bulk file instead")
-    parser.add_argument("--out", type=Path, default=Path("data/real"), help="output folder (default: data/real)")
+    parser.add_argument("--out", type=Path, default=DEFAULT_OUT,
+                        help="output folder (default: the project's data/real, wherever this is run from)")
     parser.add_argument("--no-images", action="store_true", help="write card data only; no image downloads, no atlas")
     args = parser.parse_args(argv)
     codes = [code.lower() for code in args.sets]
