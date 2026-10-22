@@ -24,23 +24,21 @@ const KNOB_INSET := 0.07
 const HINGE_SIDE := 1.0
 
 
-## Builds the meshes and collision, with `brass` for the knob and hinges.
-## Call once before adding to the tree.
-func build(brass: Material) -> void:
-	var wood := _material(Color(0.45, 0.29, 0.17), 0.6)
-	var frame := _material(Color(0.36, 0.23, 0.13), 0.6)
+## Builds the meshes and collision, in `wood` (the furniture's), with
+## `brass` for the knob and hinges. Call once before adding to the tree.
+func build(wood: Material, brass: Material) -> void:
 	var half := LEAF_SIZE.x / 2
 	var top := LEAF_SIZE.y
 
 	# The frame: a jamb lining each side and across the top, with a flat
 	# casing on its face.
 	for side in [-1, 1]:
-		_box(Vector3(JAMB, top + JAMB, FRAME_DEPTH), Vector3(side * (half + JAMB / 2), (top + JAMB) / 2, FRAME_DEPTH / 2), frame)
+		_box(Vector3(JAMB, top + JAMB, FRAME_DEPTH), Vector3(side * (half + JAMB / 2), (top + JAMB) / 2, FRAME_DEPTH / 2), wood)
 		_box(Vector3(CASING_WIDTH, top + CASING_WIDTH, CASING_DEPTH),
-			Vector3(side * (half + JAMB + CASING_WIDTH / 2), (top + CASING_WIDTH) / 2, FRAME_DEPTH + CASING_DEPTH / 2), frame)
-	_box(Vector3(LEAF_SIZE.x, JAMB, FRAME_DEPTH), Vector3(0, top + JAMB / 2, FRAME_DEPTH / 2), frame)
+			Vector3(side * (half + JAMB + CASING_WIDTH / 2), (top + CASING_WIDTH) / 2, FRAME_DEPTH + CASING_DEPTH / 2), wood)
+	_box(Vector3(LEAF_SIZE.x, JAMB, FRAME_DEPTH), Vector3(0, top + JAMB / 2, FRAME_DEPTH / 2), wood)
 	_box(Vector3(LEAF_SIZE.x + 2 * (JAMB + CASING_WIDTH), CASING_WIDTH, CASING_DEPTH),
-		Vector3(0, top + JAMB + CASING_WIDTH / 2, FRAME_DEPTH + CASING_DEPTH / 2), frame)
+		Vector3(0, top + JAMB + CASING_WIDTH / 2, FRAME_DEPTH + CASING_DEPTH / 2), wood)
 
 	# The slab, a hair clear of the floor and the frame.
 	const GAP := 0.004
@@ -107,10 +105,3 @@ func _cylinder(radius: float, height: float, center: Vector3, material: Material
 	instance.position = center
 	add_child(instance)
 	return instance
-
-
-static func _material(color: Color, roughness: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.roughness = roughness
-	return material
