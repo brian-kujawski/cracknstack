@@ -42,8 +42,9 @@ static func heading(text: String, font_size := 72) -> Label:
 	return label
 
 
-## One of a menu's buttons, all the same width. Disabled ones (Continue and
-## Load Game until saves exist) are dimmed and skipped by the arrow keys.
+## One of a menu's buttons, all the same width. Menus are mouse-only: no
+## button takes keyboard focus, so none is ever outlined. Disabled ones
+## (Continue and Load Game until saves exist) are dimmed.
 static func menu_button(text: String, enabled := true) -> Button:
 	var button := Button.new()
 	button.text = text
@@ -51,17 +52,6 @@ static func menu_button(text: String, enabled := true) -> Button:
 	button.add_theme_font_size_override("font_size", BUTTON_FONT_SIZE)
 	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	button.disabled = not enabled
-	button.focus_mode = Control.FOCUS_ALL if enabled else Control.FOCUS_NONE
+	button.focus_mode = Control.FOCUS_NONE
 	return button
 
-
-## True when the arrow keys (or Tab) are pressed with no button focused yet:
-## menus start with nothing highlighted for the mouse, and the first arrow
-## press puts the keyboard on the menu's first button.
-static func wants_focus(node: Control, event: InputEvent) -> bool:
-	if node.get_viewport().gui_get_focus_owner() != null:
-		return false
-	for action in [&"ui_up", &"ui_down", &"ui_focus_next", &"ui_focus_prev"]:
-		if event.is_action_pressed(action):
-			return true
-	return false

@@ -35,7 +35,7 @@ func _ready() -> void:
 	_test_controls()
 	_test_onscreen_text()
 	_test_pause()
-	_test_title_screen()
+	await _test_title_screen()
 	_test_achievements()
 	await _test_credits_roll()
 	_test_progression()
@@ -759,8 +759,10 @@ func _test_pause() -> void:
 	menu.pause()
 	_check(menu.buttons.keys() == ["Resume", "Save/Load", "Achievements", "Settings", "Exit Game"],
 		"the pause menu's buttons, in order: %s" % [menu.buttons.keys()])
-	_check(menu.buttons["Save/Load"].disabled and menu.buttons["Save/Load"].focus_mode == Control.FOCUS_NONE,
-		"Save/Load is greyed out until there are saves")
+	_check(menu.buttons["Save/Load"].disabled, "Save/Load is greyed out until there are saves")
+	var all_buttons: Array = menu.buttons.values() + menu.exit_buttons.values() + menu.save_buttons.values()
+	_check(all_buttons.all(func(button: Button) -> bool: return button.focus_mode == Control.FOCUS_NONE),
+		"the pause menu is mouse-only: no button takes keyboard focus")
 	menu.buttons["Resume"].pressed.emit()
 	_check(not menu.is_paused() and not get_tree().paused, "Resume goes back in")
 	menu.pause()
@@ -844,7 +846,7 @@ func _test_title_screen() -> void:
 		"the title shows the name and PRESS ANY KEY TO START")
 	_check(not labels.any(func(t: String) -> bool: return "Wizards" in t or "Fan Content" in t),
 		"and nothing that gives away what the game is")
-	_check(title.buttons["Credits"].disabled and title.buttons["Credits"].focus_mode == Control.FOCUS_NONE,
+	_check(title.buttons["Credits"].disabled,
 		"Credits is greyed out until a game has been started")
 	var pages := SceneFlow.intro_pages()
 	_check(pages.size() == SceneFlow.PROLOGUE.size() + 1 and pages[-1] == Credits.DISCLAIMER,
@@ -861,7 +863,7 @@ func _test_title_screen() -> void:
 	_check(title.buttons.keys() == ["Continue", "New Game", "Load Game", "Achievements", "Settings", "Credits", "Exit"],
 		"the main menu's buttons, in order: %s" % [title.buttons.keys()])
 	for label in ["Continue", "Load Game"]:
-		_check(title.buttons[label].disabled and title.buttons[label].focus_mode == Control.FOCUS_NONE, "%s is greyed out until there are saves" % label)
+		_check(title.buttons[label].disabled, "%s is greyed out until there are saves" % label)
 	_check(not title.buttons["New Game"].is_visible_in_tree(), "the menu is hidden behind the title at first")
 	var motion := InputEventMouseMotion.new()
 	motion.relative = Vector2(30, 10)
@@ -881,7 +883,15 @@ func _test_title_screen() -> void:
 	_check(title.state == title.State.TITLE, "the title waits through mouse movement")
 	title._input(key)
 	_check(title.state == title.State.MENU and title.buttons["New Game"].is_visible_in_tree(), "a key press brings up the menu")
-	_check(title.buttons["New Game"].has_focus(), "from the keyboard, New Game is focused")
+	var focusable: Array = title.buttons.values().filter(func(button: Button) -> bool: return button.focus_mode != Control.FOCUS_NONE)
+	_check(focusable.is_empty() and title.get_viewport().gui_get_focus_owner() == null,
+		"the menu is mouse-only: no button takes keyboard focus")
+	var down := InputEventAction.new()
+	down.action = &"ui_down"
+	down.pressed = true
+	Input.parse_input_event(down)
+	await get_tree().process_frame
+	_check(title.get_viewport().gui_get_focus_owner() == null, "and the arrow keys highlight nothing")
 	for page in ["Achievements", "Settings", "Credits"]:
 		title.buttons[page].pressed.emit()
 		var screens := title.find_children("*", "CreditsRoll" if page == "Credits" else "MenuScreen", false, false)
@@ -897,20 +907,6 @@ func _test_title_screen() -> void:
 		screens[0]._unhandled_input(esc)
 		_check(screens[0].is_queued_for_deletion(), "Esc closes the %s page" % page)
 		screens[0].free()
-	# Back on the menu, the button that opened a page takes the keyboard
-	# outline again only if the keyboard opened it; after a click nothing is
-	# highlighted.
-	for by_mouse in [false, true]:
-		var button: Button = title.buttons["Settings"]
-		button.grab_focus(by_mouse)
-		button.pressed.emit()
-		var settings: MenuScreen = title.find_children("*", "MenuScreen", false, false)[0]
-		settings.close()
-		settings.free()
-		_check(button.has_focus(true) != by_mouse,
-			"after a click, closing a page leaves nothing highlighted" if by_mouse
-			else "from the keyboard, closing a page puts focus back on its button")
-		get_viewport().gui_release_focus()
 	title.free()
 	SceneFlow._menu_requested = true
 	title = load(SceneFlow.TITLE_SCENE).instantiate()

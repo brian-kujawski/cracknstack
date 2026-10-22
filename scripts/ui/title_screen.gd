@@ -17,7 +17,7 @@ const PROMPT_PULSE := 2.4
 const PROMPT_DIM := 0.35
 
 var state := State.TITLE
-## The menu's buttons by label, for the tests and for focus.
+## The menu's buttons by label, for the tests.
 var buttons := {}
 
 var _title: Label
@@ -47,8 +47,7 @@ func _ready() -> void:
 	# the title glides up as the buttons fade in rather than jumping.
 	_menu_room = Control.new()
 	_menu_room.clip_contents = true
-	# A little wider than the buttons, so the keyboard focus outline isn't cut off.
-	_menu_room.custom_minimum_size = Vector2(MenuStyle.BUTTON_SIZE.x + 8, 0)
+	_menu_room.custom_minimum_size = Vector2(MenuStyle.BUTTON_SIZE.x, 0)
 	_menu_room.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	column.add_child(_menu_room)
 	_menu = VBoxContainer.new()
@@ -60,16 +59,16 @@ func _ready() -> void:
 	_add_button("Continue", false)
 	_add_button("New Game").pressed.connect(SceneFlow.new_game)
 	_add_button("Load Game", false)
-	_add_button("Achievements").pressed.connect(_open.bind(AchievementsScreen.make, "Achievements"))
-	_add_button("Settings").pressed.connect(_open.bind(func() -> MenuScreen: return MenuScreen.new("Settings"), "Settings"))
-	_add_button("Credits", SceneFlow.has_started()).pressed.connect(_open.bind(CreditsRoll.new, "Credits"))
+	_add_button("Achievements").pressed.connect(_open.bind(AchievementsScreen.make))
+	_add_button("Settings").pressed.connect(_open.bind(func() -> MenuScreen: return MenuScreen.new("Settings")))
+	_add_button("Credits", SceneFlow.has_started()).pressed.connect(_open.bind(CreditsRoll.new))
 	_add_button("Exit").pressed.connect(SceneFlow.quit)
 	_menu.visible = false
 	_add_prompt()
 	if straight_to_menu:
-		show_menu(false, true)
+		show_menu(true)
 	if roll_credits:
-		_open(CreditsRoll.new, "Credits")
+		_open(CreditsRoll.new)
 	else:
 		_title.modulate.a = 0.0
 		create_tween().tween_property(_title, "modulate:a", 1.0, TITLE_FADE)
@@ -98,13 +97,7 @@ func _add_prompt() -> void:
 func _input(event: InputEvent) -> void:
 	if state == State.TITLE and is_start_press(event):
 		get_viewport().set_input_as_handled()
-		show_menu(event is InputEventKey)
-
-
-func _unhandled_input(event: InputEvent) -> void:
-	if state == State.MENU and MenuStyle.wants_focus(self, event):
-		get_viewport().set_input_as_handled()
-		buttons["New Game"].grab_focus()
+		show_menu()
 
 
 ## Any key or mouse button (or gamepad button) leaves the title; moving the
@@ -118,9 +111,8 @@ static func is_start_press(event: InputEvent) -> bool:
 
 
 ## Fades the prompt out and the menu in, or with `instant` puts it straight
-## there. Coming from the keyboard, New Game is focused so Enter starts at
-## once.
-func show_menu(from_keyboard := false, instant := false) -> void:
+## there.
+func show_menu(instant := false) -> void:
 	if state == State.MENU:
 		return
 	state = State.MENU
@@ -135,18 +127,8 @@ func show_menu(from_keyboard := false, instant := false) -> void:
 	tween.tween_property(_prompt, "modulate:a", 0.0, MENU_FADE)
 	tween.tween_property(_menu_room, "custom_minimum_size:y", _menu.get_combined_minimum_size().y + 4, MENU_FADE)
 	tween.tween_property(_menu, "modulate:a", 1.0, MENU_FADE)
-	if from_keyboard:
-		buttons["New Game"].grab_focus()
 
 
-## Opens one of the menu's pages over it, and hands focus back to its
-## button when it closes.
-func _open(make: Callable, label: String) -> void:
-	var page: Control = make.call()
-	var button: Button = buttons[label]
-	var had_focus := button.has_focus(true)
-	get_viewport().gui_release_focus()
-	page.closed.connect(func() -> void:
-		if had_focus:
-			button.grab_focus())
-	add_child(page)
+## Opens one of the menu's pages over it.
+func _open(make: Callable) -> void:
+	add_child(make.call())
