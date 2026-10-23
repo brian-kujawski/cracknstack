@@ -113,11 +113,12 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF }
 @export var inspect_tilt_degrees := 15.0
 
 ## Where the held card sits relative to the camera: low and to the right,
-## or close up and square to your face.
+## or close up and square to your face (see zoomed_distance).
 const HELD_POSITION := Vector3(0.075, -0.05, -0.2)
 const HELD_ROTATION := Vector3(0.12, -0.25, 0.04)
-const ZOOMED_POSITION := Vector3(0.0, 0.0, -0.11)
 const ZOOMED_ROTATION := Vector3.ZERO
+## How much of the screen's height a card up close fills, at any field of view.
+const ZOOMED_SCREEN_FILL := 0.75
 ## A carried binder: held to the right, cover tilted toward you. High and
 ## close enough that all of it stays in view, and that it stays clear of a
 ## table top while you lean over one.
@@ -226,6 +227,8 @@ func _ready() -> void:
 		_camera.add_child(view)
 		_fan_views.append(view)
 	_pose_held_card()
+	# Field of view can change in Settings while a card is up close.
+	Settings.changed.connect(_pose_held_card.unbind(1))
 
 	var ghost_material := StandardMaterial3D.new()
 	ghost_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -1113,6 +1116,13 @@ static func inspect_tilt(tilt: Vector2, mouse_relative: Vector2, sensitivity: fl
 		clampf(tilt.y + mouse_relative.x * sensitivity, -limit, limit))
 
 
+## How far in front of the camera a card `card_height` tall sits so it fills
+## ZOOMED_SCREEN_FILL of the screen's height at vertical field of view `fov`
+## (degrees). Wider views bring it closer.
+static func zoomed_distance(fov: float, card_height: float) -> float:
+	return card_height / (ZOOMED_SCREEN_FILL * 2.0 * tan(deg_to_rad(fov) / 2.0))
+
+
 func _set_zoomed(zoomed: bool) -> void:
 	_zoomed = zoomed
 	if _zoom_tween:
@@ -1135,7 +1145,8 @@ func _set_zoom_amount(amount: float) -> void:
 func _pose_held_card() -> void:
 	if _gliding() and held_card_id >= 0:
 		return # Still on its way to the hand.
-	_held_view.position = HELD_POSITION.lerp(ZOOMED_POSITION, _zoom_amount)
+	var zoomed_position := Vector3(0.0, 0.0, -zoomed_distance(_camera.fov, PileWorld.CARD_SIZE.y))
+	_held_view.position = HELD_POSITION.lerp(zoomed_position, _zoom_amount)
 	_held_view.rotation = HELD_ROTATION.lerp(ZOOMED_ROTATION, _zoom_amount) \
 			+ Vector3(_tilt.x, _tilt.y, 0.0) * _zoom_amount
 
