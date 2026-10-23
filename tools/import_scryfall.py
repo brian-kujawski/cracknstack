@@ -24,6 +24,8 @@ Usage, from the project root:
   python3 tools/import_scryfall.py --listall     # both
   python3 tools/import_scryfall.py ktk --dry-run # card data only, then what the images would cost
   python3 tools/import_scryfall.py ktk           # import one set (asks before downloading images)
+  python3 tools/import_scryfall.py ktk frf dtk   # import several sets in one go (asks once)
+  python3 tools/import_scryfall.py --all         # import every set --list shows (asks once)
   python3 tools/import_scryfall.py               # rebuild cards.json and the atlas, no network
 
 Built for a metered connection: nothing is downloaded twice (card data is
@@ -111,6 +113,8 @@ def main(argv=None):
                          help="list the sets already added, then stop")
     listing.add_argument("--listall", dest="listing", action="store_const", const="all",
                          help="list every set, added or not, then stop")
+    parser.add_argument("--all", action="store_true",
+                        help="add every set --list shows (core and expansion unless --types says otherwise)")
     parser.add_argument("--types", default=",".join(DEFAULT_LIST_TYPES),
                         help="set types for the lists, comma separated, or 'all' (default: core,expansion)")
     parser.add_argument("--dry-run", action="store_true", help="fetch card data only and say what the images would cost")
@@ -125,6 +129,10 @@ def main(argv=None):
     out = args.out
     client = Scryfall()
     started = time.monotonic()
+    if args.all and not args.listing:
+        codes += [s["code"] for s in released_sets(client, out, args.types, args.refetch)
+                  if set_status(out, s["code"]) != "in game" and s["code"] not in codes]
+        print(f"Adding {len(codes)} sets: {', '.join(codes)}" if codes else "Every set is already in the game.")
 
     if args.listing:
         list_sets(client, out, args.types, args.refetch, args.listing)
@@ -139,7 +147,13 @@ def main(argv=None):
     failed = []
     bulk = load_bulk(args.bulk, codes) if args.bulk and codes else None
     for code in codes:
-        cached = fetch_set(client, code, out, bulk, args.refetch)
+        try:
+            cached = fetch_set(client, code, out, bulk, args.refetch)
+        except ValueError as problem:
+            # One set Scryfall can't give us shouldn't stop the rest of the queue.
+            failed.append(code)
+            print(f"{code.upper()}: left out, {problem}")
+            continue
         try:
             _, report = select_base_cards(cached["printings"], cached.get("printed_size"))
             print(f"{code.upper()} {cached['set']['name']}: {report}")
@@ -636,14 +650,21 @@ def set_status(out, code):
     return f"{absent} images to go" if absent else "in game"
 
 
-def list_sets(client, out, types, refetch=False, show="all"):
-    """Prints the sets to add ("todo"), the sets in the game ("added"), or both ("all")."""
+def released_sets(client, out, types, refetch=False):
+    """The paper sets of the given types (comma separated, or 'all') released
+    so far, oldest first."""
     wanted = None if types == "all" else {t.strip() for t in types.split(",")}
     today = time.strftime("%Y-%m-%d")
     sets = [s for s in fetch_set_list(client, out, refetch)
             if not s["digital"] and (wanted is None or s["set_type"] in wanted)
             and (s["released_at"] or "9999") <= today]
     sets.sort(key=lambda s: (s["released_at"], s["code"]))
+    return sets
+
+
+def list_sets(client, out, types, refetch=False, show="all"):
+    """Prints the sets to add ("todo"), the sets in the game ("added"), or both ("all")."""
+    sets = released_sets(client, out, types, refetch)
     per_image = average_image_bytes(out)
     shown = added = total_cards = total_bytes = 0
     print(f"{'code':<6} {'released':<10} {'type':<16} {'cards':>5} {'download':>9}  name")

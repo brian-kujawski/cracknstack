@@ -63,6 +63,8 @@ python3 tools/import_scryfall.py --list         # core and expansion sets not ye
 python3 tools/import_scryfall.py --listadded    # sets already in the game (--listall shows both)
 python3 tools/import_scryfall.py ktk --dry-run  # fetch one set's card data (a few hundred KB) and price its images
 python3 tools/import_scryfall.py ktk            # import it; asks before downloading the images
+python3 tools/import_scryfall.py ktk frf dtk    # several sets in one run (one question for all their images)
+python3 tools/import_scryfall.py --all          # every set --list shows, for an unmetered connection
 ```
 
 Each import fetches a set's card data once (cached in `data/real/sets/`), downloads the large face images it doesn't already have (`data/real/images/<set>/`, about 135 KB a card, 40 MB for Khans of Tarkir), then rebuilds `data/real/cards.json`, the small faces packed into atlas pages (`data/real/faces/`) and the card back (`data/real/back.jpg`) from every set imported so far, oldest first. Every run ends with the bytes and time it actually used. An interrupted download keeps what it finished; run the same command to carry on. Running with no set code rebuilds the game files without touching the network.
