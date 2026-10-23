@@ -38,6 +38,7 @@ line intact), and no paywall.
 import argparse
 import gzip
 import importlib.util
+import io
 import json
 import os
 import re
@@ -52,6 +53,7 @@ API = "https://api.scryfall.com"
 USER_AGENT = "Pickup/0.1 (free private fan game; https://github.com/brian-kujawski/pickup)"
 REQUEST_GAP = 0.1  # seconds between requests to Scryfall
 RETRIES = 3
+WRITE_RETRIES = 6  # tries to replace a file another program has open
 FORMAT_VERSION = 1
 # The game reads res://data/real, so the default doesn't depend on the
 # folder the importer is run from.
@@ -518,7 +520,19 @@ def write_whole(path, data):
     half-written file that looks finished."""
     part = path.with_name(path.name + ".part")
     part.write_bytes(data)
-    os.replace(part, path)
+    # On Windows a file another program has open (the Godot editor
+    # reimporting it, a virus scan, a sync client) can't be replaced for a
+    # moment, so try again for a few seconds before giving up.
+    for attempt in range(WRITE_RETRIES):
+        try:
+            os.replace(part, path)
+            return
+        except OSError:
+            if attempt == WRITE_RETRIES - 1:
+                part.unlink(missing_ok=True)
+                sys.exit(f"Couldn't write {path}: another program has it open. "
+                         "Close the Godot editor (and pause any sync or virus scan of the project), then run again.")
+            time.sleep(0.5 * (attempt + 1))
 
 
 def download_images(client, cards, out):
@@ -580,7 +594,9 @@ def pack_atlas(cards, out):
             with Image.open(out / path) as face:
                 small = face.convert("RGB").resize(SLOT_SIZE, Image.LANCZOS)
             page.paste(small, ((slot % COLUMNS) * SLOT_SIZE[0], (slot // COLUMNS) * SLOT_SIZE[1]))
-        page.save(out / name, optimize=True)
+        encoded = io.BytesIO()
+        page.save(encoded, "PNG", optimize=True)
+        write_whole(out / name, encoded.getvalue())
         manifest[name] = {"cards": contents, "file": file_stamp(out / name)}
     for stale in (out / "faces").glob("page_*.png"):
         if f"faces/{stale.name}" not in manifest:
