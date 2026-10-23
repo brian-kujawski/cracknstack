@@ -2,6 +2,12 @@ Leather025 by ambientCG
 https://ambientcg.com/view?id=Leather025
 Licence: CC0 1.0 (https://docs.ambientcg.com/license/)
 Downloaded 2026-10-21, 1K-JPG. Files renamed: Color -> albedo, NormalGL -> normal, Roughness -> roughness.
-albedo.jpg: the colour map times a crease darkening made from the Displacement map (creases down to 55%), then scaled so the raised leather is white (the whole map averages 0.95). Each binder multiplies it by its set colour (binder.gd), so the leather shows the set colour and only the creases are darker.
+albedo.jpg: the colour map times a crease darkening made from the Displacement map (creases down to 55%), then scaled so the raised leather is white.
 roughness.jpg: the Roughness map times 1.9 (average about 0.37 -> 0.7), for a matte finish.
-Used for: the binder covers and spines (binder.gd LEATHER).
+Used for: the binder covers and spines (binder.gd LEATHER, shaders/binder_leather.gdshader).
+
+Swapping in another leather: replace the three files, keeping their names.
+- albedo.jpg: any colour and brightness. The shader only uses its light and dark relative to its own average (measured when the game starts), so the set's dye still decides the colour; a darker or blotchier texture gives more grain and mottling, not a darker binder. The binder's darkness is binder.gd DYE_DEPTH.
+- normal.jpg: an OpenGL-style normal map (ambientCG's NormalGL, not NormalDX).
+- roughness.jpg: greyscale, white = matte. Multiplied by the shader's roughness_scale.
+Square, seamless, 1K or 2K. Keeping the names keeps the import settings already set up for them (VRAM Compressed, mipmaps, normal.jpg as a normal map); Godot reimports them when the editor next opens. One copy covers LEATHER_SIZE (0.4 m) of binder, and binder.gd LEATHER_RELIEF (3) suits Leather025's faint relief; a texture with deeper relief wants about 1 to 1.5.

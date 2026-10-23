@@ -58,10 +58,24 @@ const RING_ZS := [-0.1, 0.0, 0.1]
 ## belongs in a future low-quality graphics option for players short on
 ## frame rate.
 const DETAIL_RANGE := 0.0
-## The cover leather (assets/store/leather), tinted by each binder's set
-## colour, and how many metres one copy of it covers.
+## The cover leather (assets/store/leather), dyed each set's colour, and how
+## many metres one copy of it covers. Any leather set with the same three
+## file names drops in: the shader takes its grain, creases and shine, and
+## its light and dark relative to its own average, so the dye still decides
+## the colour however light or dark the texture is.
 const LEATHER := "res://assets/store/leather/"
 const LEATHER_SIZE := 0.4
+## How strongly the normal map's relief shows. Leather025's own relief is
+## too faint at this size; a texture with deeper relief wants 1 to 1.5.
+const LEATHER_RELIEF := 3.0
+## Dyed leather: the dye soaks into a tan hide rather than sitting on top,
+## so a binder's colour is the hide's times the dye's. Bright set colours
+## come out as oxblood, navy, bottle green, plum or ochre, still told apart
+## by hue. DYE_STRENGTH is how much of the set colour the hide takes, and
+## DYE_DEPTH how dark the finished leather is.
+const HIDE := Color(0.55, 0.47, 0.4)
+const DYE_STRENGTH := 0.75
+const DYE_DEPTH := 0.42
 
 ## Shared by every binder of a size: the leather (one per-binder material)
 ## and the details (pages, rings, stitching; shared materials), keyed by
@@ -69,6 +83,9 @@ const LEATHER_SIZE := 0.4
 ## details, which every size shares.
 static var _closed_meshes := {}
 static var _open_mesh: ArrayMesh
+## Shared by every binder's leather: [albedo, roughness, normal, mottle,
+## the albedo's average brightness]. Loaded on first use.
+static var _leather: Array
 
 var binder: BinderRange
 ## How thick it is closed, and its closed box (cover, thickness, cover).
@@ -86,8 +103,7 @@ var _accent: Color
 var _shape: BoxShape3D
 var _collision: CollisionShape3D
 var _closed_view: Node3D
-var _cover_material: StandardMaterial3D
-var _labels: Array[Label3D] = []
+var _cover_material: ShaderMaterial
 var _open_view: Node3D
 var _pages: Array[MeshInstance3D] = []
 var _pocket_views: Array[MeshInstance3D] = []
@@ -120,20 +136,15 @@ func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
 
 	_closed_view = Node3D.new()
 	add_child(_closed_view)
-	_cover_material = StandardMaterial3D.new()
-	# The leather map is white except in its creases, so the set colour comes
-	# through as it is. Mapped in the binder's own space so it moves with it.
-	_cover_material.albedo_color = accent.darkened(0.35)
-	_cover_material.albedo_texture = load(LEATHER + "albedo.jpg")
-	_cover_material.roughness_texture = load(LEATHER + "roughness.jpg")
-	_cover_material.roughness = 1.0  # Scales the map.
-	_cover_material.normal_enabled = true
-	_cover_material.normal_texture = load(LEATHER + "normal.jpg")
-	_cover_material.normal_scale = 3.0  # The texture's own relief is too faint at this size.
-	_cover_material.uv1_triplanar = true
-	_cover_material.uv1_scale = Vector3.ONE / LEATHER_SIZE
-	_cover_material.emission_enabled = true
-	_cover_material.emission = Color.BLACK
+	_cover_material = _leather_material(leather_colour(accent))
+	_cover_material.set_shader_parameter("thickness", thickness)
+	var set_data := CardDatabase.get_set(binder.set_code)
+	var masks := BinderLettering.masks(set_data, thickness)
+	var cover_mask := BinderLettering.COVER_MASK
+	_cover_material.set_shader_parameter("cover_mask", masks[0])
+	_cover_material.set_shader_parameter("cover_rect", Vector4(cover_mask.position.x, cover_mask.position.y, cover_mask.size.x, cover_mask.size.y))
+	_cover_material.set_shader_parameter("spine_mask", masks[1])
+	_cover_material.set_shader_parameter("spine_span", Vector2(BinderLettering.SPINE_MASK.x, BinderLettering.SPINE_MASK.y - BinderLettering.SPINE_MASK.x))
 	var meshes := _closed_meshes_for(thickness)
 	var body := MeshInstance3D.new()
 	body.mesh = meshes[0]
@@ -145,18 +156,54 @@ func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
 	details.visibility_range_end = DETAIL_RANGE
 	_closed_view.add_child(details)
 
-	var cover := _make_label("%s\n%s" % [CardDatabase.get_set(binder.set_code).name, binder.numbers_text()], 44, 0.0009)
-	# Long set names wrap to fit the cover.
-	cover.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	cover.width = (COVER.x - 0.03) / cover.pixel_size
-	cover.rotation.x = -PI / 2
-	cover.position.y = thickness + 0.001
-	_closed_view.add_child(cover)
-	# Spine label on the -x face, reading top to bottom like a real spine.
-	var spine := _make_label(binder.numbers_text(), 40, 0.0007)
-	spine.rotation.y = -PI / 2
-	spine.position = Vector3(-COVER.x / 2 - 0.001, thickness / 2, 0)
-	_closed_view.add_child(spine)
+
+## The leather a binder in this set colour is covered in (see HIDE).
+static func leather_colour(accent: Color) -> Color:
+	var dye := Color.from_hsv(accent.h, minf(accent.s * 1.25, 1.0), 1.0).srgb_to_linear()
+	var leather := HIDE.srgb_to_linear() * Color.WHITE.lerp(dye, DYE_STRENGTH) * DYE_DEPTH
+	leather.a = 1.0
+	return leather.linear_to_srgb()
+
+
+## A new cover material in this leather colour, sharing the textures.
+static func _leather_material(colour: Color) -> ShaderMaterial:
+	if _leather.is_empty():
+		var albedo: Texture2D = load(LEATHER + "albedo.jpg")
+		var mottle := NoiseTexture2D.new()
+		mottle.seamless = true
+		mottle.width = 256
+		mottle.height = 256
+		mottle.noise = FastNoiseLite.new()
+		mottle.noise.frequency = 0.012
+		mottle.noise.fractal_octaves = 3
+		_leather = [albedo, load(LEATHER + "roughness.jpg"), load(LEATHER + "normal.jpg"), mottle, _mean_brightness(albedo)]
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://shaders/binder_leather.gdshader")
+	material.set_shader_parameter("dye", colour)
+	material.set_shader_parameter("leather_albedo", _leather[0])
+	material.set_shader_parameter("leather_roughness", _leather[1])
+	material.set_shader_parameter("leather_normal", _leather[2])
+	material.set_shader_parameter("mottle", _leather[3])
+	material.set_shader_parameter("leather_mean", _leather[4])
+	material.set_shader_parameter("leather_size", LEATHER_SIZE)
+	material.set_shader_parameter("normal_strength", LEATHER_RELIEF)
+	material.set_shader_parameter("cover_half", COVER / 2)
+	return material
+
+
+## A texture's average brightness, in linear light (as the shader sees it).
+static func _mean_brightness(texture: Texture2D) -> float:
+	var image := texture.get_image()
+	if image == null:
+		return 0.9  # No renderer (headless tests); the stock map's average.
+	if image.is_compressed():
+		image.decompress()
+	const SAMPLES := 64
+	var total := 0.0
+	for y in SAMPLES:
+		for x in SAMPLES:
+			total += image.get_pixel(x * image.get_width() / SAMPLES, y * image.get_height() / SAMPLES).srgb_to_linear().get_luminance()
+	return total / (SAMPLES * SAMPLES)
 
 
 func is_open() -> bool:
@@ -369,14 +416,13 @@ func _on_complete() -> void:
 func _refresh_complete_look() -> void:
 	if contents.is_complete():
 		_set_status_glow(Color(1.0, 0.8, 0.35, 0.5))
-		for label in _labels:
-			label.modulate = Color(1.0, 0.85, 0.45)
+		_cover_material.set_shader_parameter("gilt", 1.0)
 
 
 func _set_status_glow(glow: Color) -> void:
 	if glow.a <= 0.0 and contents.is_complete():
 		glow = Color(1.0, 0.8, 0.35, 0.5)
-	_cover_material.emission = Color(glow.r, glow.g, glow.b) * glow.a
+	_cover_material.set_shader_parameter("glow", Color(glow.r, glow.g, glow.b) * glow.a)
 
 
 func _flash_status(peak: Color) -> void:
@@ -691,14 +737,3 @@ static func _thread_material() -> StandardMaterial3D:
 	material.roughness = 0.9
 	return material
 
-
-func _make_label(text: String, font_size: int, pixel_size: float) -> Label3D:
-	var label := Label3D.new()
-	label.text = text
-	label.font_size = font_size
-	label.pixel_size = pixel_size
-	label.modulate = Color(0.95, 0.93, 0.88)
-	# Labels cost a draw call each; only draw the ones close enough to read.
-	label.visibility_range_end = 6.0
-	_labels.append(label)
-	return label

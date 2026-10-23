@@ -33,6 +33,8 @@ func _ready() -> void:
 	_test_binder_spreads()
 	_test_binder_contents()
 	_test_binder_pockets()
+	_test_binder_lettering()
+	_test_leather_colour()
 	_test_shelving()
 	_test_loose_card()
 	_test_card_corners()
@@ -426,6 +428,66 @@ func _test_binder_pockets() -> void:
 	binder.close()
 	_check(binder.state == Binder.State.CLOSED, "a complete binder closes")
 	binder.queue_free()
+
+
+func _test_binder_lettering() -> void:
+	var box := BinderLettering.COVER_TITLE.size
+	var cap_range := BinderLettering.COVER_TITLE_CAP
+	var names := ["Antiquities", "Adventures in the Forgotten Realms", "March of the Machine: The Aftermath",
+		"Strixhaven: School of Mages", "Shadows over Innistrad", "Fourth Edition Foreign Black Border"]
+	for set_data in CardDatabase.sets_in_shelf_order():
+		names.append(set_data.name)
+	var spine_box := Vector2(BinderLettering.SPINE_TITLE.y - BinderLettering.SPINE_TITLE.x,
+		BinderLayout.SIZE_THICKNESSES[0] - 2 * BinderLettering.SPINE_MARGIN)
+	var whole := true
+	var fits := true
+	for set_name: String in names:
+		var text := set_name.to_upper()
+		var on_cover := BinderLettering.fit(text, box, cap_range)
+		var on_spine := BinderLettering.fit(text, spine_box, BinderLettering.SPINE_TITLE_CAP, 2)
+		whole = whole and " ".join(on_cover.lines) == text and " ".join(on_spine.lines) == text
+		fits = fits and _lettering_fits(on_cover, box) and _lettering_fits(on_spine, spine_box)
+	_check(whole, "set names only ever break between words, in order")
+	_check(fits, "every set name fits its cover and spine panels")
+	var antiquities := BinderLettering.fit("ANTIQUITIES", box, cap_range)
+	_check(antiquities.lines.size() == 1, "a one-word name stays on one line: %s" % [antiquities.lines])
+	var strixhaven := BinderLettering.fit("STRIXHAVEN: SCHOOL OF MAGES", box, cap_range)
+	_check(strixhaven.lines[0] == "STRIXHAVEN:", "a name with a colon breaks after it: %s" % [strixhaven.lines])
+	var realms := BinderLettering.fit("ADVENTURES IN THE FORGOTTEN REALMS", box, cap_range)
+	_check(realms.lines.size() > 1 and realms.cap > BinderLettering.fit("ADVENTURES IN THE FORGOTTEN REALMS", box, cap_range, 1).cap,
+		"a long name takes more lines to be bigger: %s" % [realms.lines])
+	var by_hand := BinderLettering.fit("ADVENTURES\nIN THE FORGOTTEN REALMS", box, cap_range)
+	_check(by_hand.lines == PackedStringArray(["ADVENTURES", "IN THE FORGOTTEN REALMS"]), "a line break laid out by hand is kept")
+
+	var set_data := CardDatabase.sets_in_shelf_order()[0]
+	var masks := BinderLettering.masks(set_data, BinderLayout.SIZE_THICKNESSES[0])
+	var cover: Image = masks[0].get_image()
+	var spine: Image = masks[1].get_image()
+	_check(spine.get_height() == ceili(BinderLayout.SIZE_THICKNESSES[0] * BinderLettering.DENSITY), "the spine mask spans the binder's thickness")
+	cover.clear_mipmaps()
+	var lit := 0
+	for y in range(0, cover.get_height(), 2):
+		for x in range(0, cover.get_width(), 2):
+			lit += 1 if cover.get_pixel(x, y).r > 0.5 else 0
+	_check(lit > 200, "the cover mask has lettering in it (%d px)" % lit)
+
+
+## Whether fitted lettering stays inside its box.
+func _lettering_fits(fitted: Dictionary, box: Vector2) -> bool:
+	var widest := 0.0
+	for line: String in fitted.lines:
+		widest = maxf(widest, BinderLettering.line_width(line) * fitted.cap)
+	var height: float = fitted.cap * (1.0 + (fitted.lines.size() - 1) * BinderLettering.LEADING)
+	return widest <= box.x + 1e-6 and height <= box.y + 1e-6
+
+
+func _test_leather_colour() -> void:
+	var red := Binder.leather_colour(Color("#c94f4f"))
+	var blue := Binder.leather_colour(Color("#4f6fc9"))
+	var green := Binder.leather_colour(Color("#4fc96a"))
+	_check(red.get_luminance() < 0.35 and blue.get_luminance() < 0.35 and green.get_luminance() < 0.35, "dyed leather is dark")
+	_check(red.r > red.b and blue.b > blue.r and green.g > green.r, "dyed leather keeps the set's hue")
+	_check(red.s < Color("#c94f4f").s + 0.2, "dyed leather isn't more vivid than the set colour")
 
 
 func _test_shelving() -> void:
@@ -847,9 +909,6 @@ func _test_onscreen_text() -> void:
 
 	var range_data := CardDatabase.all_binders()[0]
 	var set_data := CardDatabase.get_set(range_data.set_code)
-	_check(range_data.numbers_text() == "%s #001-%s" % [set_data.code, set_data.number_text(range_data.last)],
-		"binder numbers read like KTK #001-269, got " + range_data.numbers_text())
-
 	var main := preload("res://scripts/main.gd")
 	var ids := _first_binder_cards()
 	var card := CardDatabase.get_card(ids[3])

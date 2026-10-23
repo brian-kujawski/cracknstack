@@ -1,0 +1,5 @@
+EBGaramond.ttf: EB Garamond (variable, weight axis) by Georg Duffner and Octavio Pardo
+https://github.com/google/fonts/tree/main/ofl/ebgaramond
+Licence: SIL Open Font License 1.1 (EBGaramond-OFL.txt, which must ship with the font).
+Downloaded 2026-10-23 as EBGaramond[wght].ttf, renamed.
+Used for: the lettering pressed into the binders (BinderLettering), at weight 600, in capitals.

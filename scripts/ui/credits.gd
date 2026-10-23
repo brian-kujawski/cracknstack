@@ -18,6 +18,10 @@ const TEXTURES := [
 	"Brass: Metal048B by ambientCG (ambientcg.com), CC0.",
 	"Curtains: Fabric019 by ambientCG (ambientcg.com), CC0.",
 ]
+## One line per font in assets/fonts/ (each has its licence beside it).
+const FONTS := [
+	"Binder lettering: EB Garamond by Georg Duffner and Octavio Pardo, SIL Open Font License 1.1.",
+]
 
 
 ## The credits as the roll shows them, in order: [kind, content] where kind
@@ -36,6 +40,8 @@ static func roll() -> Array:
 		blocks.append(["text", "These are placeholder cards. Run tools/import_scryfall.py to bring in Khans of Tarkir."])
 	blocks.append(["heading", "STORE TEXTURES"])
 	blocks.append(["text", "\n".join(TEXTURES)])
+	blocks.append(["heading", "FONTS"])
+	blocks.append(["text", "\n".join(FONTS)])
 	blocks.append(["end", "Pickup is free and always will be."])
 	return blocks
 
@@ -66,6 +72,10 @@ static func text() -> String:
 	lines.append("")
 	lines.append("STORE TEXTURES")
 	for credit in TEXTURES:
+		lines.append(credit)
+	lines.append("")
+	lines.append("FONTS")
+	for credit in FONTS:
 		lines.append(credit)
 	lines.append("")
 	lines.append("Pickup is free and always will be.")
