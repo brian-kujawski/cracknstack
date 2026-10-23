@@ -4,6 +4,7 @@ extends Node
 ## Exits with code 1 if any check fails.
 
 const SETTINGS_TEST_PATH := "user://test_settings.cfg"
+const SAVES_TEST_DIR := "user://test_saves"
 
 var _failures := 0
 var _checks := 0
@@ -16,6 +17,8 @@ func _ready() -> void:
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	Settings.save_path = SETTINGS_TEST_PATH
 	Settings.reset_all()
+	Saves.save_dir = SAVES_TEST_DIR
+	_clear_test_saves()
 	_test_database_loaded()
 	_test_collector_numbers_are_contiguous()
 	_test_shelf_order()
@@ -59,7 +62,10 @@ func _ready() -> void:
 	await _test_crouch()
 	await _test_lean_over_table()
 	await _test_table_cards()
+	_test_save_files()
+	await _test_shop_save()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
+	_clear_test_saves()
 	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -907,7 +913,14 @@ func _test_pause() -> void:
 	menu.pause()
 	_check(menu.buttons.keys() == ["Resume", "Save/Load", "Achievements", "Settings", "Exit Game"],
 		"the pause menu's buttons, in order: %s" % [menu.buttons.keys()])
-	_check(menu.buttons["Save/Load"].disabled, "Save/Load is greyed out until there are saves")
+	_check(not menu.buttons["Save/Load"].disabled, "Save/Load is on the pause menu")
+	menu.buttons["Save/Load"].pressed.emit()
+	var slots_pages := menu.find_children("*", "SaveSlotsScreen", false, false)
+	_check(slots_pages.size() == 1 and slots_pages[0].rows.size() == Saves.SLOTS.size()
+		and not slots_pages[0].rows[Saves.AUTOSAVE].save.visible and slots_pages[0].rows["slot1"].save.visible,
+		"Save/Load lists the autosave and three slots, with Save on the slots only")
+	for found in slots_pages:
+		found.free()
 	var all_buttons: Array = menu.buttons.values() + menu.exit_buttons.values() + menu.save_buttons.values()
 	_check(all_buttons.all(func(button: Button) -> bool: return button.focus_mode == Control.FOCUS_NONE),
 		"the pause menu is mouse-only: no button takes keyboard focus")
@@ -999,11 +1012,11 @@ func _test_title_screen() -> void:
 	var pages := SceneFlow.intro_pages()
 	_check(pages.size() == SceneFlow.PROLOGUE.size() + 1 and pages[-1] == Credits.DISCLAIMER,
 		"New Game's intro plays the prologue, then the disclaimer")
-	SceneFlow._mark_started()
-	_check(SceneFlow.has_started(), "finishing the intro marks a game as started")
-	SceneFlow._started = false
+	var legacy := ConfigFile.new()
+	legacy.set_value("game", "started", true)
+	legacy.save(profile)
 	SceneFlow.load_profile(profile)
-	_check(SceneFlow.has_started(), "and that's remembered across launches")
+	_check(SceneFlow.has_started(), "a game started before saves existed still counts as started")
 	title.free()
 	title = load(SceneFlow.TITLE_SCENE).instantiate()
 	add_child(title)
@@ -2010,3 +2023,219 @@ func _test_lean_over_table() -> void:
 	_check(hands._aim == hands.Aim.SURFACE and absf(hands._aim_point.y - store_script.TABLE_SIZE.y) < 0.01, "you aim at the table top, not what stops the lean")
 	player.free()
 	store.free()
+
+
+func _clear_test_saves() -> void:
+	for slot in Saves.SLOTS:
+		for suffix in ["", ".bak", ".tmp"]:
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(Saves.path(slot) + suffix))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVES_TEST_DIR))
+
+
+func _test_save_files() -> void:
+	_clear_test_saves()
+	var path := Saves.path("slot1")
+	_check(SaveGame.status(path) == SaveGame.Status.EMPTY and not Saves.any_save() and Saves.newest_loadable() == "",
+		"with no saves, every slot is empty and there's nothing to continue")
+	var shop := {"numbers": PackedInt32Array([3, -1, 7]), "pose": Transform3D(Basis(Vector3.UP, 0.4), Vector3(1, 2, 3)),
+		"nested": {"spots": PackedVector3Array([Vector3(0.5, 0.0, 1.0)])}}
+	var summary := {"saved_at": 1000.0, "play_time": 3720.0, "organized": 41, "total": 100, "finished": false}
+	_check(SaveGame.write(path, summary, shop) == OK and SaveGame.status(path) == SaveGame.Status.OK, "a save writes and reads back")
+	var loaded := SaveGame.read(path)
+	_check(not loaded.is_empty() and loaded.shop == shop and loaded.summary == summary,
+		"everything comes back as it went in, packed arrays and transforms too")
+	_check(SaveGame.read_summary(path).get("play_time") == 3720.0 and SaveGame.read_summary(path).get("version") == SaveGame.SAVE_VERSION,
+		"the Load list reads the summary and header alone")
+	_check(not FileAccess.file_exists(path + ".tmp"), "the temporary file is gone once the save is in place")
+	_check(Saves.any_save() and Saves.newest_loadable() == "slot1" and SceneFlow.has_started(),
+		"a save means there's a game to continue, and Credits unlocks")
+	_check(Saves.describe("slot1").ends_with(" · 1 h 2 min · 41%"), "a slot shows when, how long played and how far along: %s" % Saves.describe("slot1"))
+	_check(Saves.describe("slot2") == "Empty", "an empty slot says so")
+
+	summary.saved_at = 2000.0
+	SaveGame.write(Saves.path(Saves.AUTOSAVE), summary, shop)
+	_check(Saves.newest_loadable() == Saves.AUTOSAVE, "Continue picks the newest save")
+	SaveGame.write(path, {"saved_at": 3000.0}, {"second": true})
+	_check(FileAccess.file_exists(path + ".bak") and SaveGame.read(path).shop == {"second": true},
+		"writing over a save keeps the old one as a backup")
+	var garbage := FileAccess.open(path, FileAccess.WRITE)
+	garbage.store_string("not a save")
+	garbage.close()
+	_check(SaveGame.status(path) == SaveGame.Status.OK and SaveGame.read(path).shop == shop,
+		"a save that won't read falls back to its backup")
+
+	# A save from another version is listed but can't be loaded.
+	var old := FileAccess.open_compressed(Saves.path("slot3"), FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	var header := SaveGame.header()
+	header.version = SaveGame.SAVE_VERSION - 1
+	old.store_var(header)
+	old.store_var({"saved_at": 9000.0})
+	old.store_var({})
+	old.close()
+	_check(Saves.status("slot3") == SaveGame.Status.OLD_VERSION and SaveGame.read(Saves.path("slot3")).is_empty(),
+		"a save from an older version can't be loaded")
+	_check(Saves.describe("slot3") == "From an older version" and Saves.newest_loadable() == Saves.AUTOSAVE,
+		"it says so, and Continue skips it even though it's newest")
+	var page := SaveSlotsScreen.new()
+	add_child(page)
+	_check(page.rows["slot3"].load.disabled and not page.rows["slot1"].load.disabled and page.rows["slot2"].load.disabled
+		and not page.rows["slot1"].has("save"), "Load Game greys out what can't be loaded, and offers no Save")
+	page.free()
+	_clear_test_saves()
+	_check(not Saves.any_save(), "and the test saves are cleared away")
+
+
+## A shop saved and loaded is the same shop: every card, binder, the hand,
+## Mana and cooldowns, where you stand. Then the same save loaded after the
+## card data changed.
+func _test_shop_save() -> void:
+	Progression.reset()
+	Saves.begin_new_game()
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var pile: PileWorld = main.get_node("Pile")
+	var hands: Hands = main.get_node("Player/Hands")
+	var player: CharacterBody3D = main.get_node("Player")
+	_check(Saves.shop == main, "the shop registers itself to be saved")
+	var ids := _first_binder_cards()
+	var binder := pile.binders[0]
+	# Some cards locked in, one misplaced, one in hand, one on a table, one
+	# in the air.
+	binder.place(pile, Transform3D(Basis(Vector3.UP, 0.3), Vector3(2.0, 0.2, 2.0)), 0)
+	for i in 5:
+		pile.pick_up(ids[i])
+		binder.insert(i, ids[i])
+	pile.pick_up(ids[7])
+	binder.insert(6, ids[7])
+	pile.pick_up(ids[9])
+	hands.restore_hand([ids[9]] as Array[int])
+	pile.pick_up(ids[10])
+	pile.lay_loose(ids[10], Vector3(4.0, 0.75, 3.0), 0.5, false)
+	pile.pick_up(ids[11])
+	var tossed := TossedCard.new()
+	pile.add_child(tossed)
+	tossed.launch(ids[11], pile, ShaderMaterial.new(), Transform3D(Basis(), Vector3(6.0, 1.2, 4.0)), Vector3.ZERO, Vector3.ZERO)
+	var shelf: ShelfUnit = main._shelves()[0]
+	var shelved := pile.binders[1]
+	shelf.shelve(shelf.space_for(shelved.binder.set_code), shelved)
+	Progression.allow_debt = true
+	Progression.buy(4, 0)
+	Progression.buy(4, 1)
+	Progression.allow_debt = false
+	Progression.earn(500)
+	player.global_position = Vector3(3.0, 0.1, 5.0)
+	player.rotation.y = 1.2
+	var before: Dictionary = main.capture_save()
+	var before_mana := Progression.mana
+	Saves._since_autosave = Settings.autosave_seconds() + 1.0
+	Saves._process(0.1)
+	Saves.wait_for_save()
+	_check(Saves.status(Saves.AUTOSAVE) == SaveGame.Status.OK, "after the Autosave every interval, the autosave is written")
+	_check(before.falling.size() == 1, "a card in the air is saved as falling")
+
+	# Through the file and back, as a real save goes.
+	_check(Saves.save("slot1", true), "the shop saves to a slot")
+	main.free()
+	Progression.reset()
+	_check(Saves.load_slot("slot1"), "and the slot loads")
+	main = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	pile = main.get_node("Pile")
+	hands = main.get_node("Player/Hands")
+	player = main.get_node("Player")
+	binder = pile.binders[0]
+	_check(binder.is_open() and binder.contents.locked_count == 5 and binder.contents.card_at(6) == ids[7]
+		and not binder.contents.is_locked(6), "the binder comes back open, five cards locked in and one misplaced")
+	_check(binder.global_position.distance_to(Vector3(2.0, 0.2, 2.0)) < 0.001, "where it lay")
+	_check(hands.held_card_id == ids[9], "the card in hand is back in hand")
+	var on_table := pile.loose_card(ids[10])
+	_check(on_table != null and not on_table.face_up and on_table.position.is_equal_approx(Vector3(4.0, 0.75, 3.0)),
+		"the card on the table lies there again, face down")
+	var floor_same := true
+	var probe_ids := [ids[20], ids[30], 5000, 12345]
+	for id in probe_ids:
+		var i := ShopSave.card_order().find(id)
+		floor_same = floor_same and pile.is_on_floor(id) and pile.card_position(id).is_equal_approx(before.cards.positions[i])
+	_check(floor_same, "floor cards lie exactly where they lay, at the same height")
+	var same_shelf := pile.binders[1]
+	_check(same_shelf.state == Binder.State.SHELVED and same_shelf.shelf_unit != null
+		and same_shelf.shelf_unit.shelved[same_shelf.shelf_space] == same_shelf, "the shelved binder is back on its shelf")
+	_check(Progression.mana == before_mana and Progression.rank("Harmonize") == 1 and Progression.rank("Spider Climb") == 1,
+		"Mana and unlocks come back")
+	_check(player.global_position.distance_to(Vector3(3.0, 0.1, 5.0)) < 0.01 and is_equal_approx(player.rotation.y, 1.2),
+		"you stand where you stood, looking the same way")
+	_check(not pile.is_lying(ids[11]) and main._falling.size() == 1, "the card that was in the air waits to land")
+	for i in 4:
+		await get_tree().physics_frame
+	_check(pile.is_lying(ids[11]), "then lands once physics runs")
+	var after: Dictionary = main.capture_save()
+	var binders_same: bool = after.binders.keys() == before.binders.keys()
+	for code in before.binders:
+		for key in ["state", "pockets", "locked", "spread"]:
+			binders_same = binders_same and after.binders[code][key] == before.binders[code][key]
+	_check(binders_same and after.hand == before.hand and after.progression.bought == before.progression.bought
+		and after.falling.is_empty(), "saved again, every binder, the hand and the unlocks are the same")
+
+	# The data changes: the last set is gone from the save (as if imported
+	# since), and the save has a set that's no longer in the data.
+	var changed: Dictionary = before.duplicate(true)
+	var codes: PackedStringArray = changed.sets.codes
+	var counts_saved: PackedInt32Array = changed.sets.counts
+	var last_code := codes[codes.size() - 1]
+	var last_count := counts_saved[counts_saved.size() - 1]
+	var keep := ShopSave.card_order().size() - last_count
+	codes.remove_at(codes.size() - 1)
+	counts_saved.remove_at(counts_saved.size() - 1)
+	codes.append("ZZZ")
+	counts_saved.append(2)
+	changed.sets = {"codes": codes, "counts": counts_saved}
+	for key in ["where", "positions", "rotations", "face_up"]:
+		var values = changed.cards[key].slice(0, keep)
+		values.append_array(changed.cards[key].slice(0, 2))
+		changed.cards[key] = values
+	changed.binders.erase(last_code)
+	# New furniture over some floor cards, and a table that's gone.
+	var furniture := Rect2(0.0, 0.0, 0.0, 0.0)
+	var buried: Array[int] = []
+	var order_now := ShopSave.card_order()
+	for i in keep:
+		var at: Vector3 = changed.cards.positions[i]
+		if changed.cards.where[i] == 0 and buried.size() < 3 and at.x > 3.0 and at.x < 9.0:
+			buried.append(order_now[i])
+			furniture = Rect2(at.x - 0.05, at.z - 0.05, 0.1, 0.1) if furniture.size == Vector2.ZERO else furniture.expand(Vector2(at.x, at.z))
+	var on_gone_table: Vector3 = changed.cards.positions[order_now.find(ids[10])]
+	var moved_table_card := order_now.find(ids[10])
+	var positions_moved: PackedVector3Array = changed.cards.positions
+	positions_moved[moved_table_card] = Vector3(on_gone_table.x + 20.0, on_gone_table.y, on_gone_table.z)
+	changed.cards.positions = positions_moved
+	main.free()
+	Saves._pending = changed
+	main = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	pile = main.get_node("Pile")
+	var new_cards := CardDatabase.cards_in_set(last_code)
+	var all_down := new_cards.all(func(card: CardData) -> bool: return pile.is_on_floor(card.id))
+	_check(all_down, "a set the save doesn't know is scattered on the pile")
+	var new_binder: Binder = pile.binders[-1]
+	_check(new_binder.binder.set_code == last_code and new_binder.is_inside_tree() and new_binder.state == Binder.State.CLOSED,
+		"and its binder is dropped on top")
+	_check(pile.binders[0].contents.locked_count == 5, "the rest of the save loads as before")
+	var test_pile := PileWorld.new()
+	add_child(test_pile)
+	test_pile.surfaces = main.get_node("Store").surfaces
+	var obstacles_now: Array[Rect2] = main.get_node("Store").obstacles.duplicate()
+	obstacles_now.append(furniture.grow(0.05))
+	test_pile.restore_cards(main.get_node("Store").floor_bounds(), obstacles_now, changed.cards, ShopSave.id_map(changed.sets), 1)
+	var clear_now := buried.all(func(id: int) -> bool:
+		var at := test_pile.card_position(id)
+		return test_pile.is_on_floor(id) and not furniture.grow(0.05).has_point(Vector2(at.x, at.z)))
+	_check(not buried.is_empty() and clear_now, "cards under new furniture move to the nearest clear spot")
+	_check(test_pile.is_on_floor(ids[10]), "and a card on a table that's gone lands on the floor")
+	_check(test_pile.card_position(ids[20]).is_equal_approx(pile.card_position(ids[20])), "while the rest stay put")
+	test_pile.free()
+	main.free()
+	Progression.reset()
+	Saves.begin_new_game()
+	_clear_test_saves()

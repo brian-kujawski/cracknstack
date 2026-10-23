@@ -5,8 +5,10 @@ extends Control
 ## up the menu under the title, which glides up to make room. Nothing here
 ## says what the game is: the Fan Content disclaimer is shown in the New
 ## Game intro instead (SceneFlow), and Credits stays greyed out until a game
-## has been started, so the menu can't give it away. Continue and Load Game
-## stay greyed out until there are saves (M8).
+## has been started, so the menu can't give it away. Continue loads the
+## newest save this build can load; Load Game lists them all (both greyed
+## out until there's a save). New Game asks first if it would replace the
+## autosave.
 
 enum State { TITLE, MENU }
 
@@ -56,9 +58,10 @@ func _ready() -> void:
 	_menu.offset_top = 2
 	_menu.modulate.a = 0.0
 	_menu_room.add_child(_menu)
-	_add_button("Continue", false)
-	_add_button("New Game").pressed.connect(SceneFlow.new_game)
-	_add_button("Load Game", false)
+	var newest := Saves.newest_loadable()
+	_add_button("Continue", newest != "").pressed.connect(SceneFlow.load_game.bind(newest))
+	_add_button("New Game").pressed.connect(_ask_new_game)
+	_add_button("Load Game", Saves.any_save()).pressed.connect(_open.bind(SaveSlotsScreen.new))
 	_add_button("Achievements").pressed.connect(_open.bind(AchievementsScreen.make))
 	_add_button("Settings").pressed.connect(_open.bind(SettingsScreen.new))
 	_add_button("Credits", SceneFlow.has_started()).pressed.connect(_open.bind(CreditsRoll.new))
@@ -127,6 +130,16 @@ func show_menu(instant := false) -> void:
 	tween.tween_property(_prompt, "modulate:a", 0.0, MENU_FADE)
 	tween.tween_property(_menu_room, "custom_minimum_size:y", _menu.get_combined_minimum_size().y + 4, MENU_FADE)
 	tween.tween_property(_menu, "modulate:a", 1.0, MENU_FADE)
+
+
+## New Game replaces the autosave, so with one there it asks first. Saved
+## slots are kept.
+func _ask_new_game() -> void:
+	if Saves.status(Saves.AUTOSAVE) == SaveGame.Status.EMPTY:
+		SceneFlow.new_game()
+	else:
+		add_child(MenuQuestion.new("Start a new game?", "Your autosave will be replaced. Saved slots are kept.",
+			"Start New Game", SceneFlow.new_game))
 
 
 ## Opens one of the menu's pages over it.

@@ -1,13 +1,14 @@
 extends CanvasLayer
 ## Moving between the title screen and the shop (autoload: SceneFlow). Owns a
 ## black screen above everything else that survives scene changes, and does
-## the fades: New Game fades to black, loads the shop behind it and fades in.
+## the fades: New Game fades to black, loads the shop behind it and fades in;
+## loading a save (Continue, Load) does the same without the intro.
 ## Quit to Menu fades back to the title scene, which then opens straight on
 ## the menu; finishing the game does too, with the credits rolling over it.
 ## While a fade runs, input is swallowed so nothing is clicked or pressed
 ## half-way through.
 
-## Emitted by save_game(), before the save itself (M8).
+## Emitted by save_game(), before the save itself.
 signal saving
 
 const TITLE_SCENE := "res://scenes/title.tscn"
@@ -30,9 +31,10 @@ const INTRO_MIN := 2.0
 const INTRO_HOLD := 6.0
 const INTRO_FONT_SIZE := 28
 const INTRO_WIDTH := 1100
-## Where it's remembered that a game has been started (the intro played
-## through), which unlocks Credits on the main menu. The autosave made at
-## that point takes over from this file in M8.
+## Where builds before saves remembered that a game had been started, which
+## unlocks Credits. A save now does that (the autosave written when the
+## intro ends); this file is still read so playtesters who started a game
+## before saves existed keep Credits. It can go before release.
 const PROFILE_PATH := "user://profile.cfg"
 ## Frames to wait after the shop loads before fading in, so its first frame
 ## has drawn and the fade doesn't show a hitch.
@@ -44,7 +46,6 @@ var _busy := false
 ## The intro page on screen can be skipped by a key or click.
 var _skippable := false
 var _skipped := false
-var _profile_path := PROFILE_PATH
 var _started := false
 ## Set on the way back from the shop, so the title opens on its menu.
 var _menu_requested := false
@@ -93,28 +94,19 @@ static func should_skip_title(args := OS.get_cmdline_user_args()) -> bool:
 	return "--benchmark" in args or (OS.is_debug_build() and "--skip-title" in args)
 
 
-## True once a game has been started: the intro has played through at
-## least once. Credits on the main menu stays greyed out until then.
+## True once a game has been started: there's a save (of any version), or
+## an older build remembered one. Credits on the main menu stays greyed out
+## until then.
 func has_started() -> bool:
-	return _started
+	return _started or Saves.any_save()
 
 
-## Reads whether a game has been started from `path` (tests use their own).
+## Reads whether an older build remembered a game being started, from
+## `path` (tests use their own).
 func load_profile(path: String) -> void:
-	_profile_path = path
 	var file := ConfigFile.new()
 	file.load(path)
 	_started = file.get_value("game", "started", false)
-
-
-func _mark_started() -> void:
-	if _started:
-		return
-	_started = true
-	var file := ConfigFile.new()
-	file.load(_profile_path)
-	file.set_value("game", "started", true)
-	file.save(_profile_path)
 
 
 ## The intro's pages in order: the prologue, then the disclaimer.
@@ -125,7 +117,7 @@ static func intro_pages() -> Array[String]:
 
 
 ## Starts a fresh game: fade to black, play the intro, reset progress, load
-## the shop, fade in.
+## the shop, write the first autosave, fade in.
 func new_game() -> void:
 	if _busy:
 		return
@@ -133,14 +125,33 @@ func new_game() -> void:
 	await _fade_to(1.0, FADE_OUT)
 	for page in intro_pages():
 		await _show_page(page)
-	_mark_started()
 	Progression.reset()
+	Saves.begin_new_game()
+	await _enter_shop(true)
+
+
+## Loads a save (Continue, Load Game, or Load from the pause menu): fade to
+## black, build the shop from it, fade in. Does nothing if it can't be read.
+func load_game(slot: String) -> void:
+	if _busy or not Saves.load_slot(slot):
+		return
+	_busy = true
+	await _fade_to(1.0, FADE_OUT)
+	await _enter_shop(false)
+
+
+## Behind the black screen: loads the shop (which takes a waiting save, if
+## there is one), then fades in. A new game writes its first autosave once
+## the shop is built.
+func _enter_shop(autosave: bool) -> void:
 	get_tree().paused = false
 	get_tree().change_scene_to_file(SHOP_SCENE)
 	# The shop builds its store and pile in _ready, so the screen stays black
 	# for that. Hold the game still until the fade-in is part way through.
 	await get_tree().scene_changed
 	get_tree().paused = true
+	if autosave:
+		Saves.save(Saves.AUTOSAVE)
 	for i in SETTLE_FRAMES:
 		await get_tree().process_frame
 	_fade_to(0.0, FADE_IN)
@@ -151,7 +162,7 @@ func new_game() -> void:
 
 
 ## Leaves the shop for the main menu: fade to black, swap scenes, fade in
-## on the menu (not the title). Nothing is saved yet.
+## on the menu (not the title). Saving first is the pause menu's question.
 func to_main_menu() -> void:
 	if _busy:
 		return
@@ -197,10 +208,11 @@ func take_menu_request() -> bool:
 	return requested
 
 
-## Saves the game before quitting (the pause menu's Save And Quit). Saves
-## come in M8; until then this is where they'll hook in, and does nothing.
+## Saves the game before quitting (the pause menu's Save And Quit): the
+## autosave, written before this returns.
 func save_game() -> void:
 	saving.emit()
+	Saves.save(Saves.AUTOSAVE, true)
 
 
 ## Fades out and closes the game.
@@ -209,6 +221,7 @@ func quit() -> void:
 		return
 	_busy = true
 	await _fade_to(1.0, FADE_OUT)
+	Saves.wait_for_save()
 	get_tree().quit()
 
 

@@ -166,11 +166,12 @@ func space_at(global_point: Vector3) -> int:
 
 
 ## Stands a binder in a space. Returns true if it's the binder that belongs
-## there (it locks in), false if not (it glows red).
-func shelve(space: int, binder: Binder) -> bool:
+## there (it locks in), false if not (it glows red). A `quiet` one (put back
+## from a save) doesn't flash.
+func shelve(space: int, binder: Binder, quiet := false) -> bool:
 	var correct: bool = spaces[space] == binder.binder
 	shelved[space] = binder
-	binder.stand_on_shelf(self, space, binder_transform(space, binder.thickness), correct)
+	binder.stand_on_shelf(self, space, binder_transform(space, binder.thickness), correct, quiet)
 	if correct:
 		Progression.earn_once("shelved:" + binder.key(), Progression.BINDER_SHELVED)
 	if refresh_section(shelf_of(space)):
@@ -226,6 +227,14 @@ func binder_transform(space: int, thickness: float) -> Transform3D:
 	var origin := Vector3(floor_point.x - thickness / 2, floor_point.y + Binder.COVER.y / 2 + 0.002,
 		DEPTH / 2 + 0.004 - Binder.COVER.x / 2)
 	return Transform3D(basis, origin)
+
+
+## The space labelled for a set's binder, or -1.
+func space_for(set_code: String) -> int:
+	for space in spaces.size():
+		if spaces[space].set_code == set_code:
+			return space
+	return -1
 
 
 ## Which shelf (0 = top) a space is on.

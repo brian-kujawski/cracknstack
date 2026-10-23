@@ -5,11 +5,12 @@ extends CanvasLayer
 ## pauses too, unless another menu (upgrades) already has the game stopped,
 ## so the mouse is never left loose in the game.
 ##
-## Resume, Save/Load (greyed out until saves exist, M8), Achievements and
-## Settings (the same pages as the main menu's), and Exit Game: Quit to
-## Menu, Quit to Desktop or Back. Either quit then asks "Save before
-## quitting?": Save And Quit saves first (SceneFlow.save_game(), a hook
-## until M8), Quit Without Saving never does. Esc steps back one question.
+## Resume, Save/Load (the list of saves, with Save on each slot),
+## Achievements and Settings (the same pages as the main menu's), and Exit
+## Game: Quit to Menu, Quit to Desktop or Back. Either quit then asks "Save
+## before quitting?": Save And Quit writes the autosave first
+## (SceneFlow.save_game()), Quit Without Saving never saves. Closing the
+## window counts as Quit Without Saving. Esc steps back one question.
 
 ## Set by the main scene; the developer time-of-day buttons drive it.
 var day_cycle: DayCycle
@@ -39,7 +40,7 @@ func _ready() -> void:
 	_menu.add_child(title)
 	# Fires when the click comes back up, so neither half of it reaches the game.
 	_add_button(_menu, buttons, "Resume").pressed.connect(resume)
-	_add_button(_menu, buttons, "Save/Load", false)
+	_add_button(_menu, buttons, "Save/Load").pressed.connect(_open.bind(SaveSlotsScreen.new.bind(true)))
 	_add_button(_menu, buttons, "Achievements").pressed.connect(_open.bind(AchievementsScreen.make))
 	_add_button(_menu, buttons, "Settings").pressed.connect(_open.bind(SettingsScreen.new))
 	_add_button(_menu, buttons, "Exit Game").pressed.connect(_ask_to_exit)
