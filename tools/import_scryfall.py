@@ -503,6 +503,12 @@ def image_url(card):
     return uris["normal"]
 
 
+def file_stamp(path):
+    """A file's size and modified time, to tell whether it changed since."""
+    info = path.stat()
+    return [info.st_size, info.st_mtime_ns]
+
+
 def has_file(path):
     return path.exists() and path.stat().st_size > 0
 
@@ -547,7 +553,9 @@ def pack_atlas(cards, out):
     """Packs every card's face, shrunk to one slot, into atlas pages in card
     order: card i is page i // (COLUMNS × ROWS), slot i % (COLUMNS × ROWS),
     slots running left to right, top to bottom. A page whose cards haven't
-    changed since the last run is left as it is."""
+    changed since the last run is left as it is, as long as the file is still
+    the one this packed (same size and modified time); anything else on disk
+    under that name is packed again."""
     try:
         from PIL import Image
     except ImportError:
@@ -561,9 +569,11 @@ def pack_atlas(cards, out):
     for first in range(0, len(cards), per_page):
         name = f"faces/page_{len(pages)}.png"
         contents = [image_path(card) for card in cards[first:first + per_page]]
-        manifest[name] = contents
         pages.append(name)
-        if old.get(name) == contents and has_file(out / name):
+        previous = old.get(name)
+        if isinstance(previous, dict) and previous.get("cards") == contents \
+                and has_file(out / name) and previous.get("file") == file_stamp(out / name):
+            manifest[name] = previous
             continue
         page = Image.new("RGB", (PAGE_SIZE, PAGE_SIZE), (0, 0, 0))
         for slot, path in enumerate(contents):
@@ -571,6 +581,7 @@ def pack_atlas(cards, out):
                 small = face.convert("RGB").resize(SLOT_SIZE, Image.LANCZOS)
             page.paste(small, ((slot % COLUMNS) * SLOT_SIZE[0], (slot // COLUMNS) * SLOT_SIZE[1]))
         page.save(out / name, optimize=True)
+        manifest[name] = {"cards": contents, "file": file_stamp(out / name)}
     for stale in (out / "faces").glob("page_*.png"):
         if f"faces/{stale.name}" not in manifest:
             stale.unlink()

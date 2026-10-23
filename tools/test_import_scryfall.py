@@ -169,6 +169,11 @@ class Atlas(unittest.TestCase):
             stamp = (out / faces["pages"][0]).stat().st_mtime_ns
             importer.pack_atlas(cards, out)
             self.assertEqual((out / faces["pages"][0]).stat().st_mtime_ns, stamp)
+            # A page replaced behind the manifest's back (an old copy, say) is packed again.
+            Image.new("RGB", (importer.PAGE_SIZE, importer.PAGE_SIZE), (0, 0, 0)).save(out / faces["pages"][1])
+            importer.pack_atlas(cards, out)
+            with Image.open(out / faces["pages"][1]) as page:
+                self.assertAlmostEqual(page.getpixel((importer.SLOT_SIZE[0] + 5, 5))[0], (per_page + 1) * 7 % 256, delta=3)
             self.assertEqual(importer.pack_atlas(cards[:per_page], out)["pages"], ["faces/page_0.png"])
             self.assertFalse((out / "faces/page_1.png").exists())
 
