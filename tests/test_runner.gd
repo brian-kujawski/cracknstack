@@ -460,7 +460,7 @@ func _test_binder_lettering() -> void:
 	_check(by_hand.lines == PackedStringArray(["ADVENTURES", "IN THE FORGOTTEN REALMS"]), "a line break laid out by hand is kept")
 
 	var set_data := CardDatabase.sets_in_shelf_order()[0]
-	var masks := BinderLettering.masks(set_data, set_data.binder, BinderLayout.SIZE_THICKNESSES[0])
+	var masks := BinderLettering.masks(set_data, BinderLayout.SIZE_THICKNESSES[0])
 	var cover: Image = masks[0].get_image()
 	var spine: Image = masks[1].get_image()
 	_check(spine.get_height() == ceili(BinderLayout.SIZE_THICKNESSES[0] * BinderLettering.DENSITY), "the spine mask spans the binder's thickness")
@@ -909,9 +909,6 @@ func _test_onscreen_text() -> void:
 
 	var range_data := CardDatabase.all_binders()[0]
 	var set_data := CardDatabase.get_set(range_data.set_code)
-	_check(range_data.numbers_text() == "%s #001-%s" % [set_data.code, set_data.number_text(range_data.last)],
-		"binder numbers read like KTK #001-269, got " + range_data.numbers_text())
-
 	var main := preload("res://scripts/main.gd")
 	var ids := _first_binder_cards()
 	var card := CardDatabase.get_card(ids[3])

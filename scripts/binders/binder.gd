@@ -139,7 +139,7 @@ func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
 	_cover_material = _leather_material(leather_colour(accent))
 	_cover_material.set_shader_parameter("thickness", thickness)
 	var set_data := CardDatabase.get_set(binder.set_code)
-	var masks := BinderLettering.masks(set_data, binder, thickness)
+	var masks := BinderLettering.masks(set_data, thickness)
 	var cover_mask := BinderLettering.COVER_MASK
 	_cover_material.set_shader_parameter("cover_mask", masks[0])
 	_cover_material.set_shader_parameter("cover_rect", Vector4(cover_mask.position.x, cover_mask.position.y, cover_mask.size.x, cover_mask.size.y))

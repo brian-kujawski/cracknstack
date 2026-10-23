@@ -9,9 +9,10 @@ shader_type spatial;
 // cover from looking like one flat sheet of plastic, and the covers darken
 // a little toward their edges, where real leather is burnished by handling.
 //
-// Lettering: where the masks are white the leather is pressed in (darker,
-// smoother, with the edges of each letter catching the light), or, once
-// `gilt` is 1, filled with gold leaf. A blind-tooled rule frames the cover.
+// Lettering: where the masks are white the leather is pressed in (with the
+// edges of each letter catching the light) and filled with silver foil,
+// which turns to gold leaf as `gilt` goes to 1. A blind-tooled rule (pressed,
+// no foil) frames the cover.
 
 uniform vec3 dye : source_color = vec3(0.4, 0.2, 0.15);
 uniform sampler2D leather_albedo : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
@@ -43,10 +44,11 @@ uniform vec2 spine_span;
 // The blind-tooled rule round the cover: its inset from the edges (x, z)
 // and its width, in metres.
 uniform vec3 rule = vec3(0.026, 0.024, 0.0014);
-// How deep the letters and rule are pressed in (metres), and gold leaf (0
-// to 1).
+// How deep the letters and rule are pressed in (metres), and silver foil
+// (0) to gold leaf (1).
 uniform float press_depth = 0.0004;
 uniform float gilt = 0.0;
+const vec3 SILVER = vec3(0.78, 0.78, 0.8);
 const vec3 GOLD = vec3(0.86, 0.66, 0.32);
 
 varying vec3 local_pos;
@@ -150,19 +152,14 @@ void fragment() {
 	albedo *= 1.0 - 0.7 * press;
 	roughness = mix(roughness, roughness * 0.8, press);
 	normal = normalize(mix(normal, n, press * 0.6) + slope);
-	float metal = 0.0;
-	if (gilt > 0.0) {
-		// Gold leaf in the letters only; the framing rule stays blind.
-		float leaf = gilt * letters;
-		albedo = mix(albedo, GOLD, leaf);
-		metal = leaf;
-		roughness = mix(roughness, 0.32, leaf);
-		normal = normalize(mix(normal, normalize(n + slope), leaf * 0.7));
-	}
+	// Foil in the letters only; the framing rule stays blind.
+	albedo = mix(albedo, mix(SILVER, GOLD, gilt), letters);
+	roughness = mix(roughness, 0.32, letters);
+	normal = normalize(mix(normal, normalize(n + slope), letters * 0.7));
 
 	ALBEDO = albedo;
 	ROUGHNESS = roughness;
-	METALLIC = metal;
+	METALLIC = letters;
 	NORMAL = normalize((VIEW_MATRIX * (MODEL_MATRIX * vec4(normal, 0.0))).xyz);
 	EMISSION = glow;
 }

@@ -1,14 +1,15 @@
 class_name BinderLettering
 extends RefCounted
-## The lettering pressed into a binder's leather, like the title on a book:
-## the set's name across the cover and up the spine, its number range under
-## the cover title, and its code at the foot of the spine.
+## The lettering stamped into a binder's leather, like the title on a book:
+## the set's name across the cover and up the spine, and its code at the
+## foot of both.
 ##
 ## Each piece of text is fitted to its panel (fit()): it never breaks inside
 ## a word, prefers one line, and shrinks or takes another line when the name
 ## is long. The fitted text is drawn once per binder into two coverage masks
 ## (cover and spine), which the leather shader (binder_leather.gdshader)
-## presses into the leather, or gilds once the binder is complete.
+## presses into the leather in silver foil, turning gold once the binder is
+## complete.
 
 const FONT := preload("res://assets/fonts/EBGaramond.ttf")
 const WEIGHT := 600
@@ -38,12 +39,13 @@ const AWAY_FROM_COLON := 0.85
 const MAX_LINES := 3
 
 ## The cover, in the binder's x, z (the top of the book is -z). The title
-## sits in the upper part, the number range below it. The mask covers both.
+## sits in the upper part, the set code near the foot, inside the tooled
+## frame. The mask covers both.
 const COVER_TITLE := Rect2(-0.094, -0.118, 0.188, 0.1)
 const COVER_TITLE_CAP := Vector2(0.006, 0.019)
-const COVER_NUMBERS_Z := 0.012
-const COVER_NUMBERS_CAP := 0.0055
-const COVER_MASK := Rect2(-0.104, -0.124, 0.208, 0.15)
+const COVER_CODE_Z := 0.118
+const COVER_CODE_CAP := 0.009
+const COVER_MASK := Rect2(-0.104, -0.124, 0.208, 0.254)
 ## The spine, along z: the title runs top to bottom between the two raised
 ## bands, and the set code sits across the spine below the lower band.
 const SPINE_TITLE := Vector2(-0.119, 0.119)
@@ -62,14 +64,13 @@ static var _word_widths := {}
 
 ## The cover and spine masks for one set's binder, as [cover, spine]
 ## textures (single channel, 1 = letter).
-static func masks(set_data: SetData, binder: BinderRange, thickness: float) -> Array[ImageTexture]:
+static func masks(set_data: SetData, thickness: float) -> Array[ImageTexture]:
 	var title := title_text(set_data)
 	var cover := _blank(COVER_MASK.size)
 	var fitted := fit(title, COVER_TITLE.size, COVER_TITLE_CAP)
 	_draw_block(cover, fitted.lines, fitted.cap, (COVER_TITLE.get_center() - COVER_MASK.position) * DENSITY)
-	var numbers := "%s – %s" % [set_data.number_text(binder.first), set_data.number_text(binder.last)]
-	_draw_block(cover, PackedStringArray([numbers]), COVER_NUMBERS_CAP,
-		(Vector2(0, COVER_NUMBERS_Z) - COVER_MASK.position) * DENSITY)
+	_draw_block(cover, PackedStringArray([set_data.code]), COVER_CODE_CAP,
+		(Vector2(0, COVER_CODE_Z) - COVER_MASK.position) * DENSITY)
 
 	# The spine mask runs along z (left to right) with the front cover (+y)
 	# at the top, so the title is drawn as it reads.
