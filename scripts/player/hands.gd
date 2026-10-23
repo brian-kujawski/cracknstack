@@ -227,8 +227,9 @@ func _ready() -> void:
 		_camera.add_child(view)
 		_fan_views.append(view)
 	_pose_held_card()
-	# Field of view can change in Settings while a card is up close.
-	Settings.changed.connect(_pose_held_card.unbind(1))
+	# Field of view can change in Settings while a card is up close. Deferred
+	# so the player has set the camera's new field of view first.
+	Settings.changed.connect(_pose_held_card.unbind(1), CONNECT_DEFERRED)
 
 	var ghost_material := StandardMaterial3D.new()
 	ghost_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
