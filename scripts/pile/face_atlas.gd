@@ -39,10 +39,25 @@ static func load_pages(faces: Dictionary) -> FaceAtlas:
 	return atlas
 
 
-## Reads an image whether or not the editor has imported it: imported files
-## (and every file in an exported game) load as textures, and freshly
-## downloaded ones straight from disk.
+## Reads an image whether or not the editor has imported it. The file on
+## disk wins when it's there, because the importer rewrites atlas pages in
+## place and the editor's imported copy (.godot/imported) stays stale until
+## the editor rescans: a game run from the command line would otherwise show
+## the old pages' faces. In an exported game only the imported texture exists.
 static func load_image(path: String) -> Image:
+	if FileAccess.file_exists(path):
+		var image := Image.new()
+		var bytes := FileAccess.get_file_as_bytes(path)
+		var error := ERR_FILE_UNRECOGNIZED
+		match path.get_extension().to_lower():
+			"png":
+				error = image.load_png_from_buffer(bytes)
+			"jpg", "jpeg":
+				error = image.load_jpg_from_buffer(bytes)
+			"webp":
+				error = image.load_webp_from_buffer(bytes)
+		if error == OK:
+			return image
 	if ResourceLoader.exists(path):
 		var texture := load(path) as Texture2D
 		if texture != null:
@@ -50,9 +65,7 @@ static func load_image(path: String) -> Image:
 			if image.is_compressed():
 				image.decompress()
 			return image
-	if not FileAccess.file_exists(path):
-		return null
-	return Image.load_from_file(path)
+	return null
 
 
 func slots_per_page() -> int:
