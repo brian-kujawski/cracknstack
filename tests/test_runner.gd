@@ -721,6 +721,14 @@ func _test_inspect_tilt() -> void:
 	_check(is_equal_approx(tilt.x, limit) and is_equal_approx(tilt.y, limit), "tilt should clamp to the limit: %s" % tilt)
 	tilt = Hands.inspect_tilt(tilt, Vector2(-40, 0), 0.0025, limit)
 	_check(is_equal_approx(tilt.y, limit - 0.1), "moving back from the limit should tilt back at once: %s" % tilt)
+	# Up close, the card fills the same share of the screen at any field of view.
+	var near := 0.02 # the player camera's near plane
+	for fov in [60.0, 75.0, 100.0]:
+		var distance := Hands.zoomed_distance(fov, 0.088)
+		var fill := 0.088 / (2.0 * distance * tan(deg_to_rad(fov) / 2.0))
+		_check(is_equal_approx(fill, Hands.ZOOMED_SCREEN_FILL), "card up close should fill %s of the height at fov %s: %s" % [Hands.ZOOMED_SCREEN_FILL, fov, fill])
+		var tilted_corner := distance - 0.044 * sin(limit)
+		_check(tilted_corner > near, "a tilted card up close should clear the near plane at fov %s: %s" % [fov, tilted_corner])
 
 
 func _test_glide() -> void:
