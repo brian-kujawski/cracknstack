@@ -15,7 +15,8 @@ extends RefCounted
 ## Things in motion are saved where they'd end up: a card on its way into a
 ## pocket is saved in it, and anything else in the air (tossed, flipped,
 ## hovering, being put down) is saved as falling, to land when the shop
-## loads. Any card the save doesn't place anywhere falls near the player.
+## loads. A tossed binder is saved lying where it would come down. Any
+## card the save doesn't place anywhere falls near the player.
 
 ## The current card ids in save order: sets in shelf order, then by
 ## collector number.
@@ -66,6 +67,10 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 	for binder in pile.binders:
 		var entry := {"state": binder.state, "transform": binder.global_transform, "spread": binder.spread,
 			"pockets": binder.contents.pocket_cards(), "locked": binder.contents.pocket_locks()}
+		if binder.state == Binder.State.TOSSED:
+			# In the air: saved lying where it would come down.
+			entry.state = Binder.State.CLOSED
+			entry.transform = binder.toss_rest_pose()
 		if binder.state == Binder.State.SHELVED and binder.shelf_unit != null:
 			entry["shelf"] = [String(binder.shelf_unit.name), binder.shelf_unit.spaces[binder.shelf_space].set_code]
 		binders[binder.binder.set_code] = entry

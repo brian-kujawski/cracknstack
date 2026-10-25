@@ -16,8 +16,9 @@ extends Node
 ## button and a ghost shows where it will go, following your aim, so you can
 ## place it carefully; a quick click just puts it where you're looking.
 ## Right-click tosses a held card back onto the pile (or a table, if it
-## comes down on one). F brings the held card
-## up close to inspect it (F again lowers it). E opens or closes the binder
+## comes down on one), or a carried binder, which tumbles through the air
+## past other binders and settles on whatever it comes down on. F brings
+## the held card up close to inspect it (F again lowers it). E opens or closes the binder
 ## you're looking at, and the mouse wheel turns its pages.
 ##
 ## Right-click with empty hands, aimed at the pile or cards on a table, flips
@@ -77,6 +78,16 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF }
 ## frisbee. Keep these well under the flip rate so the flip still reads.
 @export var toss_roll_per_second_max := 0.25
 @export var toss_spin_per_second_max := 0.35
+## A tossed binder: a heavier, slower lob than a card's, turning over about
+## once in the air, end over end or sideways like a book flipping shut, so it
+## lands on its cover or its back at random.
+@export var binder_toss_forward_speed_min := 1.2
+@export var binder_toss_forward_speed_max := 1.6
+@export var binder_toss_up_speed_min := 0.9
+@export var binder_toss_up_speed_max := 1.3
+@export var binder_toss_flips_per_second_min := 0.5
+@export var binder_toss_flips_per_second_max := 1.3
+@export var binder_toss_wobble_per_second_max := 0.3
 @export var zoom_seconds := 0.18
 ## How long a card or binder takes to come to hand or go where it's put, and
 ## how high a put-down arcs at its midpoint (metres). Deliberately unhurried,
@@ -290,6 +301,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(Controls.TOSS) and held_card_id >= 0:
 		_toss()
 		_release_top()
+	elif event.is_action_pressed(Controls.TOSS) and carried_binder != null:
+		toss_binder()
 	elif event.is_action_pressed(Controls.TOSS):
 		flip_pile()
 	elif event.is_action_pressed(Controls.INTERACT):
@@ -1106,6 +1119,35 @@ func _toss() -> void:
 	var roll := randf_range(-toss_roll_per_second_max, toss_roll_per_second_max)
 	var spin := randf_range(-toss_spin_per_second_max, toss_spin_per_second_max)
 	card.launch(held_card_id, pile, material, _held_view.global_transform, velocity, Vector3(flips, roll, spin) * TAU)
+
+
+## Throws the carried binder forward in a lob (see Binder.toss).
+func toss_binder() -> void:
+	var binder := carried_binder
+	carried_binder = null
+	held_changed.emit(null, null)
+	var forward := -_camera.global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var start := binder.global_transform
+	# Hard up against a wall, the carried binder pokes into it; start from
+	# this side, so it bounces off rather than flying through.
+	var player := (get_parent() as CollisionObject3D).get_rid()
+	var middle := start * Vector3(0, binder.thickness / 2, 0)
+	var eye := _camera.global_position
+	var query := PhysicsRayQueryParameters3D.create(eye, middle + forward * Binder.TOSS_EDGE_REACH, 1, [player])
+	var hit := _camera.get_world_3d().direct_space_state.intersect_ray(query)
+	if not hit.is_empty():
+		var room := maxf(0.05, eye.distance_to(hit.position) - Binder.TOSS_EDGE_REACH - 0.02)
+		start.origin += eye + (middle - eye).normalized() * room - middle
+	var velocity := forward * randf_range(binder_toss_forward_speed_min, binder_toss_forward_speed_max) \
+			+ Vector3.UP * randf_range(binder_toss_up_speed_min, binder_toss_up_speed_max)
+	# Mostly one turn: end over end (around its width) or sideways round the
+	# spine, either way, with a little wobble on the other axes.
+	var flips := randf_range(binder_toss_flips_per_second_min, binder_toss_flips_per_second_max) * (1 if randf() < 0.5 else -1)
+	var wobble := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * binder_toss_wobble_per_second_max
+	var spin := Vector3(flips, 0, 0) if randf() < 0.5 else Vector3(0, 0, flips)
+	binder.toss(pile, start, velocity, (spin + wobble) * TAU, [player])
 
 
 ## Adds a mouse movement to the up-close tilt, one to one with mouse look's

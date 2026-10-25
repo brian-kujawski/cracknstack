@@ -418,9 +418,9 @@ func land(id: int, point: Vector3, rotation_y: float, face_up := true, exclude: 
 
 
 ## Nudges a card at `p` (x/z), turned by rotation_y, so all of it is on the
-## table (or other surface) under it, if there is one.
-func onto_surface(p: Vector2, rotation_y: float) -> Vector2:
-	var half := CARD_SIZE / 2
+## table (or other surface) under it, if there is one. Anything else that
+## lands there gives its own half size (a binder).
+func onto_surface(p: Vector2, rotation_y: float, half := CARD_SIZE / 2) -> Vector2:
 	var reach := Vector2(
 		absf(cos(rotation_y)) * half.x + absf(sin(rotation_y)) * half.y,
 		absf(sin(rotation_y)) * half.x + absf(cos(rotation_y)) * half.y)

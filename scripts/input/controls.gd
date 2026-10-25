@@ -41,7 +41,7 @@ const ACTIONS := [
 	[MOVE_RIGHT, "Step right"],
 	[CROUCH, "Crouch"],
 	[USE_HAND, "Pick up, put down, file, shelve"],
-	[TOSS, "Toss the held card, or flip the pile"],
+	[TOSS, "Toss the held card or binder, or flip the pile"],
 	[INSPECT, "Inspect the held card"],
 	[INTERACT, "Open or close a binder"],
 	[FLIP_NEXT, "Next page"],
