@@ -14,6 +14,8 @@ extends CanvasLayer
 
 ## Set by the main scene; the developer time-of-day buttons drive it.
 var day_cycle: DayCycle
+
+const FOIL_NAMES := ["Foil: Off", "Foil: Traditional", "Foil: Etched"]
 ## Each step's buttons by label, for the tests.
 var buttons := {}
 var exit_buttons := {}
@@ -86,6 +88,17 @@ func _add_time_buttons(column: VBoxContainer) -> void:
 		button.add_theme_font_size_override("font_size", 18)
 		button.pressed.connect(entry[1])
 		row.add_child(button)
+	# EXPERIMENT: cycles the held card through the foil looks.
+	var foil := Button.new()
+	foil.text = FOIL_NAMES[Hands.foil_preview]
+	foil.focus_mode = Control.FOCUS_NONE
+	foil.custom_minimum_size = Vector2(142, 40)
+	foil.size_flags_vertical = Control.SIZE_SHRINK_END
+	foil.add_theme_font_size_override("font_size", 18)
+	foil.pressed.connect(func() -> void:
+		Hands.foil_preview = (Hands.foil_preview + 1) % FOIL_NAMES.size()
+		foil.text = FOIL_NAMES[Hands.foil_preview])
+	row.add_child(foil)
 
 
 func _set_hour(hour: float) -> void:

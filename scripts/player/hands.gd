@@ -136,6 +136,8 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET }
 
 ## Where the held card sits relative to the camera: low and to the right,
 ## or close up and square to your face (see zoomed_distance).
+const HELD_SHADER := preload("res://shaders/held_card.gdshader")
+const FOIL_SHADER := preload("res://shaders/foil_card.gdshader")
 const HELD_POSITION := Vector3(0.075, -0.05, -0.2)
 const HELD_ROTATION := Vector3(0.12, -0.25, 0.04)
 const ZOOMED_ROTATION := Vector3.ZERO
@@ -229,6 +231,10 @@ var _shown_set_only := false
 ## refreshes them.
 var _blessed: Binder
 var _blessing_refresh := 0.0
+## EXPERIMENT (debug builds only): draws the held card as foil, in
+## foil_card.gdshader's foil_style (0 = off). Set from the pause menu.
+static var foil_preview := 0
+var _foil_shown := 0
 
 
 func _ready() -> void:
@@ -237,7 +243,7 @@ func _ready() -> void:
 	quad.size = PileWorld.CARD_SIZE
 	_held_view.mesh = quad
 	var material := ShaderMaterial.new()
-	material.shader = preload("res://shaders/held_card.gdshader")
+	material.shader = HELD_SHADER
 	_held_view.material_override = material
 	_held_view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_held_view.visible = false
@@ -284,6 +290,8 @@ func _physics_process(delta: float) -> void:
 	_update_blessing(delta)
 	_update_ghost(delta)
 	_update_hint()
+	if foil_preview != _foil_shown:
+		_show_foil_preview()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1286,6 +1294,16 @@ func _refresh_fan() -> void:
 func _show_fan() -> void:
 	for i in _fan_views.size():
 		_fan_views[i].visible = i < behind.size() and _zoom_amount < 0.05 and _incoming == 0
+
+
+## EXPERIMENT: swaps the held card's shader for the foil one (or back).
+func _show_foil_preview() -> void:
+	_foil_shown = foil_preview
+	var material: ShaderMaterial = _held_view.material_override
+	material.shader = FOIL_SHADER if foil_preview > 0 else HELD_SHADER
+	material.set_shader_parameter("foil_style", foil_preview)
+	if held_card_id >= 0:
+		CardView.apply(material, held_card_id)
 
 
 ## Puts card `id` on top of the hand in place of the top card (-1 for none;
