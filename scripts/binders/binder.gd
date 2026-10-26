@@ -13,8 +13,16 @@ extends RigidBody3D
 ## Open, carried or shelved they're frozen in place. They sit on their own
 ## collision layer so the player walks through them but can still aim at
 ## them.
+##
+## A tossed binder flies a scripted arc like a tossed card (TossedCard), not
+## a physics one: it tumbles, bounces softly off walls and furniture, and
+## passes through other binders, so a toss never knocks any about. Where it
+## comes down it settles on top of whatever is there, binders included,
+## cover up or face down depending on how it turned, and is handed back to
+## physics.
 
-enum State { CLOSED, OPEN, CARRIED, SHELVED }
+## Saved by number: new states go on the end.
+enum State { CLOSED, OPEN, CARRIED, SHELVED, TOSSED }
 
 const PHYSICS_LAYER := 2
 ## What a loose binder collides with: the store, other binders and stacks,
@@ -38,6 +46,17 @@ const OPEN_HEIGHT := 0.012
 ## length up the page, and a little above it), then slides down into it.
 const POCKET_ENTRY := Vector3(0, 0.006, -0.06)
 const CLOSE_AFTER_COMPLETE := 1.2
+## Toss flight (see TossedCard, which this follows): gravity, horizontal air
+## drag per second, the share of horizontal speed kept off a wall, and how
+## far past its centre it looks for walls (about half the cover's
+## diagonal, so its edge is what bounces). Landing, it tips flat onto the
+## spot it settles on over SETTLE_SECONDS. Gravity is a quarter stronger
+## than a card's so the binder comes down with some weight to it.
+const TOSS_GRAVITY := 9.8 * 1.25
+const TOSS_AIR_DRAG := 1.2
+const TOSS_BOUNCE := 0.35
+const TOSS_EDGE_REACH := 0.18
+const SETTLE_SECONDS := 0.18
 
 const LOCKED_GLOW := Color(1.0, 0.78, 0.3, 0.3)
 const FLASH_GLOW := Color(1.0, 0.85, 0.4, 3.0)
@@ -111,6 +130,14 @@ var _hover: MeshInstance3D
 ## Running pocket and page flashes. They're tied to a pocket view, not a
 ## pocket, so they're stopped whenever the spread changes.
 var _flashes: Array[Tween] = []
+## In flight (TOSSED): metres per second, and radians per second around the
+## binder's own axes. `_toss_exclude` is what it doesn't bounce off (the
+## player).
+var _toss_velocity := Vector3.ZERO
+var _toss_tumble := Vector3.ZERO
+var _toss_exclude: Array[RID] = []
+## Once it's come down: the pose it's settling into (null until then).
+var _landing = null
 
 
 func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
@@ -369,6 +396,128 @@ func put_down(parent: Node, point: Vector3, yaw: float) -> void:
 	rotation = Vector3(0, yaw, 0)
 	position = point
 	_lower_onto_what_is_below(point.y + DROP_HEIGHT)
+	let_go()
+
+
+## Throws the binder from the global pose `start` (the player's hands) under
+## `parent`, at `launch_velocity`, tumbling at `spin` (radians per second
+## around its own axes). It flies until it comes down (see _physics_process).
+func toss(parent: Node, start: Transform3D, launch_velocity: Vector3, spin: Vector3, exclude: Array[RID] = []) -> void:
+	_move_to(parent)
+	state = State.TOSSED
+	freeze = true
+	# Nothing collides with it in the air, and nothing can aim at it.
+	collision_layer = 0
+	collision_mask = 0
+	global_transform = start
+	_toss_velocity = launch_velocity
+	_toss_tumble = spin
+	_toss_exclude = exclude
+	_landing = null
+
+
+func _physics_process(delta: float) -> void:
+	if state == State.TOSSED and _landing == null:
+		_fly(delta)
+
+
+func _fly(delta: float) -> void:
+	var from := global_position
+	_toss_velocity.y -= TOSS_GRAVITY * delta
+	var horizontal := Vector2(_toss_velocity.x, _toss_velocity.z) * maxf(0.0, 1.0 - TOSS_AIR_DRAG * delta)
+	_toss_velocity.x = horizontal.x
+	_toss_velocity.z = horizontal.y
+	var to := from + _toss_velocity * delta
+
+	# Walls, shelves and table legs bounce it back softly, as with a card.
+	# Only the store counts (layer 1): other binders it flies through.
+	var space := get_world_3d().direct_space_state
+	var heading := Vector3(_toss_velocity.x, 0, _toss_velocity.z).normalized() * TOSS_EDGE_REACH
+	var query := PhysicsRayQueryParameters3D.create(from, to + heading, 1, _toss_exclude)
+	var hit := space.intersect_ray(query)
+	if not hit.is_empty() and hit.normal.y < -0.7:
+		# The underside of a table: it drops back down.
+		_toss_velocity.y = -absf(_toss_velocity.y) * TOSS_BOUNCE
+		to = Vector3(to.x, from.y, to.z)
+	elif not hit.is_empty() and hit.normal.y < 0.7:
+		var wall := Vector2(hit.normal.x, hit.normal.z).normalized()
+		var across := Vector2(_toss_velocity.x, _toss_velocity.z)
+		if across.dot(wall) < 0.0:
+			across = across.bounce(wall) * TOSS_BOUNCE
+		_toss_velocity.x = across.x
+		_toss_velocity.z = across.y
+		to = Vector3(from.x, to.y, from.z)
+
+	global_position = to
+	if not _toss_tumble.is_zero_approx():
+		rotate_object_local(_toss_tumble.normalized(), _toss_tumble.length() * delta)
+	if _toss_velocity.y >= 0.0:
+		return
+	# Down once its lowest corner touches where it would lie; easing flat
+	# from there, it tips over onto its cover or its back.
+	var rest := toss_rest_pose(from.y)
+	var b := global_basis
+	var lowest := (global_transform * Vector3(0, thickness / 2, 0)).y \
+		- (absf(b.x.y) * size.x + absf(b.y.y) * size.y + absf(b.z.y) * size.z) / 2
+	var rest_bottom := rest.origin.y - (thickness if rest.basis.y.y < 0.0 else 0.0)
+	if lowest <= rest_bottom:
+		_land(rest)
+
+
+## Where the binder would settle if it came down now: flat, turned the way
+## it's facing, cover up or face down (whichever it's nearer), on whatever
+## is under it, binders included. On the floor it's kept clear of walls and
+## furniture with room to open, as when set down; on a table, all of it on
+## the table. `above` is a height it has just come down from, so a table
+## top it has crossed still counts as under it. A save (ShopSave) keeps a
+## binder in flight here.
+func toss_rest_pose(above := INF) -> Transform3D:
+	if _landing != null:
+		return _landing
+	var b := global_basis.orthonormalized()
+	var cover_up := b.y.y >= 0.0
+	var across := Vector2(b.x.x, b.x.z)
+	var yaw := atan2(-b.x.z, b.x.x)
+	if across.length() < 0.3:
+		# On its edge, spine down or up: the spine's direction decides.
+		var along := b.z if cover_up else -b.z
+		yaw = atan2(along.x, along.z)
+	var at := global_position
+	var space := get_world_3d().direct_space_state
+	var start := Vector3(at.x, minf(maxf(at.y, 0.0), above) + 0.03, at.z)
+	var ground := space.intersect_ray(PhysicsRayQueryParameters3D.create(start, Vector3(at.x, -1.0, at.z), 1, _toss_exclude))
+	var ground_y: float = ground.position.y if not ground.is_empty() else 0.0
+	var p := Vector2(at.x, at.z)
+	if ground_y < 0.05:
+		if pile != null:
+			p = pile.clear_point(p, OPEN_HALF_FOOTPRINT, yaw)
+	elif pile != null:
+		p = pile.onto_surface(p, yaw, COVER / 2)
+	var y := rest_height(p, yaw, ground_y + DROP_HEIGHT)
+	var basis := Basis(Vector3.UP, yaw)
+	if not cover_up:
+		# Face down, end over end: its underside (the origin) is on top.
+		basis = basis * Basis(Vector3.RIGHT, PI)
+		y += thickness
+	return Transform3D(basis, Vector3(p.x, y, p.y))
+
+
+## Eases flat into `rest`, then lies there like any binder put down. Until
+## it's down it still can't be aimed at, so nothing picks it up mid-settle.
+func _land(rest: Transform3D) -> void:
+	_landing = rest
+	var from := global_transform
+	var tween := create_tween()
+	tween.tween_method(func(t: float) -> void: global_transform = from.interpolate_with(rest, t),
+		0.0, 1.0, SETTLE_SECONDS).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+	tween.tween_callback(_settled)
+
+
+func _settled() -> void:
+	_landing = null
+	state = State.CLOSED
+	collision_layer = PHYSICS_LAYER
+	collision_mask = PHYSICS_MASK
 	let_go()
 
 

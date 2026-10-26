@@ -64,6 +64,7 @@ func _ready() -> void:
 	await _test_crouch()
 	await _test_lean_over_table()
 	await _test_table_cards()
+	await _test_binder_toss()
 	_test_save_files()
 	await _test_shop_save()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
@@ -1936,6 +1937,93 @@ func _test_table_cards() -> void:
 	pile.free()
 	Progression.reset()
 	Progression.allow_debt = OS.is_debug_build()
+
+
+## A tossed binder flies through other binders without moving them, lands
+## on top of whatever it comes down on, cover up or face down as it turned,
+## and is a binder lying there like any other.
+func _test_binder_toss() -> void:
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
+	var floor_body := StaticBody3D.new()
+	var floor_shape := CollisionShape3D.new()
+	floor_shape.shape = WorldBoundaryShape3D.new()
+	floor_body.add_child(floor_shape)
+	pile.add_child(floor_body)
+	var made: Array[Binder] = []
+	for i in 2:
+		var binder := Binder.new()
+		binder.setup(CardDatabase.all_binders()[i], Color.RED, pile)
+		pile.add_child(binder)
+		pile.binders.append(binder)
+		made.append(binder)
+	var lying := made[0]
+	var tossed := made[1]
+	lying.put_down(pile, Vector3(5.0, 0.0, 4.0), 0.0)
+	for i in 30:
+		await get_tree().physics_frame
+	lying.sleeping = true
+	var was := lying.global_transform
+
+	# Thrown from right where it lies: out through it, not into it.
+	tossed.toss(pile, Transform3D(Basis(), Vector3(4.95, lying.global_position.y + 0.005, 4.0)),
+		Vector3(4.0, 1.0, 0.0), Vector3.ZERO)
+	_check(tossed.state == Binder.State.TOSSED and tossed.collision_layer == 0, "a tossed binder can't be hit or aimed at in the air")
+	var steps := await _fly_binder(tossed)
+	_check(tossed.state == Binder.State.CLOSED and not tossed.freeze, "a tossed binder comes down closed and back in physics (%d steps)" % steps)
+	_check(lying.global_transform.origin.distance_to(was.origin) < 0.002, "a binder in the way isn't knocked about")
+	_check(absf(tossed.global_basis.y.y) > 0.95, "it lands lying down, not on its edge")
+	_check(tossed.global_position.x > 5.3, "it lands past the binder it went through (x=%.2f)" % tossed.global_position.x)
+
+	# Coming down on the other binder, it lands on top of it, face down
+	# here, the way it was turned.
+	var top := lying.global_position.y + lying.thickness
+	tossed.toss(pile, Transform3D(Basis(Vector3.RIGHT, PI), Vector3(5.0, top + 0.4, 4.0)), Vector3(0, 0.3, 0), Vector3.ZERO)
+	var rest := tossed.toss_rest_pose()
+	_check(rest.basis.y.y < -0.99 and absf(rest.origin.y - tossed.thickness - top) < 0.02,
+		"in the air, a save keeps it face down on top of the other binder")
+	await _fly_binder(tossed)
+	_check(tossed.global_basis.y.y < -0.99, "a binder face down as it comes down lands on its back")
+	var bottom := tossed.global_position.y - tossed.thickness
+	_check(absf(bottom - top) < 0.01, "on top of the binder under it (%.3f vs %.3f)" % [bottom, top])
+	_check(lying.global_transform.origin.distance_to(was.origin) < 0.005, "without moving it")
+	tossed.open()
+	_check(tossed.is_open() and tossed.global_basis.y.y > 0.99, "and it opens the right way up")
+
+	# Hands: right-click with a binder in hand throws it.
+	tossed.close()
+	var hands := Hands.new()
+	var camera := Camera3D.new()
+	camera.name = "Camera3D"
+	var holder := CharacterBody3D.new()
+	holder.add_child(camera)
+	holder.add_child(hands)
+	holder.process_mode = Node.PROCESS_MODE_DISABLED
+	add_child(holder)
+	holder.global_position = Vector3(3.0, 1.0, 4.0)
+	camera.rotation.y = -PI / 2  # Facing +x.
+	hands.pile = pile
+	hands._carry(tossed)
+	hands._glide.custom_step(10.0)
+	hands.toss_binder()
+	_check(hands.carried_binder == null and tossed.state == Binder.State.TOSSED and tossed.get_parent() == pile,
+		"right-click throws the carried binder")
+	await _fly_binder(tossed)
+	_check(tossed.state == Binder.State.CLOSED and tossed.global_position.x > 3.2, "it lands in front of you")
+	holder.free()
+	pile.free()
+
+
+## Steps a tossed binder until it's down and settled. Returns the steps.
+func _fly_binder(binder: Binder) -> int:
+	var steps := 0
+	while binder.state == Binder.State.TOSSED and steps < 600:
+		await get_tree().physics_frame
+		steps += 1
+	for i in 5:
+		await get_tree().physics_frame
+	return steps
 
 
 ## Runs every tossed card in the pile until it lands.
