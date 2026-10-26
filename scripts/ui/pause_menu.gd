@@ -15,7 +15,7 @@ extends CanvasLayer
 ## Set by the main scene; the developer time-of-day buttons drive it.
 var day_cycle: DayCycle
 
-const FOIL_NAMES := ["Foil: Off", "Foil: Traditional", "Foil: Etched"]
+const FOIL_NAMES := ["Foil: Off", "Foil: Traditional", "Foil: Etched", "Foil: Sparkle", "Foil: Crystal"]
 ## Each step's buttons by label, for the tests.
 var buttons := {}
 var exit_buttons := {}
