@@ -50,8 +50,9 @@ const CLOSE_AFTER_COMPLETE := 1.2
 ## drag per second, the share of horizontal speed kept off a wall, and how
 ## far past its centre it looks for walls (about half the cover's
 ## diagonal, so its edge is what bounces). Landing, it tips flat onto the
-## spot it settles on over SETTLE_SECONDS.
-const TOSS_GRAVITY := 9.8
+## spot it settles on over SETTLE_SECONDS. Gravity is a quarter stronger
+## than a card's so the binder comes down with some weight to it.
+const TOSS_GRAVITY := 9.8 * 1.25
 const TOSS_AIR_DRAG := 1.2
 const TOSS_BOUNCE := 0.35
 const TOSS_EDGE_REACH := 0.18
