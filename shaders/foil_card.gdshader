@@ -47,7 +47,7 @@ uniform float grain_size = 0.0025;
 uniform float grain_tilt = 0.18;
 // Sparkle (styles 3 and 4): the share of grains that are tilted glints, how
 // far they tilt, and how sharp and bright their flash is.
-uniform float sparkle_amount = 0.12;
+uniform float sparkle_amount = 0.06;
 uniform float sparkle_tilt = 0.45;
 uniform float sparkle_roughness = 0.12;
 uniform float sparkle_strength = 3.0;
