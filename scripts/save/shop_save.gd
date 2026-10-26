@@ -14,25 +14,26 @@ extends RefCounted
 ##
 ## Things in motion are saved where they'd end up: a card on its way into a
 ## pocket is saved in it, and anything else in the air (tossed, flipped,
-## hovering, being put down) is saved as falling, to land when the shop
+## hovering, being put down) is saved as falling, and a rare card on its
+## way into its shadow box is saved in it, to land when the shop
 ## loads. A tossed binder is saved lying where it would come down. Any
 ## card the save doesn't place anywhere falls near the player.
 
-## The current card ids in save order: sets in shelf order, then by
-## collector number.
+## The current card ids in save order: sets in shelf order and the rare
+## cards last, then by collector number.
 static func card_order() -> PackedInt32Array:
 	var order := PackedInt32Array()
-	for set_data in CardDatabase.sets_in_shelf_order():
+	for set_data in CardDatabase.all_sets():
 		for card in CardDatabase.cards_in_set(set_data.code):
 			order.append(card.id)
 	return order
 
 
-## The sets a save is made with: codes and card counts, in shelf order.
+## The sets a save is made with: codes and card counts, in save order.
 static func set_table() -> Dictionary:
 	var codes := PackedStringArray()
 	var counts := PackedInt32Array()
-	for set_data in CardDatabase.sets_in_shelf_order():
+	for set_data in CardDatabase.all_sets():
 		codes.append(set_data.code)
 		counts.append(CardDatabase.cards_in_set(set_data.code).size())
 	return {"codes": codes, "counts": counts}
@@ -75,6 +76,11 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 			entry["shelf"] = [String(binder.shelf_unit.name), binder.shelf_unit.spaces[binder.shelf_space].set_code]
 		binders[binder.binder.set_code] = entry
 
+	var displayed := PackedInt32Array()
+	for cabinet in hands.cabinets:
+		for id in cabinet.displayed:
+			if id >= 0:
+				displayed.append(id)
 	var in_air := falling.duplicate(true)
 	for child in pile.get_children():
 		if child.is_queued_for_deletion():
@@ -85,6 +91,9 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 				atan2(-child.global_transform.basis.y.x, -child.global_transform.basis.y.z), face_up])
 		elif child is HoveringCard:
 			in_air.append([child.card_id, child.global_position, child.rotation.y, true])
+		elif child.has_meta("card_id") and child.has_meta("cabinet"):
+			displayed.append(child.get_meta("card_id"))
+			progression.mana += Progression.CARD_LOCKED
 		elif child.has_meta("card_id") and child.has_meta("pocket"):
 			# On its way into a pocket: saved in it, if it's still free.
 			var id: int = child.get_meta("card_id")
@@ -113,6 +122,7 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 		"cards": pile.snapshot_cards(),
 		"falling": in_air,
 		"binders": binders,
+		"cabinets": displayed,
 		"hand": hand,
 		"seen": PackedInt32Array(hands.seen_cards.keys()),
 		"player": player.save_state(),
@@ -173,6 +183,9 @@ static func finish(taken: Dictionary) -> Dictionary:
 	var falling := []
 	for entry in taken.falling:
 		falling.append([to_index.call(entry[0]), entry[1], entry[2], entry[3]])
+	var displayed := PackedInt32Array()
+	for id in taken.get("cabinets", PackedInt32Array()):
+		displayed.append(to_index.call(id))
 	var hand := PackedInt32Array()
 	for id in taken.hand:
 		hand.append(to_index.call(id))
@@ -184,6 +197,7 @@ static func finish(taken: Dictionary) -> Dictionary:
 		"cards": {"where": where, "positions": positions, "rotations": rotations, "face_up": face_up},
 		"falling": falling,
 		"binders": binders,
+		"cabinets": displayed,
 		"hand": hand,
 		"seen": seen,
 		"player": taken.player,
@@ -237,6 +251,19 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 	for binder in pile.binders:
 		if binder.contents.is_complete():
 			Progression.earn_once("complete:" + binder.key(), Progression.binder_complete_bonus(binder.contents.capacity()))
+
+	# Rare cards back in their shadow boxes. Saves from before the rare cards
+	# have none, and their rare cards were scattered on the pile.
+	for cabinet in hands.cabinets:
+		cabinet.clear_display()
+	for index in saved.get("cabinets", PackedInt32Array()):
+		var id := ids[index] if index >= 0 and index < ids.size() else -1
+		if id < 0 or placed[id] == 1:
+			continue
+		for cabinet in hands.cabinets:
+			if cabinet.display(id, false):
+				placed[id] = 1
+				break
 
 	var hand: Array[int] = []
 	for index in saved.get("hand", PackedInt32Array()):

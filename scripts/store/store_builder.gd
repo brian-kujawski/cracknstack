@@ -87,6 +87,9 @@ var sky_material := StandardMaterial3D.new()
 ## Every shadow box in the display cabinets, back cabinet first, each
 ## cabinet's top row first, left to right as you face it.
 var display_slots: Array[Marker3D] = []
+## The display cabinets, back cabinet first; their slots hold the rare cards
+## in that order.
+var cabinets: Array[DisplayCabinet] = []
 
 var _wall_material := _textured(PLASTER, PLASTER_SIZE)
 var _floor_material := _textured(CARPET, CARPET_SIZE)
@@ -272,7 +275,9 @@ func _build_display_cabinets() -> void:
 		cabinet.build(_table_material, _felt_material, _brass_material, FIXTURE_LIGHT)
 		cabinet.position = Vector3(WIDTH - DisplayCabinet.DEPTH / 2, 0, CABINET_ZS[i])
 		cabinet.rotation.y = -PI / 2
+		cabinet.first_number = display_slots.size() + 1
 		add_child(cabinet)
+		cabinets.append(cabinet)
 		display_slots.append_array(cabinet.slots)
 		# Turned a quarter, the footprint's across becomes z and its out-from-the-wall -x.
 		var footprint := DisplayCabinet.footprint()

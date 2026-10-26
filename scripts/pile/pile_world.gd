@@ -629,7 +629,7 @@ func _build_set_lookup() -> void:
 	for id in CardDatabase.card_count():
 		var card := CardDatabase.get_card(id)
 		_faces[id] = card.face_index
-		_set_numbers[id] = set_numbers[card.set_code]
+		_set_numbers[id] = set_numbers.get(card.set_code, 0) # 0: the rare cards
 		_accents[id] = CardDatabase.get_set(card.set_code).accent_color
 
 
