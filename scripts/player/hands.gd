@@ -505,7 +505,7 @@ func shunt_pocket(binder: Binder) -> int:
 func _file(binder: Binder, pocket: int, id: int) -> void:
 	var result := binder.insert(pocket, id)
 	if result != BinderContents.Result.LOCKED:
-		return # Misplaced: it stays in the pocket glowing red, and makes no sound.
+		return # Misplaced: it stays in the pocket glowing red, with no chime.
 	Progression.card_filed_by_hand()
 	_locked_in(binder, pocket)
 	if binder.contents.is_page_complete(pocket / BinderLayout.POCKETS_PER_PAGE):

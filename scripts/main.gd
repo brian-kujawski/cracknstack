@@ -83,11 +83,16 @@ func _ready() -> void:
 	_update_stats()
 	_achievement.text = ""
 	Achievements.unlocked.connect(_on_achievement_unlocked)
+	add_child(RadioMenu.new())
+	Radio.enter_shop(_organized_share())
+	Radio.song_unlocked.connect(func(index: int) -> void:
+		_show_notice("New on the radio: %s" % Radio.songs[index].title))
 	Settings.changed.connect(_apply_brightness.unbind(1))
 	_apply_brightness()
 
 
 func _exit_tree() -> void:
+	Radio.leave_shop()
 	if Saves.shop == self:
 		Saves.shop = null
 
@@ -195,6 +200,12 @@ func _update_stats() -> void:
 			debug += "\nPlaceholder cards: run tools/import_scryfall.py for Khans of Tarkir"
 		text = debug + "\n" + text
 	_status.text = text
+	Radio.set_progress(_organized_share())
+
+
+## Cards Organized as a share of every card, for the radio's unlocks.
+func _organized_share() -> float:
+	return float(cards_organized(_pile.binders, _store.cabinets)) / maxf(1.0, CardDatabase.card_count())
 
 
 ## The game is finished when every card is locked into its own pocket,
@@ -246,7 +257,13 @@ static func sorcery_lines() -> PackedStringArray:
 ## "Achievement: Tithe" in the top right for a few seconds. A newer one
 ## takes its place.
 func _on_achievement_unlocked(index: int) -> void:
-	_achievement.text = "Achievement: %s" % Achievements.card_name(index)
+	_show_notice("Achievement: %s" % Achievements.card_name(index))
+
+
+## A line in the top right for a few seconds (an achievement, a new song on
+## the radio). A newer one takes its place.
+func _show_notice(text: String) -> void:
+	_achievement.text = text
 	_achievement.modulate.a = 1.0
 	if _achievement_tween != null:
 		_achievement_tween.kill()
