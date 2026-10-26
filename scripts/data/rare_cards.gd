@@ -9,7 +9,8 @@ extends RefCounted
 ## binder or a shelf space, so nothing that works on binders (filing,
 ## Teleport, Tithe, Brainstorm and the rest) ever finds them.
 ##
-## Names and art are placeholders, yours to replace: rename a card in LIST,
+## Names and art are placeholders, yours to replace (see
+## assets/rare_cards/README.txt): rename a card in LIST,
 ## and put its art in assets/rare_cards/ as rareNNN.png (NNN = its number,
 ## from 001). Without art a card shows the gold placeholder face.
 
