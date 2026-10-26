@@ -172,7 +172,7 @@ func shelve(space: int, binder: Binder, quiet := false) -> bool:
 	var correct: bool = spaces[space] == binder.binder
 	shelved[space] = binder
 	binder.stand_on_shelf(self, space, binder_transform(space, binder.thickness), correct, quiet)
-	if correct:
+	if is_space_complete(space):
 		Progression.earn_once("shelved:" + binder.key(), Progression.BINDER_SHELVED)
 	if refresh_section(shelf_of(space)):
 		Progression.earn_once("section:%s/%d" % [name, shelf_of(space)], Progression.SECTION_LIT)

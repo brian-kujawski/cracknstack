@@ -903,11 +903,11 @@ func _shelve_carried_binder() -> void:
 	carried_binder = null
 	var shelf := _aim_shelf
 	var from := binder.global_transform
-	var correct := shelf.shelve(_aim_space, binder)
+	shelf.shelve(_aim_space, binder)
 	held_changed.emit(null, null)
 	var to := binder.global_transform
 	_glide = Glide.start(binder, from, func() -> Transform3D: return to, glide_seconds(binder_glide_seconds))
-	if correct:
+	if shelf.is_space_complete(_aim_space):
 		var lit := shelf.is_section_complete(shelf.shelf_of(_aim_space))
 		_glide.tween_callback(func() -> void:
 			FeedbackSounds.play(pile, binder.global_position,

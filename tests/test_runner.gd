@@ -533,6 +533,8 @@ func _test_shelving() -> void:
 		"the binder stands spine out in its space")
 	_check(not unit.is_section_complete(0), "an incomplete binder doesn't light its shelf")
 	_check(not unit.nameplates.is_gold(0), "an incomplete binder leaves its nameplate black")
+	var cover_glow: Color = right._cover_material.get_shader_parameter("glow")
+	_check(cover_glow.r + cover_glow.g + cover_glow.b == 0.0, "an incomplete binder in its own space doesn't glow gold")
 
 	# Fill every binder on the top shelf, shelve them all: the shelf lights up.
 	var shelf_binders: Array[Binder] = [right]
@@ -1285,6 +1287,13 @@ func _test_progression() -> void:
 	unit.build(few, StandardMaterial3D.new(), 2.4)
 	add_child(unit)
 	var before := Progression.mana
+	var empty := Binder.new()
+	empty.setup(few[1], Color.BLUE, null)
+	add_child(empty)
+	unit.shelve(1, empty)
+	_check(Progression.mana == before, "an incomplete binder in its own space pays nothing")
+	unit.unshelve(1)
+	empty.queue_free()
 	unit.shelve(0, binder)
 	_check(Progression.mana == before + Progression.BINDER_SHELVED, "a binder in its own space pays the shelf bonus")
 	unit.unshelve(0)

@@ -539,7 +539,9 @@ func place(parent: Node, at: Transform3D, open_spread := -1) -> void:
 
 
 ## Stands the binder in a shelf space. ShelfUnit decides where and whether
-## it's the right space. A `quiet` one (put back from a save) doesn't flash.
+## it's the right space. Only a complete binder in its own space glows gold
+## (the same test that turns its nameplate gold); an unfinished one there
+## stays dark. A `quiet` one (put back from a save) doesn't flash.
 func stand_on_shelf(unit: ShelfUnit, space: int, local_transform: Transform3D, correct: bool, quiet := false) -> void:
 	_move_to(unit)
 	freeze = true
@@ -549,7 +551,9 @@ func stand_on_shelf(unit: ShelfUnit, space: int, local_transform: Transform3D, c
 	collision_mask = 0
 	shelf_unit = unit
 	shelf_space = space
-	if correct and quiet:
+	if correct and not contents.is_complete():
+		_set_status_glow(Color.BLACK)
+	elif correct and quiet:
 		_set_status_glow(Color(1.0, 0.8, 0.35, 0.12))
 	elif correct:
 		_flash_status(FLASH_GLOW)
