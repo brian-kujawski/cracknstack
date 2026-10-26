@@ -9,7 +9,9 @@ extends Node
 ##   table, or an unlocked card in an open binder), or pick up a closed
 ##   binder (off the floor, a table or a shelf);
 ## - holding a card: file it into the binder pocket you're looking at, or put
-##   it down where you're looking (on the floor it rejoins the pile);
+##   it down where you're looking (on the floor it rejoins the pile); a rare
+##   card (RareCards) goes into its own shadow box when you click either
+##   display cabinet;
 ## - carrying a binder: set it down where you're looking, or stand it in the
 ##   shelf space you're looking at.
 ## Putting something down happens when the button comes back up. Hold the
@@ -45,6 +47,10 @@ extends Node
 ## lock-in light up a missing card from that page where it lies, and
 ## Abundance (5) fills your hand with the cards that come next.
 ##
+## Rare cards have no binder, so nothing above that sends cards to their
+## binders or brings them to hand ever touches them, and holding one,
+## Abundance brings nothing.
+##
 ## Cards and binders glide between the world and the hand rather than jumping;
 ## while one is on its way, the hands take no new orders.
 ##
@@ -58,8 +64,10 @@ signal held_changed(card: CardData, binder: BinderRange)
 signal shown_card_changed(card: CardData, set_only: bool)
 ## What the binder under the crosshair holds and what you can do with it.
 signal hint_changed(text: String)
+## The first rare card of the game came to hand (the shop explains them).
+signal rare_card_found
 
-enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF }
+enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET }
 
 ## How far from the eye the player can reach, and with Spider Climb.
 @export var reach := 2.6
@@ -98,6 +106,9 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF }
 ## Filing: after gliding to just above its pocket, the card slides down into
 ## it, a little slower.
 @export var pocket_slide_seconds := 0.33
+## A rare card glides to just in front of its shadow box, this far out, then
+## slides back into it.
+@export var shadow_box_entry := 0.12
 ## Demonic Tutor: the card flies up out of the pile in an arc this high, and
 ## takes this long plus this much per metre (at most the cap).
 @export var tutor_lift := 0.5
@@ -172,6 +183,9 @@ var behind: Array[int] = []
 ## `behind`; the fan shows once they've all arrived.
 var _incoming := 0
 var carried_binder: Binder
+## The display cabinets (the shop sets them), whose shadow boxes hold the
+## rare cards.
+var cabinets: Array[DisplayCabinet] = []
 ## Every card you've held at least once, by id. With Remember the Fallen
 ## you know one of these wherever you see it again.
 var seen_cards := {}
@@ -206,6 +220,7 @@ var _aim_pocket := -1
 var _aim_loose_card: LooseCard
 var _aim_shelf: ShelfUnit
 var _aim_space := -1
+var _aim_cabinet: DisplayCabinet
 var _hovered_binder: Binder
 var _hint := ""
 var _shown_card: CardData
@@ -355,7 +370,7 @@ func _use_hand() -> void:
 			_placing = 0.0
 		return
 	if held_card_id >= 0:
-		if _try_file_held_card():
+		if _try_display_held_card() or _try_file_held_card():
 			return
 		# With room in hand, a quick click on a card picks it up as well;
 		# holding the button still puts the top card down.
@@ -429,6 +444,40 @@ func _try_file_held_card() -> bool:
 	_put_down_card(binder.pocket_pose(pocket), func() -> void: _file(binder, pocket, id),
 		binder.pocket_entry_pose(pocket)).set_meta("pocket", [binder, pocket])
 	return true
+
+
+## With a rare card on top of the hand, a click on either display cabinet
+## sends it to its own shadow box, wherever that is. Returns false if
+## that's not what the click does.
+func _try_display_held_card() -> bool:
+	if _aim != Aim.CABINET or not CardDatabase.is_rare(held_card_id):
+		return false
+	var number := CardDatabase.get_card(held_card_id).collector_number
+	for cabinet in cabinets:
+		var slot := cabinet.slot_for(number)
+		if slot < 0 or cabinet.displayed[slot] >= 0:
+			continue
+		var id := held_card_id
+		var to := cabinet.slot_pose(slot)
+		var via := to.translated(to.basis.z * shadow_box_entry)
+		_put_down_card(to, func() -> void: _display(cabinet, id), via).set_meta("cabinet", [cabinet, slot])
+		return true
+	return false
+
+
+## A rare card has arrived in its shadow box: it locks in like a card in its
+## pocket (glow, chime, Mana) and unlocks its achievement, and the last of
+## them unlocks one more.
+func _display(cabinet: DisplayCabinet, id: int) -> void:
+	if not cabinet.display(id):
+		return
+	Progression.earn(Progression.CARD_LOCKED)
+	Progression.card_filed_by_hand()
+	var all := cabinets.all(func(c: DisplayCabinet) -> bool: return c.is_complete())
+	Achievements.rare_card_displayed(CardDatabase.get_card(id).collector_number, all)
+	var slot := cabinet.slot_for(CardDatabase.get_card(id).collector_number)
+	FeedbackSounds.play(pile, cabinet.slot_pose(slot).origin,
+		FeedbackSounds.Kind.BINDER_COMPLETE if all else FeedbackSounds.Kind.CARD_LOCKED)
 
 
 ## Shunt: with the held card's own pocket in this binder empty, that's
@@ -578,6 +627,8 @@ func cast_tithe() -> Array[int]:
 func cast_abundance() -> Array[int]:
 	if not Progression.can_cast("Abundance") or held_card_id < 0 or not has_room() or _gliding():
 		return []
+	if CardDatabase.is_rare(held_card_id):
+		return [] # Rare cards come one at a time.
 	var top := CardDatabase.get_card(held_card_id)
 	var cards := CardDatabase.cards_in_set(top.set_code)
 	var brought: Array[int] = []
@@ -960,6 +1011,7 @@ func _update_aim() -> void:
 	_aim_loose_card = null
 	_aim_shelf = null
 	_aim_space = -1
+	_aim_cabinet = null
 	var from := _camera.global_position
 	var to := from - _camera.global_transform.basis.z * current_reach()
 	var query := PhysicsRayQueryParameters3D.create(from, to)
@@ -980,6 +1032,9 @@ func _update_aim() -> void:
 	elif collider is LooseCard:
 		_aim = Aim.LOOSE_CARD
 		_aim_loose_card = collider
+	elif collider is DisplayCabinet:
+		_aim = Aim.CABINET
+		_aim_cabinet = collider
 	elif collider is ShelfUnit:
 		var space: int = collider.space_at(hit.position)
 		if space < 0:
@@ -1006,7 +1061,7 @@ func _update_hover() -> void:
 
 
 func _update_hint() -> void:
-	var text := _binder_hint(_aim_binder) if _aim == Aim.BINDER else ""
+	var text := _binder_hint(_aim_binder) if _aim == Aim.BINDER else (_cabinet_hint() if _aim == Aim.CABINET else "")
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
@@ -1088,6 +1143,16 @@ func _binder_hint(binder: Binder) -> String:
 			if _aim_pocket >= 0:
 				lines.insert(0, _pocket_hint(binder, _aim_pocket))
 	return "\n".join(lines)
+
+
+## How many rare cards are on display, across both cabinets.
+func _cabinet_hint() -> String:
+	var shown := 0
+	var total := 0
+	for cabinet in cabinets:
+		shown += cabinet.displayed_count()
+		total += cabinet.slots.size()
+	return "Rare Cards Displayed: %d/%d" % [shown, total]
 
 
 ## A pocket shows its number, and the card's name once its own card is locked
@@ -1197,6 +1262,9 @@ func _pose_held_card() -> void:
 ## Puts card `id` on top of the hand, the old top card going just behind it
 ## (see _hold for `from`, `seconds` and `lift`).
 func _take_in_hand(id: int, from = null, seconds := -1.0, lift := 0.0) -> void:
+	var first_rare := CardDatabase.is_rare(id) and not seen_cards.keys().any(CardDatabase.is_rare)
+	if first_rare:
+		rare_card_found.emit.call_deferred()
 	if held_card_id >= 0:
 		behind.push_front(held_card_id)
 	_hold(id, from, seconds, lift)

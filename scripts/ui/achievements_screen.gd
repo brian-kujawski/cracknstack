@@ -5,7 +5,8 @@ extends RefCounted
 ## blue, black, red, green). Each tile is a square icon with a title and a
 ## line under it: ??? and "This achievement is locked." with the locked icon
 ## until it's earned, then the card's name, what it was for and the full
-## icon.
+## icon. The rare card achievements, which have no colour, follow in rows
+## under the columns.
 
 const ICON_SIZE := 96
 const TILE_WIDTH := 280
@@ -19,11 +20,22 @@ static func make() -> MenuScreen:
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	screen.content.add_child(scroll)
+	var sections := VBoxContainer.new()
+	sections.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sections.add_theme_constant_override("separation", 40)
+	scroll.add_child(sections)
 	var columns := HBoxContainer.new()
 	columns.alignment = BoxContainer.ALIGNMENT_CENTER
 	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	columns.add_theme_constant_override("separation", 24)
-	scroll.add_child(columns)
+	sections.add_child(columns)
+	var rare := GridContainer.new()
+	rare.name = "RareCards"
+	rare.columns = COLOUR_COUNT
+	rare.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	rare.add_theme_constant_override("h_separation", 24)
+	rare.add_theme_constant_override("v_separation", 20)
+	sections.add_child(rare)
 	var by_colour: Array[VBoxContainer] = []
 	for colour in COLOUR_COUNT:
 		var column := VBoxContainer.new()
@@ -31,7 +43,10 @@ static func make() -> MenuScreen:
 		columns.add_child(column)
 		by_colour.append(column)
 	for index in Achievements.count():
-		by_colour[Achievements.colour(index)].add_child(tile(index))
+		if Achievements.is_rare(index):
+			rare.add_child(tile(index))
+		else:
+			by_colour[Achievements.colour(index)].add_child(tile(index))
 	return screen
 
 

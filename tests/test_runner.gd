@@ -67,6 +67,7 @@ func _ready() -> void:
 	await _test_binder_toss()
 	_test_save_files()
 	await _test_shop_save()
+	await _test_rare_cards()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
 	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
@@ -101,7 +102,7 @@ func _test_shelf_order() -> void:
 	for i in range(1, sets.size()):
 		_check(sets[i - 1].release_date <= sets[i].release_date,
 			"shelf order broken between %s and %s" % [sets[i - 1].code, sets[i].code])
-	for card in [CardDatabase.get_card(0), CardDatabase.get_card(CardDatabase.card_count() - 1)]:
+	for card in [CardDatabase.get_card(0), CardDatabase.cards_in_set(sets[-1].code)[-1]]:
 		_check(CardDatabase.binder_for(card) != null, "card %d has no binder" % card.id)
 
 
@@ -649,7 +650,8 @@ func _test_card_corners() -> void:
 func _test_real_data_format() -> void:
 	var path := _write_fixture()
 	_check(CardDatabase.load_file(path) == OK, "real-data file loads")
-	_check(CardDatabase.is_real_data() and CardDatabase.card_count() == FIXTURE_CARDS, "real data replaces the placeholders")
+	_check(CardDatabase.is_real_data() and CardDatabase.card_count() == FIXTURE_CARDS + RareCards.count(),
+		"real data replaces the placeholders (and the rare cards come too)")
 	var atlas := CardDatabase.face_atlas
 	_check(atlas != null and atlas.texture.get_layers() == 2, "the face atlas loads both pages")
 	if atlas == null:
@@ -677,7 +679,7 @@ func _test_real_data_format() -> void:
 	add_child(pile)
 	var no_obstacles: Array[Rect2] = []
 	pile.build(Rect2(0, 0, 4, 4), no_obstacles, 3)
-	_check(pile.card_count_on_floor() == FIXTURE_CARDS, "the whole real set is on the floor")
+	_check(pile.card_count_on_floor() == FIXTURE_CARDS + RareCards.count(), "the whole real set is on the floor, with the rare cards")
 	var faces_ok := true
 	for id in FIXTURE_CARDS:
 		faces_ok = faces_ok and pile._faces[id] == id
@@ -1159,9 +1161,10 @@ func _test_achievements() -> void:
 	for colour in Progression.COLOURS.size():
 		for step in Progression.COLOURS[colour].steps:
 			nodes[step[0]] = colour
-	_check(Achievements.count() == nodes.size(), "one achievement per card the upgrade tree is named after: %d" % Achievements.count())
+	_check(Achievements.count() == nodes.size() + RareCards.count() + 1,
+		"one achievement per card the upgrade tree is named after, per rare card, and one for all rare cards: %d" % Achievements.count())
 	var matches := true
-	for index in Achievements.count():
+	for index in nodes.size():
 		matches = matches and nodes.get(Achievements.card_name(index), -1) == Achievements.colour(index)
 	_check(matches, "each achievement sits in its card's colour")
 	var tithe := Achievements.index_of("Tithe")
@@ -1952,9 +1955,20 @@ func _test_table_cards() -> void:
 ## on top of whatever it comes down on, cover up or face down as it turned,
 ## and is a binder lying there like any other.
 func _test_binder_toss() -> void:
+	# The binders are tossed over clear floor, so how the cards happen to
+	# lie can't change where they land: no cards there, and none from piles
+	# earlier checks left behind.
+	for child in get_children():
+		if child is PileWorld:
+			child.free()
 	var pile := PileWorld.new()
 	add_child(pile)
 	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
+	var clear := Rect2(3.5, 3.0, 3.0, 2.0)
+	for id in CardDatabase.card_count():
+		var at := pile.card_position(id)
+		if pile.is_on_floor(id) and clear.has_point(Vector2(at.x, at.z)):
+			pile.pick_up(id)
 	var floor_body := StaticBody3D.new()
 	var floor_shape := CollisionShape3D.new()
 	floor_shape.shape = WorldBoundaryShape3D.new()
@@ -2347,11 +2361,15 @@ func _test_shop_save() -> void:
 	var changed: Dictionary = before.duplicate(true)
 	var codes: PackedStringArray = changed.sets.codes
 	var counts_saved: PackedInt32Array = changed.sets.counts
-	var last_code := codes[codes.size() - 1]
-	var last_count := counts_saved[counts_saved.size() - 1]
+	# The rare cards come last; dropping them too makes this a save from
+	# before there were any.
+	_check(codes[codes.size() - 1] == RareCards.SET_CODE, "a save lists the rare cards last")
+	var last_code := codes[codes.size() - 2]
+	var last_count := counts_saved[counts_saved.size() - 2] + counts_saved[counts_saved.size() - 1]
 	var keep := ShopSave.card_order().size() - last_count
-	codes.remove_at(codes.size() - 1)
-	counts_saved.remove_at(counts_saved.size() - 1)
+	for i in 2:
+		codes.remove_at(codes.size() - 1)
+		counts_saved.remove_at(counts_saved.size() - 1)
 	codes.append("ZZZ")
 	counts_saved.append(2)
 	changed.sets = {"codes": codes, "counts": counts_saved}
@@ -2382,6 +2400,8 @@ func _test_shop_save() -> void:
 	var new_cards := CardDatabase.cards_in_set(last_code)
 	var all_down := new_cards.all(func(card: CardData) -> bool: return pile.is_on_floor(card.id))
 	_check(all_down, "a set the save doesn't know is scattered on the pile")
+	_check(CardDatabase.rare_cards().all(func(card: CardData) -> bool: return pile.is_on_floor(card.id)),
+		"so are rare cards a save from before them doesn't know")
 	var new_binder: Binder = pile.binders[-1]
 	_check(new_binder.binder.set_code == last_code and new_binder.is_inside_tree() and new_binder.state == Binder.State.CLOSED,
 		"and its binder is dropped on top")
@@ -2403,3 +2423,124 @@ func _test_shop_save() -> void:
 	Progression.reset()
 	Saves.begin_new_game()
 	_clear_test_saves()
+
+
+## The rare cards: in the pile with no binder, out of reach of every binder
+## ability, hung in their own shadow boxes from either cabinet (with Mana,
+## achievements and the note the first time one's picked up), and saved.
+func _test_rare_cards() -> void:
+	var achievements_path := "user://test_rare_achievements.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(achievements_path))
+	Achievements.load_from(achievements_path)
+	Progression.reset()
+	Saves.begin_new_game()
+	var rare := CardDatabase.rare_cards()
+	_check(rare.size() == 36 and rare[0].collector_number == 1 and rare[35].collector_number == 36, "36 rare cards, numbered 1 to 36")
+	_check(rare[0].id == CardDatabase.card_count() - 36, "after every other card, so no other card's id moves")
+	_check(CardDatabase.get_set(RareCards.SET_CODE) not in CardDatabase.sets_in_shelf_order()
+		and CardDatabase.all_binders().all(func(b: BinderRange) -> bool: return b.set_code != RareCards.SET_CODE),
+		"they have no binder and no shelf space")
+	_check(CardDatabase.binder_for(rare[0]) == null and CardDatabase.is_rare(rare[0].id) and not CardDatabase.is_rare(0), "and no binder to belong in")
+	_check(ShopSave.card_order().size() == CardDatabase.card_count(), "a save lists every card, rare ones too")
+
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var pile: PileWorld = main.get_node("Pile")
+	var hands: Hands = main.get_node("Player/Hands")
+	var cabinets: Array[DisplayCabinet] = main.get_node("Store").cabinets
+	_check(rare.all(func(card: CardData) -> bool: return pile.is_on_floor(card.id)), "rare cards start in the pile")
+	_check(pile.binder_for(rare[0].id) == null, "no binder in the store is theirs")
+	_check(cabinets.size() == 2 and cabinets[0].slot_for(1) == 0 and cabinets[0].slot_for(19) == -1 and cabinets[1].slot_for(19) == 0,
+		"cards 1-18 go in the back cabinet, 19-36 in the front one")
+
+	# The first one picked up brings up the note, once.
+	var notes := [0]
+	hands.rare_card_found.connect(func() -> void: notes[0] += 1)
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_floor_card = rare[0].id
+	hands._pick_up_aimed()
+	await get_tree().process_frame
+	var note: RareCardNote = main.find_children("*", "RareCardNote", false, false).front()
+	_check(notes[0] == 1 and note != null and get_tree().paused, "the first rare card picked up brings up the note, and stops the game")
+	_check(note != null and note.find_child("Text", true, false).text == RareCardNote.TEXT, "it says what to do with it")
+	if note != null:
+		note.ok_button.pressed.emit()
+	_check(not get_tree().paused, "OK goes back in")
+	await _finish_glide(hands)
+
+	# Binder magic doesn't touch it.
+	_buy_through(1, 1) # Teleport
+	_buy_through(4, 2) # Harmonize, Abundance
+	Progression.allow_debt = false
+	_check(not hands.cast_teleport(), "Teleport fizzles on a rare card")
+	_check(hands.cast_abundance().is_empty(), "holding a rare card, Abundance brings nothing")
+	_check(hands.held_card_id == rare[0].id and hands.behind.is_empty(), "and it stays in hand")
+	var binder := pile.binders[0]
+	var misplaced := BinderContents.new(binder.binder)
+	_check(misplaced.insert(0, rare[0].id) == BinderContents.Result.MISPLACED, "in a binder pocket it's just misplaced")
+
+	# Clicking either cabinet sends it to its own shadow box.
+	var mana := Progression.mana
+	hands._aim = Hands.Aim.CABINET
+	hands._aim_cabinet = cabinets[1]
+	hands._use_hand()
+	_check(hands.held_card_id < 0, "a click on a cabinet takes the rare card from your hand")
+	await _finish_glide(hands)
+	_check(cabinets[0].displayed[0] == rare[0].id and cabinets[1].displayed_count() == 0,
+		"and it goes into its own shadow box, even from the other cabinet")
+	_check(Progression.mana == mana + Progression.CARD_LOCKED, "it pays like a card locked in")
+	var first := Achievements.rare_index(1)
+	_check(Achievements.is_unlocked(first) and Achievements.title(first) == Achievements.RARE[0][0]
+		and not Achievements.is_unlocked(Achievements.all_rare_index()), "and unlocks its own achievement")
+	_check(main.cards_organized(pile.binders, cabinets) == 1, "it counts as organized")
+	_check(main.find_children("*", "RareCardNote", false, false).is_empty() or notes[0] == 1, "the note doesn't come back")
+
+	# A card from a binder stays in hand.
+	var common := _first_binder_cards()[0]
+	pile.pick_up(common)
+	hands.restore_hand([common] as Array[int])
+	hands._aim = Hands.Aim.CABINET
+	hands._aim_cabinet = cabinets[0]
+	_check(not hands._try_display_held_card() and hands.held_card_id == common, "a card with a binder can't go in a cabinet")
+	hands.restore_hand([] as Array[int])
+	pile.drop(common, Vector3(3.0, 0.0, 3.0), 0.0)
+
+	# The rest; the last unlocks the achievement for all of them.
+	for i in range(1, 36):
+		pile.pick_up(rare[i].id)
+		hands._display(cabinets[0] if i < 18 else cabinets[1], rare[i].id)
+	_check(cabinets.all(func(c: DisplayCabinet) -> bool: return c.is_complete()), "every rare card on display")
+	_check(Achievements.is_unlocked(Achievements.rare_index(36)) and Achievements.is_unlocked(Achievements.all_rare_index()),
+		"the last unlocks its own achievement and the one for all of them")
+	_check(not main.is_finished(pile.binders, main._shelves(), cabinets), "binders still to do: not finished")
+	_check(notes[0] == 1, "the note came up only once")
+
+	# Saved and loaded, they stay on display.
+	var saved: Dictionary = main.capture_save()
+	_check(saved.cabinets.size() == 36, "a save keeps the cabinets' cards")
+	main.free()
+	Saves._pending = saved
+	main = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	pile = main.get_node("Pile")
+	cabinets = main.get_node("Store").cabinets
+	_check(cabinets.all(func(c: DisplayCabinet) -> bool: return c.is_complete()) and cabinets[1].displayed[17] == rare[35].id,
+		"and they load back in their shadow boxes")
+	_check(rare.all(func(card: CardData) -> bool: return not pile.is_lying(card.id)), "not on the floor as well")
+	main.free()
+	Progression.reset()
+	Saves.begin_new_game()
+	_clear_test_saves()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(achievements_path))
+	Achievements.load_from(Achievements.SAVE_PATH)
+
+
+## Waits for a card gliding to or from the hands to get there.
+func _finish_glide(hands: Hands) -> void:
+	var frames := 0
+	while hands._gliding() and frames < 600:
+		await get_tree().process_frame
+		frames += 1
+	await get_tree().process_frame

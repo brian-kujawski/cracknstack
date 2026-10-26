@@ -52,6 +52,7 @@ func _ready() -> void:
 	var saved := Saves.take_pending()
 	_pile.surfaces = _store.surfaces
 	_hands.pile = _pile
+	_hands.cabinets = _store.cabinets
 	if saved.is_empty():
 		_pile.build(_store.floor_bounds(), _store.obstacles, PILE_SEED)
 		_pile.spawn_binders(PILE_SEED)
@@ -74,6 +75,7 @@ func _ready() -> void:
 		_show_return_message()
 	_hands.shown_card_changed.connect(_on_shown_card_changed)
 	_hands.hint_changed.connect(func(text: String) -> void: _hint.text = text)
+	_hands.rare_card_found.connect(func() -> void: add_child(RareCardNote.new()))
 	_on_shown_card_changed(null, false)
 	Progression.mana_changed.connect(func(_mana: int) -> void: _update_stats())
 	Progression.unlocked.connect(func(_colour: int, _step: int) -> void: _update_stats())
@@ -170,7 +172,7 @@ func _process(delta: float) -> void:
 	if _stats_timer >= 0.5:
 		_stats_timer = 0.0
 		_update_stats()
-		if not _finished and is_finished(_pile.binders, _shelves()):
+		if not _finished and is_finished(_pile.binders, _shelves(), _store.cabinets):
 			_finished = true
 			Saves.finished = true
 			Saves.save(Saves.AUTOSAVE)
@@ -182,7 +184,7 @@ func _process(delta: float) -> void:
 ## left out of release exports.
 func _update_stats() -> void:
 	var text := "Cards Organized: %d/%d\nMana: %d" % [
-		cards_organized(_pile.binders), CardDatabase.card_count(), Progression.mana]
+		cards_organized(_pile.binders, _store.cabinets), CardDatabase.card_count(), Progression.mana]
 	for line in sorcery_lines():
 		text += "\n" + line
 	if OS.is_debug_build():
@@ -195,9 +197,13 @@ func _update_stats() -> void:
 	_status.text = text
 
 
-## The game is finished when every card is locked into its own pocket and
-## every binder stands in its own shelf space.
-static func is_finished(binders: Array[Binder], shelves: Array) -> bool:
+## The game is finished when every card is locked into its own pocket,
+## every binder stands in its own shelf space and every rare card is on
+## display.
+static func is_finished(binders: Array[Binder], shelves: Array, cabinets: Array = []) -> bool:
+	for cabinet: DisplayCabinet in cabinets:
+		if not cabinet.is_complete():
+			return false
 	for binder in binders:
 		if not binder.contents.is_complete():
 			return false
@@ -208,11 +214,14 @@ static func is_finished(binders: Array[Binder], shelves: Array) -> bool:
 	return not binders.is_empty()
 
 
-## Cards locked into their own pockets, across every binder.
-static func cards_organized(binders: Array[Binder]) -> int:
+## Cards locked into their own pockets, across every binder, and rare cards
+## on display.
+static func cards_organized(binders: Array[Binder], cabinets: Array = []) -> int:
 	var count := 0
 	for binder in binders:
 		count += binder.contents.locked_count
+	for cabinet: DisplayCabinet in cabinets:
+		count += cabinet.displayed_count()
 	return count
 
 

@@ -11,7 +11,10 @@ extends StaticBody3D
 ## as you face it.
 ##
 ## Each shadow box has a slot: a Marker3D where a card hangs, face out (+Z),
-## upright (+Y), centred in the box. Nothing goes in them yet.
+## upright (+Y), centred in the box. Each holds one rare card (RareCards):
+## slot 0 holds rare card `first_number`, the next slot the next number, and
+## so on. A card hung in its box locks in for good, with the glow and sound
+## of a card locking into a binder pocket.
 
 const WIDTH := 1.5
 const DEPTH := 0.45
@@ -39,6 +42,14 @@ const _MOULDING := 0.022
 
 ## The slot markers, row by row from the top, left to right in each row.
 var slots: Array[Marker3D] = []
+## The rare card number slot 0 holds (the next cabinet carries on from
+## first_number + SLOTS).
+var first_number := 1
+## Per slot: the card id hung there, or -1.
+var displayed := PackedInt32Array()
+
+## Per slot: the card hanging there, made when it's first hung.
+var _views: Array[MeshInstance3D] = []
 
 var _parts := {}
 
@@ -67,6 +78,10 @@ func build(wood: StandardMaterial3D, lining: Material, brass: Material, light: C
 	_build_lights(light)
 	_commit()
 
+	displayed.resize(slots.size())
+	displayed.fill(-1)
+	_views.resize(slots.size())
+
 	var box := BoxShape3D.new()
 	var top := CASE_TOP + CORNICE_HEIGHT
 	box.size = Vector3(WIDTH, top, DEPTH)
@@ -74,6 +89,63 @@ func build(wood: StandardMaterial3D, lining: Material, brass: Material, light: C
 	shape.shape = box
 	shape.position.y = top / 2
 	add_child(shape)
+
+
+## The slot rare card `number` hangs in here, or -1 if it's another
+## cabinet's.
+func slot_for(number: int) -> int:
+	var slot := number - first_number
+	return slot if slot >= 0 and slot < slots.size() else -1
+
+
+## Where a card hanging in a slot is, as a global pose for a card quad (see
+## Glide).
+func slot_pose(slot: int) -> Transform3D:
+	return slots[slot].global_transform
+
+
+func displayed_count() -> int:
+	return slots.size() - displayed.count(-1)
+
+
+func is_complete() -> bool:
+	return displayed.count(-1) == 0
+
+
+## Hangs card `id` in its own slot. Returns false if it isn't one of this
+## cabinet's rare cards or its slot's taken. With `flash`, it glows up the
+## way a card locking into its pocket does (a save putting it back doesn't).
+func display(id: int, flash := true) -> bool:
+	var card := CardDatabase.get_card(id)
+	var slot := slot_for(card.collector_number) if RareCards.is_rare(card) else -1
+	if slot < 0 or displayed[slot] >= 0:
+		return false
+	displayed[slot] = id
+	var view := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = PileWorld.CARD_SIZE
+	view.mesh = quad
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://shaders/binder_card.gdshader")
+	CardView.apply(material, id)
+	material.set_shader_parameter("glow", Binder.LOCKED_GLOW)
+	view.material_override = material
+	slots[slot].add_child(view)
+	_views[slot] = view
+	if flash:
+		var tween := view.create_tween()
+		tween.tween_method(func(c: Color) -> void: material.set_shader_parameter("glow", c),
+			Binder.FLASH_GLOW, Binder.LOCKED_GLOW, 0.9)
+	return true
+
+
+## Empties every slot (before a save fills them).
+func clear_display() -> void:
+	displayed.fill(-1)
+	for i in _views.size():
+		if _views[i] != null:
+			_views[i].queue_free()
+			_views[i] = null
 
 
 ## A recessed plinth, a carcass with two panelled doors, and the shelf the
