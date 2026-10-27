@@ -71,7 +71,7 @@ var _faces := PackedFloat32Array()
 var _chunk_columns := 0
 var _chunk_rows := 0
 ## The last chunk isn't a patch of floor: it draws the rare cards lying on
-## the floor, wherever they are, as foil (see CardView).
+## the floor, wherever they are, as foil and with their own back (see CardView).
 var _foil_chunk := -1
 var _chunks: Array[MultiMeshInstance3D] = []
 var _chunk_cards: Array[PackedInt32Array] = []
@@ -592,11 +592,11 @@ func _allocate(count: int) -> void:
 	_chunk_columns = ceili(bounds.size.x / CHUNK_SIZE)
 	_chunk_rows = ceili(bounds.size.y / CHUNK_SIZE)
 	_mesh = card_mesh(false)
-	_material = _floor_material(preload("res://shaders/floor_card.gdshader"))
+	_material = _floor_material(preload("res://shaders/floor_card.gdshader"), false)
 	for c in _chunk_columns * _chunk_rows:
 		_add_chunk(_material)
 	_foil_chunk = _chunks.size()
-	_add_chunk(_floor_material(preload("res://shaders/floor_foil.gdshader")))
+	_add_chunk(_floor_material(preload("res://shaders/floor_foil.gdshader"), true))
 
 	_grid_columns = ceili(bounds.size.x / GRID_CELL)
 	_grid_rows = ceili(bounds.size.y / GRID_CELL)
@@ -609,12 +609,14 @@ func _allocate(count: int) -> void:
 	_heights.fill(0.0)
 
 
-func _floor_material(shader: Shader) -> ShaderMaterial:
+func _floor_material(shader: Shader, rare: bool) -> ShaderMaterial:
 	var material := ShaderMaterial.new()
 	material.shader = shader
 	if CardDatabase.face_atlas != null:
 		CardDatabase.face_atlas.apply(material)
 	CardDatabase.apply_back(material)
+	if rare:
+		CardDatabase.apply_rare_backs(material)
 	return material
 
 

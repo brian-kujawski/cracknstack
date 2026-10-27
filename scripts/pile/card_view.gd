@@ -21,7 +21,8 @@ static var _large_order: Array[int] = []
 
 static func apply(material: ShaderMaterial, id: int) -> void:
 	var card := CardDatabase.get_card(id)
-	_set_foil(material, CardDatabase.is_rare(id))
+	var rare := CardDatabase.is_rare(id)
+	_set_foil(material, rare)
 	var set_data := CardDatabase.get_set(card.set_code)
 	var accent := set_data.accent_color
 	material.set_shader_parameter("accent", Vector3(accent.r, accent.g, accent.b))
@@ -32,7 +33,7 @@ static func apply(material: ShaderMaterial, id: int) -> void:
 	var face := large_face(card)
 	material.set_shader_parameter("has_face", face != null)
 	material.set_shader_parameter("face_texture", face)
-	CardDatabase.apply_back(material)
+	CardDatabase.apply_back(material, card)
 
 
 ## Swaps the material to the foil or plain version of its shader. Swapped

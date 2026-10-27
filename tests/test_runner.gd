@@ -2442,6 +2442,18 @@ func _test_rare_cards() -> void:
 		"they have no binder and no shelf space")
 	_check(CardDatabase.binder_for(rare[0]) == null and CardDatabase.is_rare(rare[0].id) and not CardDatabase.is_rare(0), "and no binder to belong in")
 	_check(ShopSave.card_order().size() == CardDatabase.card_count(), "a save lists every card, rare ones too")
+	var rare_material := ShaderMaterial.new()
+	rare_material.shader = preload("res://shaders/held_card.gdshader")
+	CardView.apply(rare_material, rare[0].id)
+	var own_back: Texture2D = rare_material.get_shader_parameter("back_texture")
+	_check(own_back != null and own_back != CardDatabase.card_back and rare_material.get_shader_parameter("has_back") == true,
+		"rare cards get their own back")
+	CardView.apply(rare_material, rare[1].id)
+	_check(rare_material.get_shader_parameter("back_texture") not in [null, own_back, CardDatabase.card_back], "each one its own")
+	_check(rare_material.shader == preload("res://shaders/held_foil.gdshader"), "and are foil")
+	CardView.apply(rare_material, 0)
+	_check(rare_material.get_shader_parameter("back_texture") == CardDatabase.card_back
+		and rare_material.shader == preload("res://shaders/held_card.gdshader"), "the same material back on an ordinary card is plain again")
 
 	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
 	add_child(main)

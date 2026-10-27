@@ -8,6 +8,9 @@ extends Node
 
 const REAL_PATH := "res://data/real/cards.json"
 const PLACEHOLDER_PATH := "res://data/placeholder/cards.json"
+## Size of each rare card's back on the floor: floor cards never get much
+## bigger on screen than this.
+const RARE_FLOOR_BACK_SIZE := Vector2i(244, 340)
 
 ## Where the loaded data came from ("" for placeholders).
 var source := ""
@@ -15,6 +18,13 @@ var source := ""
 var face_atlas: FaceAtlas
 ## The real card back, or null to draw the placeholder back.
 var card_back: Texture2D
+
+## The rare cards' own backs (RareCards.back_path), loaded as they're first
+## shown: collector number -> Texture2D, or null for one without its own.
+var _rare_backs := {}
+## Every rare card's back at floor size, for the pile (see apply_rare_backs).
+var _rare_back_array: Texture2DArray
+var _rare_back_flags := PackedInt32Array()
 
 var _cards: Array[CardData] = []
 var _sets: Dictionary = {} # code -> SetData
@@ -44,6 +54,8 @@ func load_file(path: String) -> Error:
 		for card in _cards:
 			card.face_index = -1
 	card_back = _load_back(result.back)
+	_rare_backs.clear()
+	_rare_back_array = null
 	CardView.clear_cache()
 	_sets.clear()
 	_cards_by_set.clear()
@@ -80,10 +92,40 @@ static func _load_back(path: String) -> Texture2D:
 	return ImageTexture.create_from_image(image)
 
 
-## Hands the card back to a shader that includes card_face.gdshaderinc.
-func apply_back(material: ShaderMaterial) -> void:
-	material.set_shader_parameter("has_back", card_back != null)
-	material.set_shader_parameter("back_texture", card_back)
+## Hands the card back to a shader that includes card_face.gdshaderinc:
+## for a rare `card`, its own back if it has one.
+func apply_back(material: ShaderMaterial, card: CardData = null) -> void:
+	var back := card_back
+	if card != null and RareCards.is_rare(card):
+		if not _rare_backs.has(card.collector_number):
+			_rare_backs[card.collector_number] = _load_back(RareCards.back_path(card.collector_number))
+		if _rare_backs[card.collector_number] != null:
+			back = _rare_backs[card.collector_number]
+	material.set_shader_parameter("has_back", back != null)
+	material.set_shader_parameter("back_texture", back)
+
+
+## Hands every rare card's own back to the pile's foil shader
+## (floor_foil.gdshader): one layer each, by collector number, and which of
+## them has one. Built once, at floor size.
+func apply_rare_backs(material: ShaderMaterial) -> void:
+	if _rare_back_array == null:
+		var images: Array[Image] = []
+		_rare_back_flags.resize(RareCards.count())
+		for i in RareCards.count():
+			var path := RareCards.back_path(i + 1)
+			var image := FaceAtlas.load_image(path) if not path.is_empty() else null
+			_rare_back_flags[i] = 1 if image != null else 0
+			if image == null:
+				image = Image.create_empty(RARE_FLOOR_BACK_SIZE.x, RARE_FLOOR_BACK_SIZE.y, false, Image.FORMAT_RGBA8)
+			image.convert(Image.FORMAT_RGBA8)
+			image.resize(RARE_FLOOR_BACK_SIZE.x, RARE_FLOOR_BACK_SIZE.y, Image.INTERPOLATE_LANCZOS)
+			image.generate_mipmaps()
+			images.append(image)
+		_rare_back_array = Texture2DArray.new()
+		_rare_back_array.create_from_images(images)
+	material.set_shader_parameter("rare_backs", _rare_back_array)
+	material.set_shader_parameter("rare_has_back", _rare_back_flags)
 
 
 ## True when real cards are loaded rather than the placeholders.
