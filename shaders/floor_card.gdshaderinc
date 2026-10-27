@@ -12,9 +12,11 @@ render_mode cull_disabled;
 #ifdef FOIL
 #include "res://shaders/foil.gdshaderinc"
 
-// The foil chunk holds only rare cards: each one's own back, one layer per
-// collector number, and which of them has one (see
-// CardDatabase.apply_rare_backs).
+// The foil chunk holds only rare cards: each one's own face and back, one
+// layer per collector number, and which of them has one (see
+// CardDatabase.apply_rare_images).
+uniform sampler2DArray rare_faces : source_color, filter_linear_mipmap, repeat_disable;
+uniform int rare_has_face[36];
 uniform sampler2DArray rare_backs : source_color, filter_linear_mipmap, repeat_disable;
 uniform int rare_has_back[36];
 #endif
@@ -65,7 +67,9 @@ void fragment() {
 	vec2 atlas_uv = (cell + clamp(uv, 0.01, 0.99)) * face_slot_uv;
 	vec3 atlas_face = texture(faces, vec3(atlas_uv, float(index / per_page))).rgb;
 #ifdef FOIL
-	vec3 rare_back = texture(rare_backs, vec3(clamp(uv, 0.0, 1.0), float(clamp(int(card.x + 0.5), 1, 36) - 1))).rgb;
+	int number = clamp(int(card.x + 0.5), 1, 36);
+	vec3 rare_face = texture(rare_faces, vec3(clamp(uv, 0.0, 1.0), float(number - 1))).rgb;
+	vec3 rare_back = texture(rare_backs, vec3(clamp(uv, 0.0, 1.0), float(number - 1))).rgb;
 #endif
 	// The mesh's edge faces carry UV (-1, -1).
 	if (UV.x < -0.5) {
@@ -78,7 +82,9 @@ void fragment() {
 			: card_face(uv, accent, int(card.y + 0.5), int(card.x + 0.5), rarity);
 		vec3 back = back_of_card(uv, alpha_corners);
 #ifdef FOIL
-		int number = clamp(int(card.x + 0.5), 1, 36);
+		if (rare_has_face[number - 1] == 1) {
+			front = real_face(rare_face, uv, alpha_corners);
+		}
 		if (rare_has_back[number - 1] == 1) {
 			back = real_face(rare_back, uv, alpha_corners);
 		}

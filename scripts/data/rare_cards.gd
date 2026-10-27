@@ -11,16 +11,18 @@ extends RefCounted
 ##
 ## Names and art are placeholders, yours to replace (see
 ## assets/rare_cards/README.txt): rename a card in LIST,
-## and put its art in assets/rare_cards/ as rareNNN.png (NNN = its number,
-## from 001). Without art a card shows the gold placeholder face. Each
-## card's back is rareNNN_back.png beside it; without one, that card has
-## every other card's back.
+## and put its art in assets/rare_cards/ as rareNNN.png or .jpg (NNN = its
+## number, from 001). Without art a card shows the gold placeholder face.
+## Each card's back is rareNNN_back.png or .jpg beside it; without one, that
+## card has every other card's back.
 
 const SET_CODE := "RARE"
 const SET_NAME := "Rare Cards"
 const ACCENT := Color(0.85, 0.66, 0.2)
-const IMAGE_PATH := "res://assets/rare_cards/rare%03d.png"
-const BACK_PATH := "res://assets/rare_cards/rare%03d_back.png"
+const IMAGE_PATH := "res://assets/rare_cards/rare%03d"
+const BACK_PATH := "res://assets/rare_cards/rare%03d_back"
+## The image types FaceAtlas.load_image reads, in the order they're looked for.
+const IMAGE_EXTENSIONS := ["png", "jpg", "jpeg", "webp"]
 
 ## Every rare card in shadow-box order: number 1 hangs top left in the first
 ## cabinet (nearest the back wall), 18 bottom right in it, then 19 to 36 the
@@ -72,17 +74,29 @@ static func make_cards(first_id: int) -> Array[CardData]:
 		card.collector_number = i + 1
 		card.rarity = CardData.Rarity.MYTHIC
 		card.type_line = ""
-		var image := IMAGE_PATH % (i + 1)
-		if FileAccess.file_exists(image) or ResourceLoader.exists(image):
-			card.image_large = image
+		card.image_large = _find_image(IMAGE_PATH % (i + 1))
 		cards.append(card)
 	return cards
 
 
 ## Rare card `number`'s own back image, or "" if it has none.
 static func back_path(number: int) -> String:
-	var path := BACK_PATH % number
-	return path if FileAccess.file_exists(path) or ResourceLoader.exists(path) else ""
+	return _find_image(BACK_PATH % number)
+
+
+## The image at `base` plus whichever of IMAGE_EXTENSIONS is there, or "".
+## A real file wins over one that's only left in Godot's import cache (an
+## old .import file can outlive the image it was made from).
+static func _find_image(base: String) -> String:
+	for extension in IMAGE_EXTENSIONS:
+		var path := "%s.%s" % [base, extension]
+		if FileAccess.file_exists(path):
+			return path
+	for extension in IMAGE_EXTENSIONS:
+		var path := "%s.%s" % [base, extension]
+		if ResourceLoader.exists(path):
+			return path
+	return ""
 
 
 static func is_rare(card: CardData) -> bool:
