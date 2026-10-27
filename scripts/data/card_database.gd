@@ -8,9 +8,9 @@ extends Node
 
 const REAL_PATH := "res://data/real/cards.json"
 const PLACEHOLDER_PATH := "res://data/placeholder/cards.json"
-## Size of each rare card's back on the floor: floor cards never get much
-## bigger on screen than this.
-const RARE_FLOOR_BACK_SIZE := Vector2i(244, 340)
+## Size of each rare card's face and back on the floor: floor cards never
+## get much bigger on screen than this.
+const RARE_FLOOR_SIZE := Vector2i(244, 340)
 
 ## Where the loaded data came from ("" for placeholders).
 var source := ""
@@ -22,7 +22,10 @@ var card_back: Texture2D
 ## The rare cards' own backs (RareCards.back_path), loaded as they're first
 ## shown: collector number -> Texture2D, or null for one without its own.
 var _rare_backs := {}
-## Every rare card's back at floor size, for the pile (see apply_rare_backs).
+## Every rare card's face and back at floor size, for the pile, and which
+## of them have their own (see apply_rare_images).
+var _rare_face_array: Texture2DArray
+var _rare_face_flags := PackedInt32Array()
 var _rare_back_array: Texture2DArray
 var _rare_back_flags := PackedInt32Array()
 
@@ -55,6 +58,7 @@ func load_file(path: String) -> Error:
 			card.face_index = -1
 	card_back = _load_back(result.back)
 	_rare_backs.clear()
+	_rare_face_array = null
 	_rare_back_array = null
 	CardView.clear_cache()
 	_sets.clear()
@@ -105,27 +109,41 @@ func apply_back(material: ShaderMaterial, card: CardData = null) -> void:
 	material.set_shader_parameter("back_texture", back)
 
 
-## Hands every rare card's own back to the pile's foil shader
+## Hands every rare card's own face and back to the pile's foil shader
 ## (floor_foil.gdshader): one layer each, by collector number, and which of
 ## them has one. Built once, at floor size.
-func apply_rare_backs(material: ShaderMaterial) -> void:
-	if _rare_back_array == null:
-		var images: Array[Image] = []
-		_rare_back_flags.resize(RareCards.count())
-		for i in RareCards.count():
-			var path := RareCards.back_path(i + 1)
-			var image := FaceAtlas.load_image(path) if not path.is_empty() else null
-			_rare_back_flags[i] = 1 if image != null else 0
-			if image == null:
-				image = Image.create_empty(RARE_FLOOR_BACK_SIZE.x, RARE_FLOOR_BACK_SIZE.y, false, Image.FORMAT_RGBA8)
-			image.convert(Image.FORMAT_RGBA8)
-			image.resize(RARE_FLOOR_BACK_SIZE.x, RARE_FLOOR_BACK_SIZE.y, Image.INTERPOLATE_LANCZOS)
-			image.generate_mipmaps()
-			images.append(image)
-		_rare_back_array = Texture2DArray.new()
-		_rare_back_array.create_from_images(images)
+func apply_rare_images(material: ShaderMaterial) -> void:
+	if _rare_face_array == null:
+		var faces: Array[String] = []
+		var backs: Array[String] = []
+		for card in rare_cards():
+			faces.append(card.image_large)
+			backs.append(RareCards.back_path(card.collector_number))
+		_rare_face_array = _floor_image_array(faces, _rare_face_flags)
+		_rare_back_array = _floor_image_array(backs, _rare_back_flags)
+	material.set_shader_parameter("rare_faces", _rare_face_array)
+	material.set_shader_parameter("rare_has_face", _rare_face_flags)
 	material.set_shader_parameter("rare_backs", _rare_back_array)
 	material.set_shader_parameter("rare_has_back", _rare_back_flags)
+
+
+## The images at `paths` ("" for none) as one array at floor size, a blank
+## layer for each that's missing; `found` gets 1 for each that's there.
+static func _floor_image_array(paths: Array[String], found: PackedInt32Array) -> Texture2DArray:
+	var images: Array[Image] = []
+	found.resize(paths.size())
+	for i in paths.size():
+		var image := FaceAtlas.load_image(paths[i]) if not paths[i].is_empty() else null
+		found[i] = 1 if image != null else 0
+		if image == null:
+			image = Image.create_empty(RARE_FLOOR_SIZE.x, RARE_FLOOR_SIZE.y, false, Image.FORMAT_RGBA8)
+		image.convert(Image.FORMAT_RGBA8)
+		image.resize(RARE_FLOOR_SIZE.x, RARE_FLOOR_SIZE.y, Image.INTERPOLATE_LANCZOS)
+		image.generate_mipmaps()
+		images.append(image)
+	var array := Texture2DArray.new()
+	array.create_from_images(images)
+	return array
 
 
 ## True when real cards are loaded rather than the placeholders.
