@@ -614,7 +614,9 @@ func _floor_material(shader: Shader, rare: bool) -> ShaderMaterial:
 	material.shader = shader
 	if CardDatabase.face_atlas != null:
 		CardDatabase.face_atlas.apply(material)
-	CardDatabase.apply_back(material, rare)
+	CardDatabase.apply_back(material)
+	if rare:
+		CardDatabase.apply_rare_backs(material)
 	return material
 
 

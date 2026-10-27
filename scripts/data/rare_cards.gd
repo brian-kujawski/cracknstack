@@ -12,15 +12,15 @@ extends RefCounted
 ## Names and art are placeholders, yours to replace (see
 ## assets/rare_cards/README.txt): rename a card in LIST,
 ## and put its art in assets/rare_cards/ as rareNNN.png (NNN = its number,
-## from 001). Without art a card shows the gold placeholder face. Their
-## back is assets/rare_cards/back.png; without it they share every other
-## card's back.
+## from 001). Without art a card shows the gold placeholder face. Each
+## card's back is rareNNN_back.png beside it; without one, that card has
+## every other card's back.
 
 const SET_CODE := "RARE"
 const SET_NAME := "Rare Cards"
 const ACCENT := Color(0.85, 0.66, 0.2)
 const IMAGE_PATH := "res://assets/rare_cards/rare%03d.png"
-const BACK_PATH := "res://assets/rare_cards/back.png"
+const BACK_PATH := "res://assets/rare_cards/rare%03d_back.png"
 
 ## Every rare card in shadow-box order: number 1 hangs top left in the first
 ## cabinet (nearest the back wall), 18 bottom right in it, then 19 to 36 the
@@ -65,6 +65,12 @@ static func make_cards(first_id: int) -> Array[CardData]:
 			card.image_large = image
 		cards.append(card)
 	return cards
+
+
+## Rare card `number`'s own back image, or "" if it has none.
+static func back_path(number: int) -> String:
+	var path := BACK_PATH % number
+	return path if FileAccess.file_exists(path) or ResourceLoader.exists(path) else ""
 
 
 static func is_rare(card: CardData) -> bool:

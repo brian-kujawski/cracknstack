@@ -33,7 +33,7 @@ static func apply(material: ShaderMaterial, id: int) -> void:
 	var face := large_face(card)
 	material.set_shader_parameter("has_face", face != null)
 	material.set_shader_parameter("face_texture", face)
-	CardDatabase.apply_back(material, rare)
+	CardDatabase.apply_back(material, card)
 
 
 ## Swaps the material to the foil or plain version of its shader. Swapped

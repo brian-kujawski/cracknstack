@@ -11,6 +11,12 @@ render_mode cull_disabled;
 #include "res://shaders/card_face.gdshaderinc"
 #ifdef FOIL
 #include "res://shaders/foil.gdshaderinc"
+
+// The foil chunk holds only rare cards: each one's own back, one layer per
+// collector number, and which of them has one (see
+// CardDatabase.apply_rare_backs).
+uniform sampler2DArray rare_backs : source_color, filter_linear_mipmap, repeat_disable;
+uniform int rare_has_back[36];
 #endif
 
 uniform sampler2DArray faces : source_color, filter_linear_mipmap, repeat_disable;
@@ -58,6 +64,9 @@ void fragment() {
 	vec2 cell = vec2(float(slot % face_grid.x), float(slot / face_grid.x));
 	vec2 atlas_uv = (cell + clamp(uv, 0.01, 0.99)) * face_slot_uv;
 	vec3 atlas_face = texture(faces, vec3(atlas_uv, float(index / per_page))).rgb;
+#ifdef FOIL
+	vec3 rare_back = texture(rare_backs, vec3(clamp(uv, 0.0, 1.0), float(clamp(int(card.x + 0.5), 1, 36) - 1))).rgb;
+#endif
 	// The mesh's edge faces carry UV (-1, -1).
 	if (UV.x < -0.5) {
 		ALBEDO = EDGE;
@@ -67,7 +76,14 @@ void fragment() {
 		vec3 front = face_index > -0.5
 			? real_face(atlas_face, uv, alpha_corners)
 			: card_face(uv, accent, int(card.y + 0.5), int(card.x + 0.5), rarity);
-		ALBEDO = card.w > 0.5 ? front : back_of_card(uv, alpha_corners);
+		vec3 back = back_of_card(uv, alpha_corners);
+#ifdef FOIL
+		int number = clamp(int(card.x + 0.5), 1, 36);
+		if (rare_has_back[number - 1] == 1) {
+			back = real_face(rare_back, uv, alpha_corners);
+		}
+#endif
+		ALBEDO = card.w > 0.5 ? front : back;
 		ROUGHNESS = 0.6;
 	}
 #ifdef FOIL

@@ -2445,8 +2445,11 @@ func _test_rare_cards() -> void:
 	var rare_material := ShaderMaterial.new()
 	rare_material.shader = preload("res://shaders/held_card.gdshader")
 	CardView.apply(rare_material, rare[0].id)
-	_check(CardDatabase.rare_back != null and rare_material.get_shader_parameter("back_texture") == CardDatabase.rare_back
-		and rare_material.get_shader_parameter("has_back") == true, "rare cards get their own back")
+	var own_back: Texture2D = rare_material.get_shader_parameter("back_texture")
+	_check(own_back != null and own_back != CardDatabase.card_back and rare_material.get_shader_parameter("has_back") == true,
+		"rare cards get their own back")
+	CardView.apply(rare_material, rare[1].id)
+	_check(rare_material.get_shader_parameter("back_texture") not in [null, own_back, CardDatabase.card_back], "each one its own")
 	_check(rare_material.shader == preload("res://shaders/held_foil.gdshader"), "and are foil")
 	CardView.apply(rare_material, 0)
 	_check(rare_material.get_shader_parameter("back_texture") == CardDatabase.card_back
