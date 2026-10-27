@@ -69,6 +69,10 @@ var _accents := PackedColorArray()
 var _faces := PackedFloat32Array()
 
 var _chunk_columns := 0
+var _chunk_rows := 0
+## The last chunk isn't a patch of floor: it draws the rare cards lying on
+## the floor, wherever they are, as foil (see CardView).
+var _foil_chunk := -1
 var _chunks: Array[MultiMeshInstance3D] = []
 var _chunk_cards: Array[PackedInt32Array] = []
 var _chunk_of := PackedInt32Array()
@@ -586,26 +590,13 @@ func _allocate(count: int) -> void:
 	_grid_cell_of.fill(-1)
 
 	_chunk_columns = ceili(bounds.size.x / CHUNK_SIZE)
-	var chunk_rows := ceili(bounds.size.y / CHUNK_SIZE)
+	_chunk_rows = ceili(bounds.size.y / CHUNK_SIZE)
 	_mesh = card_mesh(false)
-	_material = ShaderMaterial.new()
-	_material.shader = preload("res://shaders/floor_card.gdshader")
-	if CardDatabase.face_atlas != null:
-		CardDatabase.face_atlas.apply(_material)
-	CardDatabase.apply_back(_material)
-	for c in _chunk_columns * chunk_rows:
-		var multimesh := MultiMesh.new()
-		multimesh.transform_format = MultiMesh.TRANSFORM_3D
-		multimesh.use_colors = true
-		multimesh.use_custom_data = true
-		multimesh.mesh = _mesh
-		var instance := MultiMeshInstance3D.new()
-		instance.multimesh = multimesh
-		instance.material_override = _material
-		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(instance)
-		_chunks.append(instance)
-		_chunk_cards.append(PackedInt32Array())
+	_material = _floor_material(preload("res://shaders/floor_card.gdshader"))
+	for c in _chunk_columns * _chunk_rows:
+		_add_chunk(_material)
+	_foil_chunk = _chunks.size()
+	_add_chunk(_floor_material(preload("res://shaders/floor_foil.gdshader")))
 
 	_grid_columns = ceili(bounds.size.x / GRID_CELL)
 	_grid_rows = ceili(bounds.size.y / GRID_CELL)
@@ -616,6 +607,30 @@ func _allocate(count: int) -> void:
 	_height_columns = ceili(bounds.size.x / HEIGHT_CELL)
 	_heights.resize(_height_columns * ceili(bounds.size.y / HEIGHT_CELL))
 	_heights.fill(0.0)
+
+
+func _floor_material(shader: Shader) -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	if CardDatabase.face_atlas != null:
+		CardDatabase.face_atlas.apply(material)
+	CardDatabase.apply_back(material)
+	return material
+
+
+func _add_chunk(material: ShaderMaterial) -> void:
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.use_colors = true
+	multimesh.use_custom_data = true
+	multimesh.mesh = _mesh
+	var instance := MultiMeshInstance3D.new()
+	instance.multimesh = multimesh
+	instance.material_override = material
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(instance)
+	_chunks.append(instance)
+	_chunk_cards.append(PackedInt32Array())
 
 
 func _build_set_lookup() -> void:
@@ -791,7 +806,7 @@ func _put_on_floor(id: int, p: Vector2, rotation_y: float, at_height := -1.0) ->
 	_positions[id] = Vector3(p.x, y, p.y)
 	_rotations[id] = rotation_y
 	_grid_add(id)
-	var chunk := _chunk_index(p)
+	var chunk := _foil_chunk if CardDatabase.is_rare(id) else _chunk_index(p)
 	_chunk_of[id] = chunk
 	var cards := _chunk_cards[chunk]
 	_slot_of[id] = cards.size()
@@ -920,7 +935,7 @@ func _chunk_remove(id: int) -> void:
 func _chunk_index(p: Vector2) -> int:
 	var local := p - bounds.position
 	var column := clampi(int(local.x / CHUNK_SIZE), 0, _chunk_columns - 1)
-	var row := clampi(int(local.y / CHUNK_SIZE), 0, _chunks.size() / _chunk_columns - 1)
+	var row := clampi(int(local.y / CHUNK_SIZE), 0, _chunk_rows - 1)
 	return row * _chunk_columns + column
 
 

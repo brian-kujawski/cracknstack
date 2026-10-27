@@ -2,11 +2,18 @@ class_name CardView
 extends RefCounted
 ## Fills in a single-card material (held_card, binder_card) for a card id.
 ## With real data that's the card's large image; otherwise the placeholder
-## face drawn by the shader.
+## face drawn by the shader. Rare cards (RareCards) are foil: their material
+## gets the foil version of its shader (see foil.gdshaderinc).
 
 ## Large faces kept in memory, most recently used last. An open binder shows
 ## 18 cards, so this covers a few spreads plus the hand and the stacks.
 const LARGE_CACHE_SIZE := 64
+
+## Each plain card shader and its foil version.
+const FOIL_SHADERS := {
+	preload("res://shaders/held_card.gdshader"): preload("res://shaders/held_foil.gdshader"),
+	preload("res://shaders/binder_card.gdshader"): preload("res://shaders/binder_foil.gdshader"),
+}
 
 static var _large_cache := {} # card id -> Texture2D
 static var _large_order: Array[int] = []
@@ -14,6 +21,7 @@ static var _large_order: Array[int] = []
 
 static func apply(material: ShaderMaterial, id: int) -> void:
 	var card := CardDatabase.get_card(id)
+	_set_foil(material, CardDatabase.is_rare(id))
 	var set_data := CardDatabase.get_set(card.set_code)
 	var accent := set_data.accent_color
 	material.set_shader_parameter("accent", Vector3(accent.r, accent.g, accent.b))
@@ -25,6 +33,16 @@ static func apply(material: ShaderMaterial, id: int) -> void:
 	material.set_shader_parameter("has_face", face != null)
 	material.set_shader_parameter("face_texture", face)
 	CardDatabase.apply_back(material)
+
+
+## Swaps the material to the foil or plain version of its shader. Swapped
+## before any parameters are set, so the new shader takes them all.
+static func _set_foil(material: ShaderMaterial, foil: bool) -> void:
+	for plain: Shader in FOIL_SHADERS:
+		if material.shader == plain and foil:
+			material.shader = FOIL_SHADERS[plain]
+		elif material.shader == FOIL_SHADERS[plain] and not foil:
+			material.shader = plain
 
 
 ## The card's large image as a texture, or null if it has none.
