@@ -12,12 +12,15 @@ extends RefCounted
 ## Names and art are placeholders, yours to replace (see
 ## assets/rare_cards/README.txt): rename a card in LIST,
 ## and put its art in assets/rare_cards/ as rareNNN.png (NNN = its number,
-## from 001). Without art a card shows the gold placeholder face.
+## from 001). Without art a card shows the gold placeholder face. Their
+## back is assets/rare_cards/back.png; without it they share every other
+## card's back.
 
 const SET_CODE := "RARE"
 const SET_NAME := "Rare Cards"
 const ACCENT := Color(0.85, 0.66, 0.2)
 const IMAGE_PATH := "res://assets/rare_cards/rare%03d.png"
+const BACK_PATH := "res://assets/rare_cards/back.png"
 
 ## Every rare card in shadow-box order: number 1 hangs top left in the first
 ## cabinet (nearest the back wall), 18 bottom right in it, then 19 to 36 the

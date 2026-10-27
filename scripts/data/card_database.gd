@@ -15,6 +15,9 @@ var source := ""
 var face_atlas: FaceAtlas
 ## The real card back, or null to draw the placeholder back.
 var card_back: Texture2D
+## The rare cards' own back (RareCards.BACK_PATH), or null if they share
+## card_back.
+var rare_back: Texture2D
 
 var _cards: Array[CardData] = []
 var _sets: Dictionary = {} # code -> SetData
@@ -44,6 +47,7 @@ func load_file(path: String) -> Error:
 		for card in _cards:
 			card.face_index = -1
 	card_back = _load_back(result.back)
+	rare_back = _load_back(RareCards.BACK_PATH) if ResourceLoader.exists(RareCards.BACK_PATH) or FileAccess.file_exists(RareCards.BACK_PATH) else null
 	CardView.clear_cache()
 	_sets.clear()
 	_cards_by_set.clear()
@@ -80,10 +84,12 @@ static func _load_back(path: String) -> Texture2D:
 	return ImageTexture.create_from_image(image)
 
 
-## Hands the card back to a shader that includes card_face.gdshaderinc.
-func apply_back(material: ShaderMaterial) -> void:
-	material.set_shader_parameter("has_back", card_back != null)
-	material.set_shader_parameter("back_texture", card_back)
+## Hands the card back to a shader that includes card_face.gdshaderinc:
+## the rare cards' own back for a `rare` card, if there is one.
+func apply_back(material: ShaderMaterial, rare := false) -> void:
+	var back := rare_back if rare and rare_back != null else card_back
+	material.set_shader_parameter("has_back", back != null)
+	material.set_shader_parameter("back_texture", back)
 
 
 ## True when real cards are loaded rather than the placeholders.

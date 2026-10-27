@@ -4,6 +4,9 @@ entry, rare002.png the second, up to rare036.png.
 
   rareNNN.png   the card's face, shown in hand, up close and in its
                 shadow box in the display cabinets
+  back.png      the back of every rare card, in place of the usual card
+                back (delete it and they share the usual back). The one
+                here is a placeholder to draw over.
 
 There is no art here yet. A card with no image shows the gold placeholder
 face drawn by the card shader, so add images one at a time as they're
