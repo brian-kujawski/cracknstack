@@ -278,7 +278,6 @@ func _physics_process(delta: float) -> void:
 	if pile == null:
 		return
 	_update_aim()
-	_aim_floor_card = pile.top_card_at(_aim_point) if _aim == Aim.FLOOR else -1
 	pile.set_highlight(_aim_lying_card() if has_room() else -1)
 	_update_hover()
 	_update_blessing(delta)
@@ -1006,6 +1005,7 @@ func _yaw_facing_player(point: Vector3) -> float:
 
 func _update_aim() -> void:
 	_aim = Aim.NONE
+	_aim_floor_card = -1
 	_aim_binder = null
 	_aim_pocket = -1
 	_aim_loose_card = null
@@ -1021,6 +1021,14 @@ func _update_aim() -> void:
 	# only for the player's body.
 	query.collision_mask = ~(PileWorld.SURFACE_LAYER | preload("res://scripts/store/store_builder.gd").LEAN_STOP_LAYER)
 	var hit := _camera.get_world_3d().direct_space_state.intersect_ray(query)
+	# The floor's cards aren't colliders: the one you aim at is the first one
+	# the crosshair's ray meets, unless something else is in front of it.
+	var card: Dictionary = pile.card_on_ray(from, to) if pile != null else {}
+	if not card.is_empty() and (hit.is_empty() or from.distance_to(card.position) < from.distance_to(hit.position)):
+		_aim = Aim.FLOOR
+		_aim_point = card.position
+		_aim_floor_card = card.id
+		return
 	if hit.is_empty():
 		return
 	_aim_point = hit.position

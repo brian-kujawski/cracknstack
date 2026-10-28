@@ -28,6 +28,7 @@ func _ready() -> void:
 	_test_shelf_layout()
 	_test_pile()
 	_test_pile_clearing()
+	_test_pile_aim()
 	_test_pile_stacking()
 	_test_pile_grid()
 	_test_binder_spreads()
@@ -245,6 +246,58 @@ func _test_pile() -> void:
 	var landed := pile.card_position(top)
 	_check(pile.is_on_floor(top), "tossed card lands back on the floor (after %d steps)" % steps)
 	_check(landed.x > 5.3 and landed.x < 7.5 and absf(landed.z - 5.0) < 0.05, "toss is a gentle lob forward (landed at x=%.2f)" % landed.x)
+	pile.queue_free()
+
+
+func _test_pile_aim() -> void:
+	var pile := PileWorld.new()
+	add_child(pile)
+	var no_obstacles: Array[Rect2] = []
+	pile.build(Rect2(0, 0, 28, 14), no_obstacles, 7)
+
+	# Stack 40 cards in one spot and look at the top one from low down, as
+	# when crouching in a big pile: the crosshair's ray reaches the floor well
+	# past the stack, but the card you aim at is the one it meets first.
+	var spot := Vector3(6.0, 0.0, 7.0)
+	var stack: Array[int] = []
+	for id in range(100, 140):
+		pile.pick_up(id)
+		pile.drop(id, spot, 0.0)
+		stack.append(id)
+	var top := stack[-1]
+	var face := pile.card_position(top)
+	var from := face + Vector3(0.0, 0.25, 0.7)
+	var to := from + (face - from).normalized() * 3.0
+	var aimed := pile.card_on_ray(from, to)
+	_check(not aimed.is_empty() and aimed.id == top, "the card under the crosshair is the one you see, on top of the stack")
+	_check(not aimed.is_empty() and Vector3(aimed.position).distance_to(face) < 0.001, "and the aim point is on its face")
+	var floor_point := from + (to - from) * (from.y / (from.y - to.y))
+	_check(pile.top_card_at(floor_point) != top, "not the card over where the ray reaches the floor")
+
+	# Anywhere in the pile, the card hit is the first card face along the ray.
+	var right := true
+	var hits := 0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	for i in 20:
+		var at := pile.card_position(rng.randi_range(0, pile._positions.size() - 1))
+		var eye := Vector3(at.x + rng.randf_range(-1.0, 1.0), rng.randf_range(0.4, 1.6), at.z + rng.randf_range(-1.0, 1.0))
+		var end := eye + (at - eye).normalized() * 3.0
+		var expected := -1
+		var nearest := INF
+		for id in pile._positions.size():
+			if not pile.is_on_floor(id):
+				continue
+			var y := pile.card_position(id).y
+			var t := (y - eye.y) / (end.y - eye.y)
+			if t >= 0.0 and t <= 1.0 and t < nearest and pile._covers(id, Vector2(lerpf(eye.x, end.x, t), lerpf(eye.z, end.z, t))):
+				nearest = t
+				expected = id
+		var got := pile.card_on_ray(eye, end)
+		right = right and (got.id if not got.is_empty() else -1) == expected
+		hits += 1 if expected >= 0 else 0
+	_check(right and hits > 0, "the aimed card is always the first card face the ray meets (%d rays hit cards)" % hits)
+	_check(pile.card_on_ray(Vector3(6.0, 1.0, 7.0), Vector3(6.0, 1.0, 9.0)).is_empty(), "a ray above the pile meets no card")
 	pile.queue_free()
 
 
