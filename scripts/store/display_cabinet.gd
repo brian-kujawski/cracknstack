@@ -13,7 +13,9 @@ extends StaticBody3D
 ## Each shadow box has a slot: a Marker3D where a card hangs, face out (+Z),
 ## upright (+Y), centred in the box. Each holds one rare card (RareCards):
 ## slot 0 holds rare card `first_number`, the next slot the next number, and
-## so on. A card hung in its box locks in for good, with the glow and sound
+## so on. The slots fill the left half of the case (three by three, row by
+## row from the top) and then the right half, so each half shows nine cards
+## in order. A card hung in its box locks in for good, with the glow and sound
 ## of a card locking into a binder pocket.
 
 const WIDTH := 1.5
@@ -28,6 +30,8 @@ const CORNICE_HEIGHT := 0.08
 ## Shadow boxes: rows top first, columns left to right.
 const ROWS := 3
 const COLUMNS := 6
+## The case is filled in halves this many columns wide (see slots).
+const HALF_COLUMNS := COLUMNS / 2
 const SLOTS := ROWS * COLUMNS
 ## A shadow box's outside size, and how deep it stands off the back.
 const FRAME_SIZE := Vector2(0.17, 0.22)
@@ -40,7 +44,8 @@ const _BACK := 0.02
 const _LINING := 0.004
 const _MOULDING := 0.022
 
-## The slot markers, row by row from the top, left to right in each row.
+## The slot markers: the left half's nine boxes, row by row from the top
+## and left to right in each row, then the right half's.
 var slots: Array[Marker3D] = []
 ## The rare card number slot 0 holds (the next cabinet carries on from
 ## first_number + SLOTS).
@@ -251,6 +256,7 @@ func _build_frames(walnut: Material, linen: Material, brass: Material) -> void:
 	var h := FRAME_SIZE.y
 	var m := _MOULDING
 	var z := back + FRAME_DEPTH / 2
+	slots.resize(SLOTS)
 	for row in ROWS:
 		for column in COLUMNS:
 			var x := -usable.x / 2 + pitch.x * (column + 0.5)
@@ -271,11 +277,12 @@ func _build_frames(walnut: Material, linen: Material, brass: Material) -> void:
 			_box(Vector3(SLIP, inner.y - 2 * SLIP, 0.008), Vector3(x + (inner.x - SLIP) / 2, y, slip_z), gilt)
 			_box(Vector3(0.08, 0.02, 0.003), Vector3(x, y - h / 2 - 0.028, back + 0.0015), brass)
 
+			var index := column / HALF_COLUMNS * ROWS * HALF_COLUMNS + row * HALF_COLUMNS + column % HALF_COLUMNS
 			var slot := Marker3D.new()
-			slot.name = "Slot%02d" % slots.size()
+			slot.name = "Slot%02d" % index
 			slot.position = Vector3(x, y, back + 0.006 + CARD_STANDOFF)
 			add_child(slot)
-			slots.append(slot)
+			slots[index] = slot
 
 
 ## Two spotlights tucked behind the top rail, aimed down at the back of the
