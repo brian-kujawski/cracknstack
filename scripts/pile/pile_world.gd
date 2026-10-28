@@ -86,6 +86,9 @@ var _grid_cell_of := PackedInt32Array()
 
 var _height_columns := 0
 var _heights := PackedFloat32Array()
+## No card on the floor lies higher than this (it never comes down, so it may
+## be a little high), so card_on_ray() only looks where the pile can be.
+var _top := 0.0
 
 ## Cards lying on tables: card id -> LooseCard.
 var _loose := {}
@@ -319,6 +322,56 @@ func top_card_at(point: Vector3) -> int:
 			best_height = _positions[id].y
 			best = id
 	return best
+
+
+## The first card on the floor that a ray from `from` to `to` (global
+## points) meets, where it meets the card's face: {"id", "position"}, or
+## empty. This is the card you see there, however high the pile under it.
+func card_on_ray(from: Vector3, to: Vector3) -> Dictionary:
+	var a := to_local(from)
+	var b := to_local(to)
+	var d := b - a
+	# The part of the ray between the floor and the top of the pile.
+	var t0 := 0.0
+	var t1 := 1.0
+	if absf(d.y) < 1e-6:
+		if a.y < 0.0 or a.y > _top:
+			return {}
+	else:
+		var at_top := (_top - a.y) / d.y
+		var at_floor := -a.y / d.y
+		t0 = maxf(t0, minf(at_top, at_floor))
+		t1 = minf(t1, maxf(at_top, at_floor))
+	if t0 > t1:
+		return {}
+	# Every card filed in a grid cell along that part could lie across it.
+	var start := Vector2(a.x + d.x * t0, a.z + d.z * t0)
+	var end := Vector2(a.x + d.x * t1, a.z + d.z * t1)
+	var steps := ceili(start.distance_to(end) / (GRID_CELL / 2)) + 1
+	var cells := {}
+	for i in steps:
+		var cell := _grid_cell(start.lerp(end, float(i) / maxi(steps - 1, 1)))
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				var x := cell.x + dx
+				var y := cell.y + dy
+				if x >= 0 and y >= 0 and x < _grid_columns and y < _grid_rows:
+					cells[y * _grid_columns + x] = true
+	var best := -1
+	var best_t := INF
+	for cell in cells:
+		for id in _grid[cell]:
+			if _states[id] != State.ON_FLOOR or absf(d.y) < 1e-6:
+				continue
+			var t := (_positions[id].y - a.y) / d.y
+			if t < 0.0 or t > 1.0 or t >= best_t:
+				continue
+			if _covers(id, Vector2(a.x + d.x * t, a.z + d.z * t)):
+				best_t = t
+				best = id
+	if best < 0:
+		return {}
+	return {"id": best, "position": to_global(a + d * best_t)}
 
 
 ## Lifts a card out of the pile or off its table. Nothing around it moves.
@@ -607,6 +660,7 @@ func _allocate(count: int) -> void:
 	_height_columns = ceili(bounds.size.x / HEIGHT_CELL)
 	_heights.resize(_height_columns * ceili(bounds.size.y / HEIGHT_CELL))
 	_heights.fill(0.0)
+	_top = 0.0
 
 
 func _floor_material(shader: Shader, rare: bool) -> ShaderMaterial:
@@ -805,6 +859,7 @@ func _put_on_floor(id: int, p: Vector2, rotation_y: float, at_height := -1.0) ->
 	for cell in footprint:
 		_heights[cell] = maxf(_heights[cell], y)
 		_mark_surface_dirty(cell)
+	_top = maxf(_top, y)
 	_positions[id] = Vector3(p.x, y, p.y)
 	_rotations[id] = rotation_y
 	_grid_add(id)
