@@ -24,9 +24,10 @@ const BACK_PATH := "res://assets/rare_cards/rare%03d_back"
 ## The image types FaceAtlas.load_image reads, in the order they're looked for.
 const IMAGE_EXTENSIONS := ["png", "jpg", "jpeg", "webp"]
 
-## Every rare card in shadow-box order: number 1 hangs top left in the first
-## cabinet (nearest the back wall), 18 bottom right in it, then 19 to 36 the
-## same way in the second.
+## Every rare card in shadow-box order: in the first cabinet (nearest the
+## back wall), 1 to 9 fill its left half three by three from the top left,
+## and 10 to 18 its right half the same way; then 19 to 36 the same way in
+## the second.
 const LIST := [
 	"Black Lotus",
 	"Mox Emerald",
