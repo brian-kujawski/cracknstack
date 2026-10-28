@@ -2075,7 +2075,14 @@ func _test_display_cabinets() -> void:
 			break
 	# Slots read left to right facing the wall: towards the door, along +z.
 	_check(slots[0].global_position.z < slots[1].global_position.z, "slots run left to right")
-	_check(slots[0].global_position.y > slots[DisplayCabinet.COLUMNS].global_position.y, "top row first")
+	# Each case fills its left half (1-9, three by three) before its right half (10-18).
+	_check(is_equal_approx(slots[3].global_position.z, slots[0].global_position.z)
+		and slots[3].global_position.y < slots[0].global_position.y, "rare card 4 hangs under 1")
+	_check(is_equal_approx(slots[9].global_position.y, slots[0].global_position.y)
+		and slots[9].global_position.z > slots[2].global_position.z, "rare card 10 starts the right half's top row")
+	_check(is_equal_approx(slots[17].global_position.y, slots[8].global_position.y)
+		and slots[17].global_position.z > slots[16].global_position.z, "rare card 18 ends the right half's bottom row")
+	_check(slots[0].global_position.y > slots[DisplayCabinet.HALF_COLUMNS].global_position.y, "top row first")
 	_check(slots[DisplayCabinet.SLOTS].global_position.z > slots[DisplayCabinet.SLOTS - 1].global_position.z, "back cabinet first")
 	# Nothing on the floor lands in a cabinet.
 	for z in store_script.CABINET_ZS:
