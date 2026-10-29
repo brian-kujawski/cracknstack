@@ -16,8 +16,8 @@ number, plain whole numbers from 1 to the set's printed size, no promos,
 variants, showcase or borderless frames (plan §3.3). A set whose kept cards
 don't run 1..N with no gaps is reported and left out.
 
---list and --all cover the core and expansion sets and the four Un- sets
-(Unglued, Unhinged, Unstable, Unfinity); any other set can still be added
+--list and --all cover the core and expansion sets and the five Un- sets
+(Unglued, Unhinged, Unstable, Unsanctioned, Unfinity); any other set can be added
 by its code. Unstable's and Unfinity's lettered variants (3a-3f) keep only
 their first version, like any other lettered card.
 
@@ -86,7 +86,7 @@ DEFAULT_LIST_TYPES = ("core", "expansion")
 # Sets of other types that --list shows too: the Un- sets (Scryfall calls
 # them "funny", along with playtest cards and convention giveaways we don't
 # want).
-DEFAULT_LIST_EXTRAS = ("ugl", "unh", "ust", "unf")
+DEFAULT_LIST_EXTRAS = ("ugl", "unh", "ust", "und", "unf")
 SET_LIST_PATH = "scryfall-sets.json"
 SET_LIST_MAX_AGE = 7 * 24 * 3600  # seconds before --list fetches the set list again
 
