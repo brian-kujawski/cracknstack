@@ -24,6 +24,7 @@ Achievements="*res://scripts/progression/achievements.gd"
 SceneFlow="*res://scripts/ui/scene_flow.gd"
 Settings="*res://scripts/settings/settings.gd"
 Saves="*res://scripts/save/saves.gd"
+Radio="*res://scripts/audio/radio.gd"
 
 [display]
 

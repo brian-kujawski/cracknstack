@@ -1,0 +1,170 @@
+class_name RadioMenu
+extends CanvasLayer
+## The radio's menu (plan: sound-plan.md §7.2). Q (Controls.RADIO) stops the
+## game and shows what's playing, Previous / Play / Next / Repeat, the
+## radio's own volume, and every song: unlocked ones by title (click one to
+## play it), locked ones as ???. Q or Esc goes back in. A radio in the shop
+## to open it from comes later.
+
+const LIST_SIZE := Vector2(560, 330)
+const SMALL_BUTTON := Vector2(150, 56)
+
+## For the tests.
+var title_label: Label
+var time_label: Label
+var play_button: Button
+var repeat_button: Button
+var volume_slider: HSlider
+## One button per song, in order.
+var song_buttons: Array[Button] = []
+
+
+func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	layer = 9
+	var backdrop := MenuStyle.backdrop()
+	add_child(backdrop)
+	var column := MenuStyle.centred_column(18)
+	backdrop.add_child(column)
+	column.add_child(MenuStyle.heading("RADIO", 48))
+	title_label = MenuStyle.heading("", 32)
+	column.add_child(title_label)
+	time_label = MenuStyle.heading("", MenuStyle.SMALL_FONT_SIZE)
+	column.add_child(time_label)
+
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 12)
+	column.add_child(buttons)
+	var previous := _small_button("Previous", Radio.previous)
+	buttons.add_child(previous)
+	play_button = _small_button("Play", Radio.toggle_playing)
+	buttons.add_child(play_button)
+	buttons.add_child(_small_button("Next", Radio.next))
+	repeat_button = _small_button("", func() -> void: Radio.set_repeat(not Radio.repeat))
+	buttons.add_child(repeat_button)
+
+	var volume_row := HBoxContainer.new()
+	volume_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	volume_row.add_theme_constant_override("separation", 16)
+	column.add_child(volume_row)
+	var volume_name := Label.new()
+	volume_name.text = "Volume"
+	volume_name.add_theme_font_size_override("font_size", MenuStyle.BUTTON_FONT_SIZE)
+	volume_row.add_child(volume_name)
+	volume_slider = HSlider.new()
+	volume_slider.custom_minimum_size = Vector2(320, 0)
+	volume_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	volume_slider.max_value = 1.0
+	volume_slider.step = 0.05
+	volume_slider.scrollable = false
+	volume_slider.focus_mode = Control.FOCUS_NONE
+	volume_row.add_child(volume_slider)
+	var volume_shown := Label.new()
+	volume_shown.custom_minimum_size = Vector2(70, 0)
+	volume_shown.add_theme_font_size_override("font_size", MenuStyle.BUTTON_FONT_SIZE)
+	volume_row.add_child(volume_shown)
+	volume_slider.value_changed.connect(func(value: float) -> void:
+		volume_shown.text = "%d%%" % roundi(value * 100.0)
+		if not is_equal_approx(value, Radio.volume):
+			Radio.set_volume(value))
+	volume_slider.value = Radio.volume
+	volume_shown.text = "%d%%" % roundi(Radio.volume * 100.0)
+
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = LIST_SIZE
+	scroll.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 6)
+	scroll.add_child(list)
+	for index in Radio.songs.size():
+		var song := Button.new()
+		song.focus_mode = Control.FOCUS_NONE
+		song.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		song.add_theme_font_size_override("font_size", MenuStyle.SMALL_FONT_SIZE + 2)
+		song.pressed.connect(Radio.play_song.bind(index))
+		list.add_child(song)
+		song_buttons.append(song)
+
+	var back := MenuStyle.menu_button("Back")
+	back.pressed.connect(close)
+	column.add_child(back)
+
+	Radio.changed.connect(refresh)
+	refresh()
+	visible = false
+
+
+func _small_button(text: String, pressed: Callable) -> Button:
+	var button := MenuStyle.menu_button(text)
+	button.custom_minimum_size = SMALL_BUTTON
+	button.pressed.connect(pressed)
+	return button
+
+
+func _process(_delta: float) -> void:
+	if visible:
+		_refresh_time()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed(Controls.RADIO) or (visible and event.is_action_pressed(Controls.PAUSE)):
+		if visible:
+			close()
+		elif not get_tree().paused:
+			open()
+		else:
+			return
+		get_viewport().set_input_as_handled()
+
+
+func is_open() -> bool:
+	return visible
+
+
+func open() -> void:
+	refresh()
+	visible = true
+	get_tree().paused = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func close() -> void:
+	visible = false
+	get_tree().paused = false
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+## Redraws what's playing, the buttons and the song list.
+func refresh() -> void:
+	if Radio.current >= 0:
+		title_label.text = Radio.songs[Radio.current].title
+	else:
+		title_label.text = "Nothing playing"
+	play_button.text = "Pause" if Radio.playing else "Play"
+	repeat_button.text = "Repeat: On" if Radio.repeat else "Repeat: Off"
+	for index in song_buttons.size():
+		var button := song_buttons[index]
+		if Radio.is_unlocked(index):
+			button.text = "%s%02d   %s" % ["▶ " if index == Radio.current else "    ", index + 1, Radio.songs[index].title]
+			button.disabled = false
+		else:
+			button.text = "    %02d   ???" % (index + 1)
+			button.disabled = true
+	_refresh_time()
+
+
+## "1:23 / 3:40", or the song count before anything's played.
+func _refresh_time() -> void:
+	if Radio.current < 0:
+		time_label.text = "%d of %d songs unlocked" % [Radio.unlocked_count, Radio.songs.size()]
+	else:
+		time_label.text = "%s / %s" % [clock(Radio.position()), clock(Radio.length())]
+
+
+static func clock(seconds: float) -> String:
+	var whole := int(seconds)
+	return "%d:%02d" % [whole / 60, whole % 60]
