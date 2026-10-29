@@ -72,6 +72,7 @@ func _ready() -> void:
 	await _test_binder_toss()
 	_test_save_files()
 	await _test_shop_save()
+	await _test_turn_over()
 	await _test_rare_cards()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
@@ -794,6 +795,97 @@ func _test_inspect_tilt() -> void:
 		_check(tilted_corner > near, "a tilted card up close should clear the near plane at fov %s: %s" % [fov, tilted_corner])
 
 
+## R turns the card up close over and T sideways; lowering it undoes both.
+func _test_turn_over() -> void:
+	var face_up := Hands.held_basis(Vector3.ZERO, 0.0)
+	var back := Hands.held_basis(Vector3.ZERO, 1.0)
+	_check(face_up.z.is_equal_approx(Vector3.BACK) and back.z.is_equal_approx(Vector3.FORWARD), "turned over, the face points away: %s" % back.z)
+	_check(back.y.is_equal_approx(Vector3.UP), "turning over keeps the card upright: %s" % back.y)
+	var tipped := Vector3(0.2, 0.0, 0.0)
+	_check(signf(Hands.held_basis(tipped, 1.0).y.z) == signf(Hands.held_basis(tipped, 0.0).y.z), "the mouse tips the top the same way on either side")
+	# Sideways, the card's top edge points right: a clockwise quarter turn,
+	# on either side.
+	_check(Hands.held_basis(Vector3.ZERO, 0.0, 1.0).y.is_equal_approx(Vector3.RIGHT), "T turns the card clockwise")
+	_check(Hands.held_basis(Vector3.ZERO, 1.0, 1.0).y.is_equal_approx(Vector3.RIGHT), "T turns the back clockwise too")
+
+	Saves.begin_new_game()
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var pile: PileWorld = main.get_node("Pile")
+	var hands: Hands = main.get_node("Player/Hands")
+	var id := _first_binder_cards()[0]
+	pile.pick_up(id)
+	hands.restore_hand([id] as Array[int])
+	hands._set_zoomed(true)
+	await get_tree().create_timer(hands.zoom_seconds + 0.1).timeout
+	hands.turn_over(true)
+	hands.turn_sideways(true)
+	await get_tree().create_timer(hands.turn_over_seconds + 0.1).timeout
+	_check(hands._sideways and is_equal_approx(hands._sideways_amount, 1.0), "T turns the card up close sideways")
+	_check(hands._held_view.basis.y.x > 0.9, "its top edge points right: %s" % hands._held_view.basis.y)
+	_check(hands._turned_over and is_equal_approx(hands._turn_amount, 1.0), "R turns the card up close over")
+	_check(hands._held_view.basis.z.z < -0.9, "its back faces you: %s" % hands._held_view.basis.z)
+	hands._set_zoomed(false)
+	await get_tree().create_timer(hands.zoom_seconds + 0.1).timeout
+	_check(not hands._turned_over and is_zero_approx(hands._turn_amount), "lowering the card turns it face up again")
+	_check(not hands._sideways and is_zero_approx(hands._sideways_amount), "lowering the card turns it upright again")
+	_check(hands._held_view.basis.z.z > 0.5, "the lowered card faces you: %s" % hands._held_view.basis.z)
+	hands._set_zoomed(true)
+	hands.turn_over(true, 0.0)
+	hands.turn_sideways(true, 0.0)
+	hands._release_top()
+	_check(not hands._turned_over and is_zero_approx(hands._turn_amount) and not hands._sideways and is_zero_approx(hands._sideways_amount),
+		"a card leaving the hand clears both turns")
+
+	# Empty-handed, F on a card in an open binder brings it up close; F again
+	# sends it home. It never leaves its pocket.
+	var binder := pile.binders[0]
+	binder.place(pile, Transform3D(Basis(), Vector3(2.0, 0.2, 2.0)), 0)
+	var pocketed := _first_binder_cards()[1]
+	pile.pick_up(pocketed)
+	binder.insert(1, pocketed)
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._aim_pocket = 0
+	_check(not hands.view_aimed(), "an empty pocket has nothing to look at")
+	hands._aim_pocket = 1
+	_check(hands.view_aimed() and hands._viewed_id == pocketed and hands.shown_card_id() == pocketed, "F brings a pocketed card up close")
+	_check(not binder._pocket_view(1).visible, "its pocket shows empty meanwhile")
+	await _finish_glide(hands)
+	_check(hands._held_view.basis.z.z > 0.9 and hands._held_view.position.is_equal_approx(Vector3(0, 0, -Hands.zoomed_distance(hands._camera.fov, PileWorld.CARD_SIZE.y))),
+		"it's up close, square to you: %s" % hands._held_view.position)
+	hands.turn_over(true, 0.0)
+	hands.turn_sideways(true, 0.0)
+	_check(hands._held_view.basis.z.z < -0.9, "R works on it too")
+	hands._end_viewing()
+	await _finish_glide(hands)
+	_check(hands._viewed_id < 0 and not hands._held_view.visible and binder._pocket_view(1).visible, "F again puts it back in its pocket: %s %s %s" % [hands._viewed_id, hands._held_view.visible, binder._pocket_view(1).visible])
+	_check(binder.contents.card_at(1) == pocketed and binder.contents.is_locked(1), "still locked in")
+	_check(is_zero_approx(hands._turn_amount) and is_zero_approx(hands._sideways_amount), "face up and upright again")
+
+	# The same for a rare card in its shadow box, aimed at through the glass.
+	var cabinet: DisplayCabinet = main.get_node("Store").cabinets[0]
+	var rare := CardDatabase.rare_cards()[0]
+	pile.pick_up(rare.id)
+	cabinet.display(rare.id, false)
+	var box := cabinet.slot_pose(0)
+	_check(cabinet.slot_on_ray(box.origin + box.basis.z * 1.0, box.origin - box.basis.z * 0.1) == 0, "a ray into a shadow box finds it")
+	_check(cabinet.slot_on_ray(box.origin + box.basis.z * 1.0 + box.basis.x * 0.5, box.origin - box.basis.z * 0.1 + box.basis.x * 0.5) != 0, "and not from beside it")
+	hands._aim = Hands.Aim.CABINET
+	hands._aim_cabinet = cabinet
+	hands._aim_slot = 1
+	_check(not hands.view_aimed(), "an empty shadow box has nothing to look at")
+	hands._aim_slot = 0
+	_check(hands.view_aimed() and hands._viewed_id == rare.id and not cabinet._views[0].visible, "F brings a displayed rare card up close")
+	await _finish_glide(hands)
+	hands._end_viewing()
+	await _finish_glide(hands)
+	_check(hands._viewed_id < 0 and cabinet._views[0].visible and cabinet.displayed[0] == rare.id, "and back into its box")
+	main.free()
+
+
 func _test_glide() -> void:
 	var up := Glide.flat_card(Vector3.ZERO, Basis.IDENTITY)
 	_check(up.basis.z.is_equal_approx(Vector3.UP), "a face-up card's face should point up: %s" % up.basis.z)
@@ -812,6 +904,8 @@ func _test_controls() -> void:
 	for entry in Controls.ACTIONS:
 		_check(not Controls.events(entry[0]).is_empty(), "%s has a default binding" % entry[0])
 	_check(Controls.label(Controls.INTERACT) == "E", "interact shows as E, got " + Controls.label(Controls.INTERACT))
+	_check(Controls.label(Controls.FLIP_CARD) == "R", "turning a card over shows as R, got " + Controls.label(Controls.FLIP_CARD))
+	_check(Controls.label(Controls.TURN_SIDEWAYS) == "T", "turning a card sideways shows as T, got " + Controls.label(Controls.TURN_SIDEWAYS))
 	_check(Controls.label(Controls.USE_HAND) == "click", "use hand shows as click")
 	_check(Controls.pair_label(Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS) == "scroll", "page turning shows as scroll")
 
