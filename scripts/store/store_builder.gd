@@ -57,9 +57,9 @@ const SIDE_TABLE_AT := Vector2(0.76, 3.34)
 const FLOOR_LAMP_AT := Vector2(0.32, 3.97)
 const ARMCHAIR_AT := Vector2(0.91, 4.54)
 const ARMCHAIR_YAW := deg_to_rad(116.0)
-## The radio sits toward the back of the side table, facing out into the room.
-const RADIO_ON_TABLE := Vector2(0.07, -0.13)
-const RADIO_YAW := deg_to_rad(60.0)
+## The radio sits across the side table, facing out into the room.
+const RADIO_ON_TABLE := Vector2(0.0, -0.05)
+const RADIO_YAW := deg_to_rad(70.0)
 ## The store's wood (assets/store/table_wood): tables, cabinets, the binder
 ## shelf, window frames and the door. And how many metres of real wood one
 ## copy of its texture covers.
@@ -324,9 +324,7 @@ func _build_reading_corner() -> void:
 	_place(lamp, FLOOR_LAMP_AT, 0.0, Vector2.ONE * ReadingCorner.LAMP_BASE)
 	radio = ShopRadio.new()
 	radio.name = "ShopRadio"
-	var cloth := _textured(CURTAIN, CURTAIN_SIZE)
-	cloth.albedo_color = Color(0.55, 0.45, 0.3)
-	radio.build(_table_material, cloth, _brass_material)
+	radio.build()
 	var on := SIDE_TABLE_AT + RADIO_ON_TABLE
 	radio.position = Vector3(on.x, ReadingCorner.TABLE_HEIGHT, on.y)
 	radio.rotation.y = RADIO_YAW
