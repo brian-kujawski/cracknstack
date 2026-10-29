@@ -81,7 +81,7 @@ const PLASTER_SIZE := 2.0
 ## brown, and how many metres one copy of it covers.
 const LEATHER := "leather"
 const LEATHER_SIZE := 0.4
-const CHAIR_LEATHER := Color(0.62, 0.4, 0.27)
+const CHAIR_LEATHER := Color(0.4, 0.23, 0.14)
 ## Polished brass for the door and cabinet hardware and the curtain rods
 ## (assets/store/brass), and how many metres one copy of it covers.
 const BRASS := "brass"
