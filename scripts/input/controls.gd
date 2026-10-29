@@ -25,6 +25,7 @@ const FLIP_NEXT := &"flip_next"
 const FLIP_PREVIOUS := &"flip_previous"
 const PAUSE := &"pause"
 const UPGRADES := &"upgrades"
+const RADIO := &"radio"
 ## Sorceries, one key each, in Magic's colour order (white, blue, black,
 ## red, green): 1-5. Each is added as it's built.
 const CAST_TITHE := &"cast_tithe"
@@ -48,6 +49,7 @@ const ACTIONS := [
 	[FLIP_PREVIOUS, "Previous page"],
 	[PAUSE, "Pause"],
 	[UPGRADES, "Upgrades"],
+	[RADIO, "Radio"],
 	[CAST_TITHE, "Cast Tithe"],
 	[CAST_TELEPORT, "Cast Teleport"],
 	[CAST_DEMONIC_TUTOR, "Cast Demonic Tutor"],
@@ -67,6 +69,7 @@ const DEFAULT_KEYS := {
 	INTERACT: [KEY_E],
 	PAUSE: [KEY_ESCAPE],
 	UPGRADES: [KEY_TAB],
+	RADIO: [KEY_Q],
 	CAST_TITHE: [KEY_1],
 	CAST_TELEPORT: [KEY_2],
 	CAST_DEMONIC_TUTOR: [KEY_3],

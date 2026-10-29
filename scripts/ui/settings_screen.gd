@@ -87,6 +87,7 @@ const KEY_ROWS := [
 		["", [Controls.INTERACT]],
 		["Turn pages", [Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS]],
 		["", [Controls.UPGRADES]],
+		["", [Controls.RADIO]],
 		["", [Controls.PAUSE]],
 	]],
 ]

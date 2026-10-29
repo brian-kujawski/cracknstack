@@ -5,6 +5,7 @@ extends Node
 
 const SETTINGS_TEST_PATH := "user://test_settings.cfg"
 const SAVES_TEST_DIR := "user://test_saves"
+const RADIO_TEST_PATH := "user://test_radio.cfg"
 
 var _failures := 0
 var _checks := 0
@@ -18,6 +19,7 @@ func _ready() -> void:
 	Settings.save_path = SETTINGS_TEST_PATH
 	Settings.reset_all()
 	Saves.save_dir = SAVES_TEST_DIR
+	Radio.load_from(RADIO_TEST_PATH)
 	_clear_test_saves()
 	_test_database_loaded()
 	_test_collector_numbers_are_contiguous()
@@ -53,6 +55,7 @@ func _ready() -> void:
 	await _test_credits_roll()
 	_test_progression()
 	_test_upgrade_menu()
+	_test_radio()
 	_test_sorcery_recharge()
 	_test_step_one_upgrades()
 	_test_demonic_tutor()
@@ -62,6 +65,7 @@ func _ready() -> void:
 	await _test_steps_five_to_seven()
 	_test_day_cycle()
 	_test_display_cabinets()
+	await _test_reading_corner()
 	await _test_crouch()
 	await _test_lean_over_table()
 	await _test_table_cards()
@@ -72,6 +76,7 @@ func _ready() -> void:
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
 	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
+	DirAccess.remove_absolute(RADIO_TEST_PATH)
 	print("%d checks, %d failed" % [_checks, _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
 
@@ -851,6 +856,32 @@ func _test_settings() -> void:
 	Settings.change("effects_volume", 0.0)
 	_check(AudioServer.is_bus_mute(effects), "0% mutes the bus")
 	_check(FeedbackSounds.stream(FeedbackSounds.Kind.CARD_LOCKED) != null, "feedback sounds still build")
+	_check(AudioServer.get_bus_effect_count(effects) == 1 and AudioServer.get_bus_effect(effects, 0) is AudioEffectHardLimiter,
+		"the Effects bus ends in a limiter, so a burst of sounds can't clip")
+	FeedbackSounds.reset()
+	var card := FeedbackSounds.Kind.CARD_LOCKED
+	var burst: Array = []
+	for i in 12:
+		burst.append(FeedbackSounds.schedule(100.0, card))
+	_check(burst.all(func(slot: Array) -> bool: return slot[0] >= 0.0), "no chime is scheduled in the past")
+	var spaced := true
+	var climbing := true
+	for i in range(1, burst.size()):
+		spaced = spaced and is_equal_approx(burst[i][0] - burst[i - 1][0], FeedbackSounds.SPACING)
+		climbing = climbing and burst[i][1] >= burst[i - 1][1]
+	_check(spaced, "chimes asked for on the same frame start one SPACING apart, not all at once")
+	_check(climbing and burst[1][1] > burst[0][1], "a run of card chimes climbs the scale")
+	_check(is_equal_approx(burst[0][1], pow(2.0, FeedbackSounds.RUN_SCALE[0] / 12.0))
+		and is_equal_approx(burst[11][1], pow(2.0, FeedbackSounds.RUN_SCALE[-1] / 12.0)),
+		"the run starts at the bottom of the scale and stays on its top step")
+	var big: Array = FeedbackSounds.schedule(100.0, FeedbackSounds.Kind.PAGE_COMPLETE)
+	_check(big[1] == 1.0 and big[0] > burst[11][0], "a page chime waits its turn at its own pitch")
+	var later: float = 100.0 + big[0] + FeedbackSounds.RUN_RESET + 0.5
+	var fresh: Array = FeedbackSounds.schedule(later, card)
+	_check(fresh[0] == 0.0 and is_equal_approx(fresh[1], burst[0][1]), "after a pause the next chime plays at once, back at the bottom")
+	var next: Array = FeedbackSounds.schedule(later + 0.5, card)
+	_check(next[0] == 0.0 and next[1] > fresh[1], "unhurried filing keeps climbing within the run")
+	FeedbackSounds.reset()
 
 	Settings.change("quality", 0)
 	_check(Settings.value("render_scale") == 2 and Settings.value("shadows") == 0 and Settings.value("anti_aliasing") == 0,
@@ -1379,6 +1410,79 @@ func _test_progression() -> void:
 	Progression.reset()
 	Progression.allow_debt = OS.is_debug_build()
 	unit.free() # The shelved binder goes with it.
+
+
+func _test_radio() -> void:
+	_check(Radio.title_from("07_rainy_tuesday.ogg") == "Rainy Tuesday" and Radio.title_from("lofi_night.mp3") == "Lofi Night",
+		"a song's title comes from its file name, without its number")
+	_check(Radio.unlocked_at(0.0, 10) == 3 and Radio.unlocked_at(1.0, 10) == 10 and Radio.unlocked_at(0.5, 10) == 7,
+		"three songs from the start, the rest spread evenly over the game")
+	_check(Radio.unlocked_at(0.99, 2) == 2 and Radio.unlocked_at(0.0, 0) == 0, "fewer songs than the free ones are all there")
+	var empty := "user://test_radio_songs"
+	DirAccess.make_dir_recursive_absolute(empty)
+	_check(Radio.find_songs(empty).size() == Radio.PLACEHOLDERS.size() and Radio.find_songs(empty)[0].path == "",
+		"with no songs in the folder, the placeholder tunes stand in")
+	FileAccess.open(empty.path_join("02_second.ogg.import"), FileAccess.WRITE).store_string("")
+	FileAccess.open(empty.path_join("01_first_song.ogg"), FileAccess.WRITE).store_string("")
+	FileAccess.open(empty.path_join("notes.txt"), FileAccess.WRITE).store_string("")
+	var found := Radio.find_songs(empty)
+	_check(found.size() == 2 and found[0].title == "First Song" and found[1].path.ends_with("02_second.ogg"),
+		"real songs replace the placeholders, in number order, also as an exported game lists them")
+	for file in DirAccess.get_files_at(empty):
+		DirAccess.remove_absolute(empty.path_join(file))
+	DirAccess.remove_absolute(empty)
+
+	var unlocked: Array[int] = []
+	Radio.song_unlocked.connect(func(index: int) -> void: unlocked.append(index))
+	Radio.playing = false
+	Radio.enter_shop(0.5)
+	_check(Radio.unlocked_count == 4 and unlocked.is_empty(), "a loaded game has the songs its progress earned, without announcing them")
+	Radio.set_progress(0.9)
+	_check(Radio.unlocked_count == 5 and unlocked == [4], "a song unlocking during play is announced")
+	Radio.enter_shop(0.0)
+	_check(Radio.unlocked_count == 3 and Radio.current == -1, "a new game starts with the free songs")
+	Radio.play_song(4)
+	_check(Radio.current == -1, "a locked song can't be played")
+	Radio.play_song(0)
+	_check(Radio.current == 0 and Radio.playing, "an unlocked song plays")
+	Radio.next()
+	Radio.next()
+	Radio.next()
+	_check(Radio.current == 0, "Next goes round the unlocked songs")
+	Radio.previous()
+	_check(Radio.current == 2, "Previous at the start of a song goes back one, round the list")
+	Radio.toggle_playing()
+	_check(not Radio.playing, "Pause stops the radio")
+	Radio.toggle_playing()
+	_check(Radio.playing and Radio.current == 2, "Play carries on with the same song")
+	Radio.set_volume(0.4)
+	Radio.set_repeat(true)
+	Radio.volume = 1.0
+	Radio.repeat = false
+	Radio.load_from(RADIO_TEST_PATH)
+	_check(is_equal_approx(Radio.volume, 0.4) and Radio.repeat and Radio.playing, "volume, repeat and playing are remembered")
+
+	var menu := RadioMenu.new()
+	add_child(menu)
+	_check(menu.song_buttons.size() == Radio.songs.size(), "the menu lists every song")
+	_check(menu.song_buttons[3].disabled and menu.song_buttons[3].text.ends_with("???")
+		and menu.song_buttons[2].text.contains(Radio.songs[2].title), "locked songs show as ???, unlocked ones by title")
+	_check(menu.title_label.text == Radio.songs[2].title and menu.play_button.text == "Pause" and menu.repeat_button.text == "Repeat: On",
+		"the menu shows what's playing, Pause and repeat")
+	menu.song_buttons[1].pressed.emit()
+	_check(Radio.current == 1 and menu.title_label.text == Radio.songs[1].title, "clicking a song plays it")
+	_check(Controls.label(Controls.RADIO) == "Q", "the radio is on Q")
+	var q := InputEventAction.new()
+	q.action = Controls.RADIO
+	q.pressed = true
+	menu._unhandled_input(q)
+	_check(menu.is_open() and get_tree().paused, "Q opens the radio and stops the game")
+	menu._unhandled_input(q)
+	_check(not menu.is_open() and not get_tree().paused, "Q closes it again")
+	menu.free()
+	Radio.leave_shop()
+	Radio.set_repeat(false)
+	_check(RadioMenu.clock(83.4) == "1:23", "song times show as minutes and seconds")
 
 
 func _test_upgrade_menu() -> void:
@@ -2110,6 +2214,67 @@ func _land_tossed(pile: PileWorld) -> void:
 			while not child.is_queued_for_deletion() and steps < 600:
 				child._physics_process(1.0 / 60.0)
 				steps += 1
+func _test_reading_corner() -> void:
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var store: Node3D = store_script.new()
+	add_child(store)
+	var pieces: Array[Rect2] = []
+	for name in ["Armchair", "SideTable", "FloorLamp"]:
+		var piece: Node3D = store.get_node(name)
+		_check(piece.is_in_group(ReadingCorner.FURNITURE), "the %s is furniture" % name)
+		var at := Vector2(piece.position.x, piece.position.z)
+		var footprint: Rect2 = store.obstacles.filter(func(r: Rect2) -> bool: return r.has_point(at)).front()
+		pieces.append(footprint)
+	var tables: Array[Rect2] = []
+	for center in store_script.TABLE_CENTERS:
+		var size := Vector2(store_script.TABLE_SIZE.x, store_script.TABLE_SIZE.z)
+		tables.append(Rect2(center - size / 2, size))
+	var room: Rect2 = store.floor_bounds()
+	var clear := pieces.all(func(r: Rect2) -> bool:
+		return room.encloses(r) and r.position.x < 0.5 and not tables.any(func(t: Rect2) -> bool: return t.intersects(r)))
+	_check(clear, "the reading corner stands against the left-hand wall, clear of the walls and work tables")
+	_check(not pieces[1].intersects(pieces[2]) and not pieces[0].intersects(pieces[1]), "the chair, table and lamp don't overlap")
+	var chair: Node3D = store.get_node("Armchair")
+	_check(chair.global_basis.z.x > 0.5 and chair.global_basis.z.z < 0.0, "the chair faces the room, angled toward the back tables")
+	var radio: ShopRadio = store.radio
+	_check(is_equal_approx(radio.global_position.y, ReadingCorner.TABLE_HEIGHT) and pieces[1].has_point(Vector2(radio.global_position.x, radio.global_position.z)),
+		"the radio sits on the side table")
+	_check(radio.global_basis.z.x > 0.5, "facing out into the room")
+	var mesh := ReadingCorner.rounded_box(Vector3(0.4, 0.2, 0.3), 0.05)
+	var bounds := mesh.get_aabb()
+	var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var corner := vertices.size() > 0
+	for v in vertices:
+		if Vector3(absf(v.x), absf(v.y), absf(v.z)).distance_to(Vector3(0.15, 0.05, 0.1)) > 0.0501 and absf(v.x) > 0.15 and absf(v.y) > 0.05 and absf(v.z) > 0.1:
+			corner = false
+	_check(bounds.size.is_equal_approx(Vector3(0.4, 0.2, 0.3)) and corner, "a rounded box keeps its size and rounds its corners")
+	store.free()
+
+	# In the shop, clicking the radio opens the Radio menu; the rest of the corner does nothing.
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var hands: Hands = main.get_node("Player/Hands")
+	var camera: Camera3D = main.get_node("Player/Camera3D")
+	var shop_radio: ShopRadio = main.get_node("Store").radio
+	var target := shop_radio.global_position + Vector3.UP * ShopRadio.SIZE.y / 2
+	camera.global_transform = Transform3D(Basis(), target + shop_radio.global_basis.z * 1.2 + Vector3.UP * 0.4).looking_at(target)
+	hands._update_aim()
+	_check(hands._aim == Hands.Aim.RADIO, "aiming at the radio")
+	var menu: RadioMenu = main.find_children("*", "RadioMenu", false, false).front()
+	hands._use_hand()
+	_check(menu.is_open() and get_tree().paused, "clicking it opens the Radio menu")
+	menu.close()
+	_check(not get_tree().paused, "and it closes again")
+	var seat: Node3D = main.get_node("Store/Armchair")
+	var cushion := seat.global_position + Vector3.UP * ReadingCorner.SEAT_HEIGHT
+	camera.global_transform = Transform3D(Basis(), cushion + seat.global_basis.z * 1.2 + Vector3.UP * 0.8).looking_at(cushion)
+	hands._update_aim()
+	_check(hands._aim == Hands.Aim.NONE, "the armchair's seat isn't somewhere to put things down")
+	main.free()
+
+
 func _test_display_cabinets() -> void:
 	var store_script := preload("res://scripts/store/store_builder.gd")
 	var store: Node3D = store_script.new()

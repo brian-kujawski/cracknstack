@@ -66,8 +66,10 @@ signal shown_card_changed(card: CardData, set_only: bool)
 signal hint_changed(text: String)
 ## The first rare card of the game came to hand (the shop explains them).
 signal rare_card_found
+## The shop's radio was clicked (the shop opens the Radio menu).
+signal radio_used
 
-enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET }
+enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO }
 
 ## How far from the eye the player can reach, and with Spider Climb.
 @export var reach := 2.6
@@ -362,6 +364,9 @@ func _gliding() -> bool:
 
 
 func _use_hand() -> void:
+	if _aim == Aim.RADIO:
+		radio_used.emit()
+		return
 	if carried_binder != null:
 		if _aim == Aim.SHELF:
 			_shelve_carried_binder()
@@ -504,7 +509,7 @@ func shunt_pocket(binder: Binder) -> int:
 func _file(binder: Binder, pocket: int, id: int) -> void:
 	var result := binder.insert(pocket, id)
 	if result != BinderContents.Result.LOCKED:
-		return # Misplaced: it stays in the pocket glowing red, and makes no sound.
+		return # Misplaced: it stays in the pocket glowing red, with no chime.
 	Progression.card_filed_by_hand()
 	_locked_in(binder, pocket)
 	if binder.contents.is_page_complete(pocket / BinderLayout.POCKETS_PER_PAGE):
@@ -1043,6 +1048,10 @@ func _update_aim() -> void:
 	elif collider is DisplayCabinet:
 		_aim = Aim.CABINET
 		_aim_cabinet = collider
+	elif collider is ShopRadio:
+		_aim = Aim.RADIO
+	elif collider is Node and (collider as Node).is_in_group(ReadingCorner.FURNITURE):
+		return # Nothing to do with the armchair, the side table or the lamp.
 	elif collider is ShelfUnit:
 		var space: int = collider.space_at(hit.position)
 		if space < 0:
@@ -1069,7 +1078,14 @@ func _update_hover() -> void:
 
 
 func _update_hint() -> void:
-	var text := _binder_hint(_aim_binder) if _aim == Aim.BINDER else (_cabinet_hint() if _aim == Aim.CABINET else "")
+	var text := ""
+	match _aim:
+		Aim.BINDER:
+			text = _binder_hint(_aim_binder)
+		Aim.CABINET:
+			text = _cabinet_hint()
+		Aim.RADIO:
+			text = _radio_hint()
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
@@ -1161,6 +1177,13 @@ func _cabinet_hint() -> String:
 		shown += cabinet.displayed_count()
 		total += cabinet.slots.size()
 	return "Rare Cards Displayed: %d/%d" % [shown, total]
+
+
+## What's on the radio, or that it's off.
+static func _radio_hint() -> String:
+	if not Radio.playing or Radio.current < 0:
+		return "Radio: Off"
+	return "Radio: %s" % Radio.songs[Radio.current].title
 
 
 ## A pocket shows its number, and the card's name once its own card is locked
