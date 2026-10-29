@@ -25,6 +25,8 @@ Controls:
 | E | Open or close the binder you're looking at |
 | Mouse wheel | Turn the pages of the open binder you're looking at. Holding several cards (Harmonize), aimed anywhere else: cycle which card is on top |
 | F | Bring the held card up close to inspect it (the view holds still and the mouse tilts the card; F again lowers it) |
+| R | Turn the card up close over to look at its back (R again turns it face up; lowering it with F always does) |
+| T | Turn the card up close a quarter turn clockwise, to read split cards printed sideways (T again turns it upright; lowering it with F always does) |
 | Esc | Pause menu: Resume (or Esc again), Save/Load, Achievements, Settings, Exit Game (to the main menu or the desktop, saving first or not) |
 | Tab | Upgrade menu: spend Mana on upgrades (Tab or Esc to go back in) |
 | 1 | Cast Tithe, once learned: holding or looking at a binder, some of its missing cards light up wherever they lie in the pile |

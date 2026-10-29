@@ -20,6 +20,8 @@ const CROUCH := &"crouch"
 const USE_HAND := &"use_hand"
 const TOSS := &"toss"
 const INSPECT := &"inspect"
+const FLIP_CARD := &"flip_card"
+const TURN_SIDEWAYS := &"turn_sideways"
 const INTERACT := &"interact"
 const FLIP_NEXT := &"flip_next"
 const FLIP_PREVIOUS := &"flip_previous"
@@ -44,6 +46,8 @@ const ACTIONS := [
 	[USE_HAND, "Pick up, put down, file, shelve"],
 	[TOSS, "Toss the held card or binder, or flip the pile"],
 	[INSPECT, "Inspect the held card"],
+	[FLIP_CARD, "Turn the inspected card over"],
+	[TURN_SIDEWAYS, "Turn the inspected card sideways"],
 	[INTERACT, "Open or close a binder"],
 	[FLIP_NEXT, "Next page"],
 	[FLIP_PREVIOUS, "Previous page"],
@@ -66,6 +70,8 @@ const DEFAULT_KEYS := {
 	MOVE_RIGHT: [KEY_D, KEY_RIGHT],
 	CROUCH: [KEY_CTRL, KEY_C],
 	INSPECT: [KEY_F],
+	FLIP_CARD: [KEY_R],
+	TURN_SIDEWAYS: [KEY_T],
 	INTERACT: [KEY_E],
 	PAUSE: [KEY_ESCAPE],
 	UPGRADES: [KEY_TAB],

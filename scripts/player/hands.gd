@@ -20,7 +20,10 @@ extends Node
 ## Right-click tosses a held card back onto the pile (or a table, if it
 ## comes down on one), or a carried binder, which tumbles through the air
 ## past other binders and settles on whatever it comes down on. F brings
-## the held card up close to inspect it (F again lowers it). E opens or closes the binder
+## the held card up close to inspect it (F again lowers it); while it's up
+## close, R turns it over to show its back and T turns it a quarter turn
+## clockwise (for split cards, printed sideways), and lowering it always turns
+## it back face up and upright, so a held card is that way everywhere else. E opens or closes the binder
 ## you're looking at, and the mouse wheel turns its pages.
 ##
 ## Right-click with empty hands, aimed at the pile or cards on a table, flips
@@ -135,6 +138,10 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO }
 ## How far a card up close can tilt each way (degrees), on both axes. Kept
 ## narrow so the card never turns far enough to show it's a flat quad.
 @export var inspect_tilt_degrees := 15.0
+## How long turning a card up close over (or back) takes.
+@export var turn_over_seconds := 0.3
+## How long turning a card up close sideways (or back upright) takes.
+@export var turn_sideways_seconds := 0.2
 
 ## Where the held card sits relative to the camera: low and to the right,
 ## or close up and square to your face (see zoomed_distance).
@@ -202,6 +209,15 @@ var _zoom_amount := 0.0
 ## Up-close tilt in radians: x tips the top toward or away from you, y turns
 ## the face left or right.
 var _tilt := Vector2.ZERO
+## Whether the card up close is turned to show its back, and how far round
+## it is (0 face up, 1 back); tweened.
+var _turned_over := false
+var _turn_amount := 0.0
+var _turn_tween: Tween
+## The same for a quarter turn clockwise, to read a card printed sideways.
+var _sideways := false
+var _sideways_amount := 0.0
+var _sideways_tween: Tween
 ## The glide in progress, if any: something coming to hand or being put down.
 var _glide: Tween
 ## While the button is held to put something down: how long it's been held.
@@ -325,6 +341,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_toggle_binder()
 	elif event.is_action_pressed(Controls.INSPECT) and held_card_id >= 0:
 		_set_zoomed(not _zoomed)
+	elif event.is_action_pressed(Controls.FLIP_CARD) and _zoomed:
+		turn_over(not _turned_over)
+	elif event.is_action_pressed(Controls.TURN_SIDEWAYS) and _zoomed:
+		turn_sideways(not _sideways)
 	elif event.is_action_pressed(Controls.FLIP_NEXT):
 		_flip(1)
 	elif event.is_action_pressed(Controls.FLIP_PREVIOUS):
@@ -1271,6 +1291,56 @@ func _set_zoomed(zoomed: bool) -> void:
 	if not zoomed:
 		# The tilt eases out with the lowering, so the card settles flat.
 		_zoom_tween.parallel().tween_property(self, "_tilt", Vector2.ZERO, zoom_seconds)
+		# And it turns face up and upright as it comes down, so it's never
+		# held any other way.
+		if _turned_over or _turn_amount > 0.0:
+			turn_over(false, zoom_seconds)
+		if _sideways or _sideways_amount > 0.0:
+			turn_sideways(false, zoom_seconds)
+
+
+## Turns the card up close over to show its back (or face up again), round
+## its own upright axis, taking `seconds` (turn_over_seconds for a whole
+## turn if negative).
+func turn_over(back: bool, seconds := -1.0) -> void:
+	_turned_over = back
+	if _turn_tween:
+		_turn_tween.kill()
+	var target := 1.0 if back else 0.0
+	if seconds < 0.0:
+		seconds = turn_over_seconds * absf(target - _turn_amount)
+	if seconds <= 0.0:
+		_set_turn_amount(target)
+		return
+	_turn_tween = create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_turn_tween.tween_method(_set_turn_amount, _turn_amount, target, seconds)
+
+
+func _set_turn_amount(amount: float) -> void:
+	_turn_amount = amount
+	_pose_held_card()
+
+
+## Turns the card up close a quarter turn clockwise (or upright again), in
+## the plane of the screen, taking `seconds` (turn_sideways_seconds for a
+## whole quarter turn if negative).
+func turn_sideways(sideways: bool, seconds := -1.0) -> void:
+	_sideways = sideways
+	if _sideways_tween:
+		_sideways_tween.kill()
+	var target := 1.0 if sideways else 0.0
+	if seconds < 0.0:
+		seconds = turn_sideways_seconds * absf(target - _sideways_amount)
+	if seconds <= 0.0:
+		_set_sideways_amount(target)
+		return
+	_sideways_tween = create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_sideways_tween.tween_method(_set_sideways_amount, _sideways_amount, target, seconds)
+
+
+func _set_sideways_amount(amount: float) -> void:
+	_sideways_amount = amount
+	_pose_held_card()
 
 
 func _set_zoom_amount(amount: float) -> void:
@@ -1281,13 +1351,26 @@ func _set_zoom_amount(amount: float) -> void:
 
 ## Places the held card between its low and up-close poses, with the tilt on
 ## top. Tilt only shows up close, so it's scaled by how far up the card is.
+## Turning over is innermost, round the card's own upright axis, then the
+## quarter turn sideways, so the tilt follows the mouse the same way
+## whichever side is showing and the quarter turn is always clockwise.
 func _pose_held_card() -> void:
 	if _gliding() and held_card_id >= 0:
 		return # Still on its way to the hand.
 	var zoomed_position := Vector3(0.0, 0.0, -zoomed_distance(_camera.fov, PileWorld.CARD_SIZE.y))
+	# Edge on, halfway over, a side of the card comes this much nearer; it
+	# backs off by that much so it stays clear of the near plane.
+	zoomed_position.z -= sin(PI * _turn_amount) * PileWorld.CARD_SIZE.x / 2.0
 	_held_view.position = HELD_POSITION.lerp(zoomed_position, _zoom_amount)
-	_held_view.rotation = HELD_ROTATION.lerp(ZOOMED_ROTATION, _zoom_amount) \
-			+ Vector3(_tilt.x, _tilt.y, 0.0) * _zoom_amount
+	_held_view.basis = held_basis(HELD_ROTATION.lerp(ZOOMED_ROTATION, _zoom_amount) \
+			+ Vector3(_tilt.x, _tilt.y, 0.0) * _zoom_amount, _turn_amount, _sideways_amount)
+
+
+## The held card's orientation: `euler` (as Node3D.rotation) with the card
+## turned `turn` of the way over (0 face up, 1 showing its back) and
+## `sideways` of a quarter turn clockwise as you look at it.
+static func held_basis(euler: Vector3, turn: float, sideways := 0.0) -> Basis:
+	return Basis.from_euler(euler) * Basis(Vector3.BACK, -PI / 2.0 * sideways) * Basis(Vector3.UP, PI * turn)
 
 
 ## Puts card `id` on top of the hand, the old top card going just behind it
@@ -1326,9 +1409,16 @@ func _show_fan() -> void:
 func _hold(id: int, from = null, seconds := -1.0, lift := 0.0) -> void:
 	if _zoom_tween:
 		_zoom_tween.kill()
+	for tween in [_turn_tween, _sideways_tween]:
+		if tween:
+			tween.kill()
 	_zoomed = false
 	_zoom_amount = 0.0
 	_tilt = Vector2.ZERO
+	_turned_over = false
+	_turn_amount = 0.0
+	_sideways = false
+	_sideways_amount = 0.0
 	held_card_id = -1
 	_pose_held_card()
 	held_card_id = id

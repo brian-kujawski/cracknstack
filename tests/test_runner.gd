@@ -72,6 +72,7 @@ func _ready() -> void:
 	await _test_binder_toss()
 	_test_save_files()
 	await _test_shop_save()
+	await _test_turn_over()
 	await _test_rare_cards()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
@@ -794,6 +795,52 @@ func _test_inspect_tilt() -> void:
 		_check(tilted_corner > near, "a tilted card up close should clear the near plane at fov %s: %s" % [fov, tilted_corner])
 
 
+## R turns the card up close over and T sideways; lowering it undoes both.
+func _test_turn_over() -> void:
+	var face_up := Hands.held_basis(Vector3.ZERO, 0.0)
+	var back := Hands.held_basis(Vector3.ZERO, 1.0)
+	_check(face_up.z.is_equal_approx(Vector3.BACK) and back.z.is_equal_approx(Vector3.FORWARD), "turned over, the face points away: %s" % back.z)
+	_check(back.y.is_equal_approx(Vector3.UP), "turning over keeps the card upright: %s" % back.y)
+	var tipped := Vector3(0.2, 0.0, 0.0)
+	_check(signf(Hands.held_basis(tipped, 1.0).y.z) == signf(Hands.held_basis(tipped, 0.0).y.z), "the mouse tips the top the same way on either side")
+	# Sideways, the card's top edge points right: a clockwise quarter turn,
+	# on either side.
+	_check(Hands.held_basis(Vector3.ZERO, 0.0, 1.0).y.is_equal_approx(Vector3.RIGHT), "T turns the card clockwise")
+	_check(Hands.held_basis(Vector3.ZERO, 1.0, 1.0).y.is_equal_approx(Vector3.RIGHT), "T turns the back clockwise too")
+
+	Saves.begin_new_game()
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var pile: PileWorld = main.get_node("Pile")
+	var hands: Hands = main.get_node("Player/Hands")
+	var id := _first_binder_cards()[0]
+	pile.pick_up(id)
+	hands.restore_hand([id] as Array[int])
+	hands._set_zoomed(true)
+	await get_tree().create_timer(hands.zoom_seconds + 0.1).timeout
+	hands.turn_over(true)
+	hands.turn_sideways(true)
+	await get_tree().create_timer(hands.turn_over_seconds + 0.1).timeout
+	_check(hands._sideways and is_equal_approx(hands._sideways_amount, 1.0), "T turns the card up close sideways")
+	_check(hands._held_view.basis.y.x > 0.9, "its top edge points right: %s" % hands._held_view.basis.y)
+	_check(hands._turned_over and is_equal_approx(hands._turn_amount, 1.0), "R turns the card up close over")
+	_check(hands._held_view.basis.z.z < -0.9, "its back faces you: %s" % hands._held_view.basis.z)
+	hands._set_zoomed(false)
+	await get_tree().create_timer(hands.zoom_seconds + 0.1).timeout
+	_check(not hands._turned_over and is_zero_approx(hands._turn_amount), "lowering the card turns it face up again")
+	_check(not hands._sideways and is_zero_approx(hands._sideways_amount), "lowering the card turns it upright again")
+	_check(hands._held_view.basis.z.z > 0.5, "the lowered card faces you: %s" % hands._held_view.basis.z)
+	hands._set_zoomed(true)
+	hands.turn_over(true, 0.0)
+	hands.turn_sideways(true, 0.0)
+	hands._release_top()
+	_check(not hands._turned_over and is_zero_approx(hands._turn_amount) and not hands._sideways and is_zero_approx(hands._sideways_amount),
+		"a card leaving the hand clears both turns")
+	main.free()
+
+
 func _test_glide() -> void:
 	var up := Glide.flat_card(Vector3.ZERO, Basis.IDENTITY)
 	_check(up.basis.z.is_equal_approx(Vector3.UP), "a face-up card's face should point up: %s" % up.basis.z)
@@ -812,6 +859,8 @@ func _test_controls() -> void:
 	for entry in Controls.ACTIONS:
 		_check(not Controls.events(entry[0]).is_empty(), "%s has a default binding" % entry[0])
 	_check(Controls.label(Controls.INTERACT) == "E", "interact shows as E, got " + Controls.label(Controls.INTERACT))
+	_check(Controls.label(Controls.FLIP_CARD) == "R", "turning a card over shows as R, got " + Controls.label(Controls.FLIP_CARD))
+	_check(Controls.label(Controls.TURN_SIDEWAYS) == "T", "turning a card sideways shows as T, got " + Controls.label(Controls.TURN_SIDEWAYS))
 	_check(Controls.label(Controls.USE_HAND) == "click", "use hand shows as click")
 	_check(Controls.pair_label(Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS) == "scroll", "page turning shows as scroll")
 
