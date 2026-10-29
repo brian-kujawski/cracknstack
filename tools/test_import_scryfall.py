@@ -233,6 +233,29 @@ class Collection(unittest.TestCase):
         self.assertEqual(importer.image_url(trimmed), importer.image_url(card))
 
 
+class SetList(unittest.TestCase):
+    SETS = [
+        {"code": "ktk", "name": "Khans of Tarkir", "set_type": "expansion", "released_at": "2014-09-26", "digital": False},
+        {"code": "ust", "name": "Unstable", "set_type": "funny", "released_at": "2017-12-08", "digital": False},
+        {"code": "h17", "name": "HasCon 2017", "set_type": "funny", "released_at": "2017-09-20", "digital": False},
+        {"code": "cmr", "name": "Commander Legends", "set_type": "draft_innovation", "released_at": "2020-11-20", "digital": False},
+    ]
+
+    def listed(self, types=None):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            (out / importer.SET_LIST_PATH).write_text(json.dumps(self.SETS), encoding="utf-8")
+            return [s["code"] for s in importer.released_sets(None, out, types)]
+
+    def test_default_list_has_the_un_sets_but_no_other_funny_sets(self):
+        self.assertEqual(self.listed(), ["ktk", "ust"])
+
+    def test_chosen_types_list_only_those(self):
+        self.assertEqual(self.listed("expansion"), ["ktk"])
+        self.assertEqual(self.listed("funny"), ["h17", "ust"])
+        self.assertEqual(len(self.listed("all")), 4)
+
+
 class CardBack(unittest.TestCase):
     def test_back_is_fetched_once(self):
         class Client:
