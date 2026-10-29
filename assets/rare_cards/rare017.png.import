@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dtjgqljhk2yoh"
-path="res://.godot/imported/rare018_back.png-45b4fcbc37857fda27075c4a4d7b5a18.ctex"
+uid="uid://d23s75q3gy1hp"
+path="res://.godot/imported/rare017.png-772c66716e0b591b8c063eb137c222bf.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/rare_cards/rare018_back.png"
-dest_files=["res://.godot/imported/rare018_back.png-45b4fcbc37857fda27075c4a4d7b5a18.ctex"]
+source_file="res://assets/rare_cards/rare017.png"
+dest_files=["res://.godot/imported/rare017.png-772c66716e0b591b8c063eb137c222bf.ctex"]
 
 [params]
 
