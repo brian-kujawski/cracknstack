@@ -11,5 +11,7 @@ game shows each image as it is, scaled to the tile. If a number's pair is
 missing, its tile falls back to achievement001.
 
 001-016 are the upgrade tree's cards (Achievements.LIST), 017-052 the 36
-rare cards in the display cabinets in order (Achievements.RARE), and 053
-the one for putting every rare card on display.
+rare cards in the display cabinets in order (Achievements.RARE), 053
+the one for putting every rare card on display, and 054-065 the twelve
+wall art frames in WallArt.LIST order (scripts/data/wall_art.gd): 054-058
+the basic lands over the shelf, 059-065 the reading corner's frames.

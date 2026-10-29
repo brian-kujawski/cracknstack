@@ -66,11 +66,13 @@ func _ready() -> void:
 	_day.setup($WorldEnvironment.environment, _store.window_lights, _store.curtain_material, _store.sky_material)
 	ShopSave.restore_day(saved, _day)
 	$PauseMenu.day_cycle = _day
+	_store.clock.day = _day
 	_finished = Saves.finished
 	Saves.shop = self
 	_build_saving_icon()
 	if not _falling.is_empty():
 		_land_falling()
+	_hang_wall_art(false)
 	if _finished and not ENDING_RETURN_MESSAGE.is_empty():
 		_show_return_message()
 	_hands.shown_card_changed.connect(_on_shown_card_changed)
@@ -179,11 +181,24 @@ func _process(delta: float) -> void:
 	if _stats_timer >= 0.5:
 		_stats_timer = 0.0
 		_update_stats()
+		_hang_wall_art(true)
 		if not _finished and is_finished(_pile.binders, _shelves(), _store.cabinets):
 			_finished = true
 			Saves.finished = true
 			Saves.save(Saves.AUTOSAVE)
 			SceneFlow.play_ending()
+
+
+## Fills each wall art frame whose card is now locked into its pocket, and
+## unlocks its achievement; with `fade`, the art fades in (a loaded game
+## shows what was already up at once).
+func _hang_wall_art(fade: bool) -> void:
+	var frames: Array[WallFrame] = _store.wall_frames
+	for index in frames.size():
+		if not frames[index].filled and WallArt.is_filed(index, _pile.binders):
+			var art := WallArt.art(index)
+			frames[index].fill(art[0], art[1], fade)
+			Achievements.wall_art_hung(index)
 
 
 ## Frame rate, draw calls and the placeholder-data note are for us while

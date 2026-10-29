@@ -75,20 +75,20 @@ static func make_cards(first_id: int) -> Array[CardData]:
 		card.collector_number = i + 1
 		card.rarity = CardData.Rarity.MYTHIC
 		card.type_line = ""
-		card.image_large = _find_image(IMAGE_PATH % (i + 1))
+		card.image_large = find_image(IMAGE_PATH % (i + 1))
 		cards.append(card)
 	return cards
 
 
 ## Rare card `number`'s own back image, or "" if it has none.
 static func back_path(number: int) -> String:
-	return _find_image(BACK_PATH % number)
+	return find_image(BACK_PATH % number)
 
 
 ## The image at `base` plus whichever of IMAGE_EXTENSIONS is there, or "".
 ## A real file wins over one that's only left in Godot's import cache (an
 ## old .import file can outlive the image it was made from).
-static func _find_image(base: String) -> String:
+static func find_image(base: String) -> String:
 	for extension in IMAGE_EXTENSIONS:
 		var path := "%s.%s" % [base, extension]
 		if FileAccess.file_exists(path):

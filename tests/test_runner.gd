@@ -74,6 +74,8 @@ func _ready() -> void:
 	await _test_shop_save()
 	await _test_turn_over()
 	await _test_rare_cards()
+	_test_wall_art()
+	_test_shop_clock()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
 	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
@@ -1339,8 +1341,8 @@ func _test_achievements() -> void:
 	for colour in Progression.COLOURS.size():
 		for step in Progression.COLOURS[colour].steps:
 			nodes[step[0]] = colour
-	_check(Achievements.count() == nodes.size() + RareCards.count() + 1,
-		"one achievement per card the upgrade tree is named after, per rare card, and one for all rare cards: %d" % Achievements.count())
+	_check(Achievements.count() == nodes.size() + RareCards.count() + 1 + WallArt.count(),
+		"one achievement per card the upgrade tree is named after, per rare card, one for all rare cards, and one per wall art frame: %d" % Achievements.count())
 	var matches := true
 	for index in nodes.size():
 		matches = matches and nodes.get(Achievements.card_name(index), -1) == Achievements.colour(index)
@@ -2875,3 +2877,128 @@ func _finish_glide(hands: Hands) -> void:
 		await get_tree().process_frame
 		frames += 1
 	await get_tree().process_frame
+
+
+func _test_wall_art() -> void:
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var store: Node3D = store_script.new()
+	add_child(store)
+	var frames: Array[WallFrame] = store.wall_frames
+	_check(frames.size() == WallArt.count() and frames.size() == 12, "twelve wall art frames, one per WallArt entry (%d)" % frames.size())
+	var shelf_top := ShelfUnit.HEIGHT + ShelfUnit.CAP_THICKNESS
+	var lamp_top := ReadingCorner.LAMP_HEIGHT
+	var ok := true
+	var rects: Array[Rect2] = []
+	for index in frames.size():
+		var frame := frames[index]
+		var outer := WallFrame.outer_size(frame.opening, frame.mat, frame.moulding)
+		var at := frame.global_position
+		var bottom := at.y - outer.y / 2
+		if index < 5:
+			# Over the shelf: on the back wall, facing the door, above the shelf top.
+			ok = ok and is_zero_approx(at.z) and frame.global_basis.z.is_equal_approx(Vector3.BACK) and bottom > shelf_top + 0.15
+			ok = ok and at.x - outer.x / 2 > store_script.BACK_SHELF.x and at.x + outer.x / 2 < store_script.BACK_SHELF.y
+		else:
+			# Over the reading corner: on the left wall, facing into the room.
+			ok = ok and is_zero_approx(at.x) and frame.global_basis.z.is_equal_approx(Vector3.RIGHT)
+			var across := Vector2(at.z - outer.x / 2, at.z + outer.x / 2)
+			var shade := Vector2(store_script.FLOOR_LAMP_AT.y - ReadingCorner.SHADE_RADII.y, store_script.FLOOR_LAMP_AT.y + ReadingCorner.SHADE_RADII.y)
+			if across.x < shade.y and across.y > shade.x:
+				ok = ok and bottom > lamp_top + 0.05
+			rects.append(Rect2(at.z - outer.x / 2, bottom, outer.x, outer.y))
+		ok = ok and at.y + outer.y / 2 < store_script.CEILING_HEIGHT - 0.3
+	_check(ok, "the frames hang over the shelf and the reading corner, clear of the shelf top, the lamp and the ceiling")
+	var apart := true
+	for i in rects.size():
+		for j in range(i + 1, rects.size()):
+			apart = apart and not rects[i].intersects(rects[j])
+	_check(apart, "the reading corner's frames don't overlap")
+	_check(frames[10].opening.y > frames[10].opening.x and frames[0].opening.x > frames[0].opening.y, "the end frames are portrait, the rest landscape")
+	# A frame is empty until filled, then shows its art cropped to fill.
+	var frame := frames[0]
+	var art: MeshInstance3D = frame.get_node("Art")
+	_check(not frame.filled and not art.visible, "a frame starts empty")
+	var image := Image.create(400, 100, false, Image.FORMAT_RGB8)
+	frame.fill(ImageTexture.create_from_image(image))
+	_check(frame.filled and art.visible, "filling it shows the art")
+	var crop := WallFrame.cover_crop(Rect2(0, 0, 1, 1), Vector2(400, 100), Vector2(1.375, 1))
+	_check(is_equal_approx(crop.size.y, 1.0) and is_equal_approx(crop.size.x, 1.375 / 4.0) and is_equal_approx(crop.get_center().x, 0.5),
+		"art wider than its window loses its sides, keeping the middle")
+	crop = WallFrame.cover_crop(Rect2(0.1, 0.1, 0.8, 0.4), Vector2(100, 100), Vector2(1, 2))
+	_check(is_equal_approx(crop.size.x, 0.4) and is_equal_approx(crop.size.y, 0.4) and is_equal_approx(crop.get_center().x, 0.5),
+		"and a region of a scan is cropped within itself")
+	store.free()
+	# Which card fills a frame: by set code and collector number.
+	var card := CardData.new()
+	card.set_code = WallArt.LIST[2][2]
+	card.collector_number = WallArt.LIST[2][3]
+	_check(WallArt.index_of(card) == 2, "a frame's card is found by set and number")
+	card.collector_number += 1
+	_check(WallArt.index_of(card) == -1, "and no other printing")
+	var range_data := CardDatabase.all_binders()[0]
+	var ids := _first_binder_cards()
+	var binder := Binder.new()
+	binder.setup(range_data, Color.RED, null)
+	var binders: Array[Binder] = [binder]
+	var number := CardDatabase.get_card(ids[4]).collector_number
+	_check(not WallArt.is_card_filed(range_data.set_code, number, binders), "a card not in its pocket isn't filed")
+	binder.contents.insert(4, ids[5])
+	_check(not WallArt.is_card_filed(range_data.set_code, number, binders), "nor is a card in the wrong pocket")
+	binder.contents.take(4)
+	binder.contents.insert(4, ids[4])
+	_check(WallArt.is_card_filed(range_data.set_code, number, binders), "a card locked into its pocket is")
+	binder.free()
+	# Its achievement.
+	var path := "user://test_achievements.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Achievements.load_from(path)
+	var index := Achievements.wall_art_index(0)
+	_check(Achievements.is_wall_art(index) and not Achievements.is_rare(index) and Achievements.is_rare(Achievements.all_rare_index())
+		and Achievements.key(index) == "art:01", "the wall art's achievements follow the rare cards'")
+	Achievements.wall_art_hung(0)
+	_check(Achievements.is_unlocked(index) and Achievements.title(index) == WallArt.LIST[0][0] and Achievements.description(index) == WallArt.LIST[0][1],
+		"hanging a frame's art unlocks its achievement")
+	var screen := AchievementsScreen.make()
+	add_child(screen)
+	_check(screen.find_child("WallArt", true, false).get_child_count() == WallArt.count(), "the Achievements page has a row of wall art tiles")
+	screen.free()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Achievements.load_from(Achievements.SAVE_PATH)
+
+
+func _test_shop_clock() -> void:
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var store: Node3D = store_script.new()
+	add_child(store)
+	var clock: ShopClock = store.clock
+	_check(clock != null and clock.global_basis.z.is_equal_approx(Vector3.RIGHT) and clock.global_position.x < ShopClock.DEPTH,
+		"the clock stands against the left-hand wall, facing into the room")
+	var foot := Vector2(clock.global_position.x, clock.global_position.z)
+	_check(store.obstacles.any(func(r: Rect2) -> bool: return r.has_point(foot)), "cards keep clear of it")
+	var shelf_end := Rect2(store_script.BACK_SHELF.x, 0, 0.1, ShelfUnit.DEPTH)
+	_check(not store.obstacles.any(func(r: Rect2) -> bool: return r.has_point(foot) and r.intersects(shelf_end)), "clear of the shelf")
+	_check(clock.is_in_group(ReadingCorner.FURNITURE), "it's furniture, not a surface")
+	var default_length: float = Settings.DAY_LENGTHS[Settings.DEFAULTS["day_length"]]
+	_check(is_equal_approx(ShopClock.pace(default_length), 1.0) and ShopClock.pace(default_length / 2) > 1.0
+		and ShopClock.pace(default_length * 2) < 1.0 and ShopClock.pace(0.0) == 0.0,
+		"the pendulum beats seconds at the default day, faster for shorter days, and stops with the clock")
+	var day := DayCycle.new()
+	day.running = false
+	add_child(day)
+	clock.day = day
+	var length_before: int = Settings.value("day_length")
+	Settings.change("day_length", Settings.DAY_LENGTHS.find(0.0))
+	day.set_hour(15.5)
+	clock.phase = 1.0
+	clock._process(0.5)
+	var pendulum: Node3D = clock.get_node("Pendulum")
+	_check(is_equal_approx(clock.phase, 1.0) and is_equal_approx(pendulum.rotation.z, ShopClock.SWING * sin(1.0)), "stopped, the pendulum holds still")
+	var hands := clock.get_children().filter(func(n: Node) -> bool: return n.get_class() == "Node3D" and n.name != "Pendulum")
+	_check(hands.size() == 2 and is_equal_approx(hands[0].rotation.z, -3.5 / 12.0 * TAU) and is_equal_approx(hands[1].rotation.z, -0.5 * TAU),
+		"the hands show half past three")
+	Settings.change("day_length", Settings.DEFAULTS["day_length"])
+	clock._process(0.5)
+	_check(is_equal_approx(clock.phase, 1.0 + PI / 2), "at the default day, half a second is a quarter of a swing there and back")
+	Settings.change("day_length", length_before)
+	day.free()
+	store.free()

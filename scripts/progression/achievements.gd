@@ -9,6 +9,9 @@ extends Node
 ## shadow box in the display cabinets, and one more for putting all of them
 ## there; their titles and lines are in RARE.
 ##
+## Last, one for each frame of wall art (WallArt), unlocked when its card is
+## locked into its own pocket and its art goes up on the wall.
+##
 ## Unlocked achievements belong to the player, not to one game: they're kept
 ## in user://achievements.cfg, apart from save files, and New Game doesn't
 ## clear them.
@@ -84,10 +87,12 @@ const RARE := [
 	["Rare Card 36", "Put Rare Card 36 on display."],
 	["Collector", "Put every rare card on display."],
 ]
-## colour() of the rare card achievements, which belong to no colour.
+## colour() of the rare card achievements, which belong to no colour, and
+## of the wall art's.
 const RARE_GROUP := -1
+const WALL_ART_GROUP := -2
 
-## Key (a card name, or "rare:NN" / "rare:all") -> [set name it was filed
+## Key (a card name, "rare:NN" / "rare:all", or "art:NN") -> [set name it was filed
 ## from ("" for rare cards), date unlocked "YYYY-MM-DD"].
 var _unlocked := {}
 var _path := SAVE_PATH
@@ -98,21 +103,32 @@ func _ready() -> void:
 
 
 func count() -> int:
-	return LIST.size() + RARE.size()
+	return _wall_art_start() + WallArt.count()
 
 
-## The achievement's name: the card it's named after, or a rare one's title.
+## The achievement's name: the card it's named after, or a rare one's or
+## the wall art's title.
 func card_name(index: int) -> String:
-	return LIST[index][0] if index < LIST.size() else RARE[index - LIST.size()][0]
+	if index < LIST.size():
+		return LIST[index][0]
+	if is_wall_art(index):
+		return WallArt.LIST[index - _wall_art_start()][0]
+	return RARE[index - LIST.size()][0]
 
 
-## Its colour in the upgrade tree, or RARE_GROUP.
+## Its colour in the upgrade tree, or RARE_GROUP or WALL_ART_GROUP.
 func colour(index: int) -> int:
-	return LIST[index][1] if index < LIST.size() else RARE_GROUP
+	if index < LIST.size():
+		return LIST[index][1]
+	return WALL_ART_GROUP if is_wall_art(index) else RARE_GROUP
 
 
 func is_rare(index: int) -> bool:
-	return index >= LIST.size()
+	return index >= LIST.size() and index < _wall_art_start()
+
+
+func is_wall_art(index: int) -> bool:
+	return index >= _wall_art_start()
 
 
 ## The achievement for rare card `number` (from 1), and the one for all of
@@ -122,14 +138,26 @@ func rare_index(number: int) -> int:
 
 
 func all_rare_index() -> int:
-	return count() - 1
+	return _wall_art_start() - 1
 
 
-## What an unlock is saved under: the card's name, or for the rare cards
-## their number ("rare:07") or "rare:all", so renaming them loses nothing.
+## The achievement for wall art frame `index` (from 0, in WallArt order).
+func wall_art_index(index: int) -> int:
+	return _wall_art_start() + index
+
+
+func _wall_art_start() -> int:
+	return LIST.size() + RARE.size()
+
+
+## What an unlock is saved under: the card's name, for the rare cards their
+## number ("rare:07") or "rare:all", and for the wall art its frame's
+## ("art:03"), so renaming them loses nothing.
 func key(index: int) -> String:
 	if index < LIST.size():
 		return LIST[index][0]
+	if is_wall_art(index):
+		return "art:%02d" % (index - _wall_art_start() + 1)
 	if index == all_rare_index():
 		return "rare:all"
 	return "rare:%02d" % (index - LIST.size() + 1)
@@ -151,6 +179,8 @@ func description(index: int) -> String:
 		return LOCKED_TEXT
 	if is_rare(index):
 		return RARE[index - LIST.size()][1]
+	if is_wall_art(index):
+		return WallArt.LIST[index - _wall_art_start()][1]
 	return "Filed %s from %s." % [card_name(index), _unlocked[key(index)][0]]
 
 
@@ -173,6 +203,11 @@ func rare_card_displayed(number: int, all_displayed: bool) -> void:
 	unlock(rare_index(number), "")
 	if all_displayed:
 		unlock(all_rare_index(), "")
+
+
+## Wall art frame `index`'s card was filed, and its art went up.
+func wall_art_hung(index: int) -> void:
+	unlock(wall_art_index(index), "")
 
 
 func index_of(name: String) -> int:

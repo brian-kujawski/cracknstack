@@ -6,7 +6,7 @@ extends RefCounted
 ## line under it: ??? and "This achievement is locked." with the locked icon
 ## until it's earned, then the card's name, what it was for and the full
 ## icon. The rare card achievements, which have no colour, follow in rows
-## under the columns.
+## under the columns, and the wall art's in rows under those.
 
 const ICON_SIZE := 96
 const TILE_WIDTH := 280
@@ -36,6 +36,13 @@ static func make() -> MenuScreen:
 	rare.add_theme_constant_override("h_separation", 24)
 	rare.add_theme_constant_override("v_separation", 20)
 	sections.add_child(rare)
+	var wall_art := GridContainer.new()
+	wall_art.name = "WallArt"
+	wall_art.columns = COLOUR_COUNT
+	wall_art.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	wall_art.add_theme_constant_override("h_separation", 24)
+	wall_art.add_theme_constant_override("v_separation", 20)
+	sections.add_child(wall_art)
 	var by_colour: Array[VBoxContainer] = []
 	for colour in COLOUR_COUNT:
 		var column := VBoxContainer.new()
@@ -45,6 +52,8 @@ static func make() -> MenuScreen:
 	for index in Achievements.count():
 		if Achievements.is_rare(index):
 			rare.add_child(tile(index))
+		elif Achievements.is_wall_art(index):
+			wall_art.add_child(tile(index))
 		else:
 			by_colour[Achievements.colour(index)].add_child(tile(index))
 	return screen

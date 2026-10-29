@@ -60,6 +60,30 @@ const ARMCHAIR_YAW := deg_to_rad(116.0)
 ## The radio sits across the side table, facing out into the room.
 const RADIO_ON_TABLE := Vector2(0.0, -0.05)
 const RADIO_YAW := deg_to_rad(70.0)
+## The longcase clock stands at the shelf end of the left-hand wall,
+## balancing the low reading corner with something tall: its floor
+## centre along z.
+const CLOCK_Z := 1.0
+## The wall art (WallArt), hung in its order. Over the binder shelf, one
+## landscape frame centred in each bay between pairs of legs, their bottoms
+## 22 cm above the shelf top so what's put down there doesn't hide them:
+## centres along x, and the height, art size, mat and moulding they share.
+const SHELF_ART_XS := [2.8, 4.4, 6.0, 7.6, 9.2]
+const SHELF_ART := [2.055, Vector2(0.88, 0.64), 0.09, 0.05]
+## Over the reading corner, a grid of seven around a centre piece over the
+## floor lamp (its bottom clear of the shade): the centre piece, the pair
+## stacked on its shelf side (top, bottom), the pair on its door side, then
+## a portrait frame at the shelf end and one at the door end. Each is
+## [centre along z, centre height, art size, mat, moulding].
+const CORNER_ART := [
+	[3.95, 2.26, Vector2(0.75, 0.55), 0.08, 0.045],
+	[3.095, 2.433, Vector2(0.36, 0.263), 0.06, 0.035],
+	[3.095, 1.901, Vector2(0.36, 0.263), 0.06, 0.035],
+	[4.805, 2.433, Vector2(0.36, 0.263), 0.06, 0.035],
+	[4.805, 1.901, Vector2(0.36, 0.263), 0.06, 0.035],
+	[2.495, 2.23, Vector2(0.3, 0.42), 0.06, 0.035],
+	[5.405, 2.23, Vector2(0.3, 0.42), 0.06, 0.035],
+]
 ## The store's wood (assets/store/table_wood): tables, cabinets, the binder
 ## shelf, window frames and the door. And how many metres of real wood one
 ## copy of its texture covers.
@@ -111,6 +135,10 @@ var display_slots: Array[Marker3D] = []
 var cabinets: Array[DisplayCabinet] = []
 ## The radio on the reading corner's side table.
 var radio: ShopRadio
+## The longcase clock; the shop gives it the DayCycle to show.
+var clock: ShopClock
+## The wall art's frames, in WallArt's order.
+var wall_frames: Array[WallFrame] = []
 
 var _wall_material := _textured(PLASTER, PLASTER_SIZE)
 var _floor_material := _textured(CARPET, CARPET_SIZE)
@@ -134,6 +162,8 @@ func _ready() -> void:
 	_build_tables()
 	_build_display_cabinets()
 	_build_reading_corner()
+	_build_wall_art()
+	_build_clock()
 	_build_windows()
 	_build_door()
 	_build_pendants()
@@ -305,6 +335,34 @@ func _build_display_cabinets() -> void:
 		var footprint := DisplayCabinet.footprint()
 		obstacles.append(Rect2(Vector2(WIDTH - DisplayCabinet.DEPTH / 2 - footprint.end.y, CABINET_ZS[i] + footprint.position.x),
 			Vector2(footprint.size.y, footprint.size.x)))
+
+
+## The longcase clock against the left-hand wall by the shelf end, facing
+## into the room.
+func _build_clock() -> void:
+	clock = ShopClock.new()
+	clock.name = "ShopClock"
+	clock.build(_table_material, _brass_material)
+	_place(clock, Vector2(ShopClock.DEPTH / 2, CLOCK_Z), PI / 2, Vector2(ShopClock.WIDTH, ShopClock.DEPTH))
+
+
+## Empty picture frames over the binder shelf and the reading corner (see
+## SHELF_ART and CORNER_ART), waiting for their cards (WallArt).
+func _build_wall_art() -> void:
+	for x in SHELF_ART_XS:
+		_hang_frame(Vector3(x, SHELF_ART[0], 0), 0.0, SHELF_ART[1], SHELF_ART[2], SHELF_ART[3])
+	for frame in CORNER_ART:
+		_hang_frame(Vector3(0, frame[1], frame[0]), PI / 2, frame[2], frame[3], frame[4])
+
+
+func _hang_frame(at: Vector3, yaw: float, art_size: Vector2, mat: float, moulding: float) -> void:
+	var frame := WallFrame.new()
+	frame.name = "WallFrame%02d" % (wall_frames.size() + 1)
+	frame.build(art_size, mat, moulding, _table_material)
+	frame.position = at
+	frame.rotation.y = yaw
+	add_child(frame)
+	wall_frames.append(frame)
 
 
 ## The reading corner (see SIDE_TABLE_AT): solid furniture whose footprints
