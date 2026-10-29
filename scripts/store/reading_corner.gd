@@ -27,12 +27,11 @@ const LAMP_BASE := 0.32
 const LAMP_HEIGHT := 1.73
 const SHADE_BOTTOM := 1.43
 const SHADE_RADII := Vector2(0.15, 0.23)
-## The lamp's light, through the open top and bottom of its shade, and its
-## stand-in for the light glowing through the shade's cloth.
-const LAMP_ENERGY := 1.0
-const LAMP_RANGE := 4.5
-const LAMP_FILL_ENERGY := 0.3
-const LAMP_FILL_RANGE := 2.5
+## The lamp's light: soft and all round, as through a cloth shade, and how
+## brightly the shade itself glows.
+const LAMP_ENERGY := 0.6
+const LAMP_RANGE := 4.0
+const SHADE_GLOW := 1.6
 
 
 ## An upholstered armchair: rolled arms, a seat and back cushion, a back
@@ -96,10 +95,9 @@ static func side_table(wood: StandardMaterial3D, leg_wood: Material) -> StaticBo
 	return body
 
 
-## A floor lamp: a brass stand on a round base under a cloth shade, open at
-## the top and bottom. The bulb's light comes out through those openings (the
-## shade casts shadows, like the pendants'), and a dim shadowless fill stands
-## in for what glows through the cloth. `light` is the store's lamp colour.
+## A floor lamp: a brass stand on a round base under a cloth shade. The shade
+## glows with the bulb inside it and lets its light through all round, softly:
+## no bright cones out of the top and bottom. `light` is the store's lamp colour.
 static func floor_lamp(brass: Material, shade_cloth: StandardMaterial3D, light: Color) -> StaticBody3D:
 	var body := _body()
 	_add(body, _taper(LAMP_BASE / 2 - 0.01, LAMP_BASE / 2, 0.025), brass).position.y = 0.0125
@@ -114,49 +112,24 @@ static func floor_lamp(brass: Material, shade_cloth: StandardMaterial3D, light: 
 	shade_mesh.cap_bottom = false
 	var glow: StandardMaterial3D = shade_cloth.duplicate()
 	glow.emission_enabled = true
-	glow.emission = light * 0.35
+	glow.emission = light
+	glow.emission_energy_multiplier = SHADE_GLOW
+	glow.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var shade := _add(body, shade_mesh, glow)
 	shade.position.y = SHADE_BOTTOM + shade_height / 2
-	# The bulb is inside, so the shade's inner faces must block light too.
-	shade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
-	var inside_material: StandardMaterial3D = glow.duplicate()
-	inside_material.cull_mode = BaseMaterial3D.CULL_FRONT
-	inside_material.emission = light * 0.6
-	var inside := _add(body, shade_mesh, inside_material)
-	inside.position = shade.position
-	inside.scale = Vector3(0.99, 1, 0.99)
-	inside.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-
-	var bulb_material := StandardMaterial3D.new()
-	bulb_material.emission_enabled = true
-	bulb_material.emission = light
-	bulb_material.emission_energy_multiplier = 4.0
-	bulb_material.albedo_color = Color(1, 0.95, 0.85)
-	var bulb_mesh := SphereMesh.new()
-	bulb_mesh.radius = 0.035
-	bulb_mesh.height = 0.07
-	var bulb := _add(body, bulb_mesh, bulb_material)
-	var bulb_y := SHADE_BOTTOM + 0.13
-	bulb.position.y = bulb_y
-	bulb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# The light comes through the cloth, so the shade mustn't block it.
+	shade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 	var lamp := OmniLight3D.new()
-	lamp.position.y = bulb_y
+	lamp.position.y = SHADE_BOTTOM + 0.13
 	lamp.light_color = light
 	lamp.light_energy = LAMP_ENERGY
 	lamp.omni_range = LAMP_RANGE
-	lamp.omni_attenuation = 1.2
+	lamp.omni_attenuation = 1.5
 	lamp.shadow_enabled = true
-	lamp.shadow_blur = 2.0
+	lamp.shadow_blur = 3.0
 	lamp.shadow_normal_bias = 0.2
 	body.add_child(lamp)
-	var fill := OmniLight3D.new()
-	fill.position.y = bulb_y
-	fill.light_color = light
-	fill.light_energy = LAMP_FILL_ENERGY
-	fill.omni_range = LAMP_FILL_RANGE
-	fill.omni_attenuation = 2.0
-	body.add_child(fill)
 
 	_shape(body, Vector3(LAMP_BASE, 0.05, LAMP_BASE), Vector3(0, 0.025, 0))
 	_shape(body, Vector3(0.05, SHADE_BOTTOM, 0.05), Vector3(0, SHADE_BOTTOM / 2, 0))
