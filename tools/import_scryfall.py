@@ -16,6 +16,11 @@ number, plain whole numbers from 1 to the set's printed size, no promos,
 variants, showcase or borderless frames (plan §3.3). A set whose kept cards
 don't run 1..N with no gaps is reported and left out.
 
+--list and --all cover the core and expansion sets and the five Un- sets
+(Unglued, Unhinged, Unstable, Unsanctioned, Unfinity); any other set can be added
+by its code. Unstable's and Unfinity's lettered variants (3a-3f) keep only
+their first version, like any other lettered card.
+
 Usage, from the project root:
 
   python3 -m pip install pillow                  # once, for packing the atlas
@@ -78,6 +83,10 @@ BACK_PATH = "back.jpg"
 DEFAULT_IMAGE_BYTES = 150_000
 # Set types shown by --list unless --types says otherwise.
 DEFAULT_LIST_TYPES = ("core", "expansion")
+# Sets of other types that --list shows too: the Un- sets (Scryfall calls
+# them "funny", along with playtest cards and convention giveaways we don't
+# want).
+DEFAULT_LIST_EXTRAS = ("ugl", "unh", "ust", "und", "unf")
 SET_LIST_PATH = "scryfall-sets.json"
 SET_LIST_MAX_AGE = 7 * 24 * 3600  # seconds before --list fetches the set list again
 
@@ -114,9 +123,10 @@ def main(argv=None):
     listing.add_argument("--listall", dest="listing", action="store_const", const="all",
                          help="list every set, added or not, then stop")
     parser.add_argument("--all", action="store_true",
-                        help="add every set --list shows (core and expansion unless --types says otherwise)")
-    parser.add_argument("--types", default=",".join(DEFAULT_LIST_TYPES),
-                        help="set types for the lists, comma separated, or 'all' (default: core,expansion)")
+                        help="add every set --list shows (core, expansion and the Un- sets unless --types says otherwise)")
+    parser.add_argument("--types",
+                        help="set types for the lists, comma separated, or 'all' (default: core,expansion"
+                             " and the Un- sets)")
     parser.add_argument("--dry-run", action="store_true", help="fetch card data only and say what the images would cost")
     parser.add_argument("--yes", action="store_true", help="download without asking first")
     parser.add_argument("--refetch", action="store_true", help="fetch card data again even if it is cached")
@@ -650,13 +660,15 @@ def set_status(out, code):
     return f"{absent} images to go" if absent else "in game"
 
 
-def released_sets(client, out, types, refetch=False):
+def released_sets(client, out, types=None, refetch=False):
     """The paper sets of the given types (comma separated, or 'all') released
-    so far, oldest first."""
-    wanted = None if types == "all" else {t.strip() for t in types.split(",")}
+    so far, oldest first. With no types: core and expansion sets and the
+    DEFAULT_LIST_EXTRAS."""
+    wanted = None if types == "all" else {t.strip() for t in (types or ",".join(DEFAULT_LIST_TYPES)).split(",")}
+    extras = () if types else DEFAULT_LIST_EXTRAS
     today = time.strftime("%Y-%m-%d")
     sets = [s for s in fetch_set_list(client, out, refetch)
-            if not s["digital"] and (wanted is None or s["set_type"] in wanted)
+            if not s["digital"] and (wanted is None or s["set_type"] in wanted or s["code"] in extras)
             and (s["released_at"] or "9999") <= today]
     sets.sort(key=lambda s: (s["released_at"], s["code"]))
     return sets
