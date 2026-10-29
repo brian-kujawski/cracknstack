@@ -3,8 +3,8 @@ extends CanvasLayer
 ## The radio's menu (plan: sound-plan.md §7.2). Q (Controls.RADIO) stops the
 ## game and shows what's playing, Previous / Play / Next / Repeat, the
 ## radio's own volume, and every song: unlocked ones by title (click one to
-## play it), locked ones as ???. Q or Esc goes back in. A radio in the shop
-## to open it from comes later.
+## play it), locked ones as ???. Clicking the radio in the shop (ShopRadio)
+## opens it too. Q or Esc goes back in.
 
 const LIST_SIZE := Vector2(560, 330)
 const SMALL_BUTTON := Vector2(150, 56)

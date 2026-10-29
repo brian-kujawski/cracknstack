@@ -83,7 +83,9 @@ func _ready() -> void:
 	_update_stats()
 	_achievement.text = ""
 	Achievements.unlocked.connect(_on_achievement_unlocked)
-	add_child(RadioMenu.new())
+	var radio_menu := RadioMenu.new()
+	add_child(radio_menu)
+	_hands.radio_used.connect(radio_menu.open)
 	Radio.enter_shop(_organized_share())
 	Radio.song_unlocked.connect(func(index: int) -> void:
 		_show_notice("New on the radio: %s" % Radio.songs[index].title))

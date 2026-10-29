@@ -65,6 +65,7 @@ func _ready() -> void:
 	await _test_steps_five_to_seven()
 	_test_day_cycle()
 	_test_display_cabinets()
+	await _test_reading_corner()
 	await _test_crouch()
 	await _test_lean_over_table()
 	await _test_table_cards()
@@ -2213,6 +2214,67 @@ func _land_tossed(pile: PileWorld) -> void:
 			while not child.is_queued_for_deletion() and steps < 600:
 				child._physics_process(1.0 / 60.0)
 				steps += 1
+func _test_reading_corner() -> void:
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var store: Node3D = store_script.new()
+	add_child(store)
+	var pieces: Array[Rect2] = []
+	for name in ["Armchair", "SideTable", "FloorLamp"]:
+		var piece: Node3D = store.get_node(name)
+		_check(piece.is_in_group(ReadingCorner.FURNITURE), "the %s is furniture" % name)
+		var at := Vector2(piece.position.x, piece.position.z)
+		var footprint: Rect2 = store.obstacles.filter(func(r: Rect2) -> bool: return r.has_point(at)).front()
+		pieces.append(footprint)
+	var tables: Array[Rect2] = []
+	for center in store_script.TABLE_CENTERS:
+		var size := Vector2(store_script.TABLE_SIZE.x, store_script.TABLE_SIZE.z)
+		tables.append(Rect2(center - size / 2, size))
+	var room: Rect2 = store.floor_bounds()
+	var clear := pieces.all(func(r: Rect2) -> bool:
+		return room.encloses(r) and r.position.x < 0.5 and not tables.any(func(t: Rect2) -> bool: return t.intersects(r)))
+	_check(clear, "the reading corner stands against the left-hand wall, clear of the walls and work tables")
+	_check(not pieces[1].intersects(pieces[2]) and not pieces[0].intersects(pieces[1]), "the chair, table and lamp don't overlap")
+	var chair: Node3D = store.get_node("Armchair")
+	_check(chair.global_basis.z.x > 0.5 and chair.global_basis.z.z < 0.0, "the chair faces the room, angled toward the back tables")
+	var radio: ShopRadio = store.radio
+	_check(is_equal_approx(radio.global_position.y, ReadingCorner.TABLE_HEIGHT) and pieces[1].has_point(Vector2(radio.global_position.x, radio.global_position.z)),
+		"the radio sits on the side table")
+	_check(radio.global_basis.z.x > 0.5, "facing out into the room")
+	var mesh := ReadingCorner.rounded_box(Vector3(0.4, 0.2, 0.3), 0.05)
+	var bounds := mesh.get_aabb()
+	var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var corner := vertices.size() > 0
+	for v in vertices:
+		if Vector3(absf(v.x), absf(v.y), absf(v.z)).distance_to(Vector3(0.15, 0.05, 0.1)) > 0.0501 and absf(v.x) > 0.15 and absf(v.y) > 0.05 and absf(v.z) > 0.1:
+			corner = false
+	_check(bounds.size.is_equal_approx(Vector3(0.4, 0.2, 0.3)) and corner, "a rounded box keeps its size and rounds its corners")
+	store.free()
+
+	# In the shop, clicking the radio opens the Radio menu; the rest of the corner does nothing.
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var hands: Hands = main.get_node("Player/Hands")
+	var camera: Camera3D = main.get_node("Player/Camera3D")
+	var shop_radio: ShopRadio = main.get_node("Store").radio
+	var target := shop_radio.global_position + Vector3.UP * ShopRadio.SIZE.y / 2
+	camera.global_transform = Transform3D(Basis(), target + shop_radio.global_basis.z * 1.2 + Vector3.UP * 0.4).looking_at(target)
+	hands._update_aim()
+	_check(hands._aim == Hands.Aim.RADIO, "aiming at the radio")
+	var menu: RadioMenu = main.find_children("*", "RadioMenu", false, false).front()
+	hands._use_hand()
+	_check(menu.is_open() and get_tree().paused, "clicking it opens the Radio menu")
+	menu.close()
+	_check(not get_tree().paused, "and it closes again")
+	var seat: Node3D = main.get_node("Store/Armchair")
+	var cushion := seat.global_position + Vector3.UP * ReadingCorner.SEAT_HEIGHT
+	camera.global_transform = Transform3D(Basis(), cushion + seat.global_basis.z * 1.2 + Vector3.UP * 0.8).looking_at(cushion)
+	hands._update_aim()
+	_check(hands._aim == Hands.Aim.NONE, "the armchair's seat isn't somewhere to put things down")
+	main.free()
+
+
 func _test_display_cabinets() -> void:
 	var store_script := preload("res://scripts/store/store_builder.gd")
 	var store: Node3D = store_script.new()

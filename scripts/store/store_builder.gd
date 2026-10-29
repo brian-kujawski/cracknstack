@@ -3,7 +3,9 @@ extends Node3D
 ## door in the front wall, one wall-length binder shelf on the back wall, and
 ## four work tables in the middle for setting binders down and stacking cards.
 ## On the right-hand wall (seen from the door) stand two glass display
-## cabinets for the rare cards; the left wall is open for store dressing later.
+## cabinets for the rare cards. Opposite them, on the left-hand wall, is a
+## reading corner: an armchair, a side table with the shop's radio on it, and
+## a floor lamp.
 ##
 ## Everything is plain boxes so the layout is cheap to change. Coordinates are
 ## metres: x runs 0..WIDTH left to right as you face the back wall, z runs from
@@ -46,6 +48,18 @@ const FIXTURE_LIGHT := Color(1.0, 0.82, 0.6)
 ## into the room, centred at these z, back one first. They line up with the
 ## table rows.
 const CABINET_ZS := [2.9, 5.3]
+## The reading corner on the left-hand wall (x = 0), between the table rows:
+## along the wall from the back, the side table, the floor lamp tucked in
+## against the wall, and the armchair, turned out to face the room, angled a
+## little toward the back tables. Floor centres, and the chair's and radio's
+## turn (yaw) from facing the door.
+const SIDE_TABLE_AT := Vector2(0.76, 3.34)
+const FLOOR_LAMP_AT := Vector2(0.32, 3.97)
+const ARMCHAIR_AT := Vector2(0.91, 4.54)
+const ARMCHAIR_YAW := deg_to_rad(116.0)
+## The radio sits toward the back of the side table, facing out into the room.
+const RADIO_ON_TABLE := Vector2(0.07, -0.13)
+const RADIO_YAW := deg_to_rad(60.0)
 ## The store's wood (assets/store/table_wood): tables, cabinets, the binder
 ## shelf, window frames and the door. And how many metres of real wood one
 ## copy of its texture covers.
@@ -63,6 +77,11 @@ const CARPET_SIZE := 0.5
 ## many metres one copy of it covers.
 const PLASTER := "plaster"
 const PLASTER_SIZE := 2.0
+## The armchair's leather (assets/store/leather, the binders' hide), a worn
+## brown, and how many metres one copy of it covers.
+const LEATHER := "leather"
+const LEATHER_SIZE := 0.4
+const CHAIR_LEATHER := Color(0.62, 0.4, 0.27)
 ## Polished brass for the door and cabinet hardware and the curtain rods
 ## (assets/store/brass), and how many metres one copy of it covers.
 const BRASS := "brass"
@@ -90,6 +109,8 @@ var display_slots: Array[Marker3D] = []
 ## The display cabinets, back cabinet first; their slots hold the rare cards
 ## in that order.
 var cabinets: Array[DisplayCabinet] = []
+## The radio on the reading corner's side table.
+var radio: ShopRadio
 
 var _wall_material := _textured(PLASTER, PLASTER_SIZE)
 var _floor_material := _textured(CARPET, CARPET_SIZE)
@@ -112,6 +133,7 @@ func _ready() -> void:
 	_build_binder_shelves()
 	_build_tables()
 	_build_display_cabinets()
+	_build_reading_corner()
 	_build_windows()
 	_build_door()
 	_build_pendants()
@@ -283,6 +305,43 @@ func _build_display_cabinets() -> void:
 		var footprint := DisplayCabinet.footprint()
 		obstacles.append(Rect2(Vector2(WIDTH - DisplayCabinet.DEPTH / 2 - footprint.end.y, CABINET_ZS[i] + footprint.position.x),
 			Vector2(footprint.size.y, footprint.size.x)))
+
+
+## The reading corner (see SIDE_TABLE_AT): solid furniture whose footprints
+## the cards keep clear of, and the radio, which opens the Radio menu.
+func _build_reading_corner() -> void:
+	var leather := _textured(LEATHER, LEATHER_SIZE)
+	leather.albedo_color = CHAIR_LEATHER
+	leather.normal_scale = 2.0
+	var chair := ReadingCorner.armchair(leather, _table_material)
+	chair.name = "Armchair"
+	_place(chair, ARMCHAIR_AT, ARMCHAIR_YAW, ReadingCorner.CHAIR_SIZE)
+	var table := ReadingCorner.side_table(_table_material, _leg_material)
+	table.name = "SideTable"
+	_place(table, SIDE_TABLE_AT, 0.0, Vector2.ONE * ReadingCorner.TABLE_TOP)
+	var lamp := ReadingCorner.floor_lamp(_brass_material, _curtain(), FIXTURE_LIGHT)
+	lamp.name = "FloorLamp"
+	_place(lamp, FLOOR_LAMP_AT, 0.0, Vector2.ONE * ReadingCorner.LAMP_BASE)
+	radio = ShopRadio.new()
+	radio.name = "ShopRadio"
+	var cloth := _textured(CURTAIN, CURTAIN_SIZE)
+	cloth.albedo_color = Color(0.55, 0.45, 0.3)
+	radio.build(_table_material, cloth, _brass_material)
+	var on := SIDE_TABLE_AT + RADIO_ON_TABLE
+	radio.position = Vector3(on.x, ReadingCorner.TABLE_HEIGHT, on.y)
+	radio.rotation.y = RADIO_YAW
+	add_child(radio)
+
+
+## Adds a piece standing on the floor at `at`, turned by `yaw`, and keeps the
+## cards off its footprint (`size` across by deep, as the box around it once turned).
+func _place(body: Node3D, at: Vector2, yaw: float, size: Vector2) -> void:
+	body.position = Vector3(at.x, 0, at.y)
+	body.rotation.y = yaw
+	add_child(body)
+	var reach := Vector2(absf(cos(yaw)) * size.x + absf(sin(yaw)) * size.y,
+		absf(sin(yaw)) * size.x + absf(cos(yaw)) * size.y)
+	obstacles.append(Rect2(at - reach / 2, reach))
 
 
 ## Each window is a framed opening with a deep sill, the sky behind it, and
