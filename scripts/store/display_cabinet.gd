@@ -109,6 +109,30 @@ func slot_pose(slot: int) -> Transform3D:
 	return slots[slot].global_transform
 
 
+## The shadow box a ray from `from` to `to` looks into, or -1: the nearest
+## one whose frame the ray passes through, through the glass.
+func slot_on_ray(from: Vector3, to: Vector3) -> int:
+	var best := -1
+	var nearest := INF
+	for i in slots.size():
+		var pose := slots[i].global_transform
+		var hit = Plane(pose.basis.z, pose.origin).intersects_segment(from, to)
+		if hit == null:
+			continue
+		var local: Vector3 = pose.affine_inverse() * hit
+		if absf(local.x) <= FRAME_SIZE.x / 2 and absf(local.y) <= FRAME_SIZE.y / 2 and from.distance_to(hit) < nearest:
+			nearest = from.distance_to(hit)
+			best = i
+	return best
+
+
+## Hides (or shows again) the card hanging in a slot, while it's away being
+## looked at up close.
+func set_lifted(slot: int, lifted: bool) -> void:
+	if _views[slot] != null:
+		_views[slot].visible = not lifted
+
+
 func displayed_count() -> int:
 	return slots.size() - displayed.count(-1)
 

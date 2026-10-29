@@ -127,6 +127,9 @@ var _open_view: Node3D
 var _pages: Array[MeshInstance3D] = []
 var _pocket_views: Array[MeshInstance3D] = []
 var _hover: MeshInstance3D
+## The pocket whose card is away being looked at up close (it shows empty
+## meanwhile), or -1.
+var _lifted_pocket := -1
 ## Running pocket and page flashes. They're tied to a pocket view, not a
 ## pocket, so they're stopped whenever the spread changes.
 var _flashes: Array[Tween] = []
@@ -358,6 +361,13 @@ func take(pocket: int) -> int:
 	if id >= 0:
 		_refresh_spread()
 	return id
+
+
+## Shows a pocket empty while its card is away being looked at up close
+## (-1 when none is): the card itself never leaves the pocket.
+func set_lifted(pocket: int) -> void:
+	_lifted_pocket = pocket
+	_refresh_spread()
 
 
 ## Highlights the pocket under the crosshair (-1 for none).
@@ -740,7 +750,7 @@ func _refresh_spread() -> void:
 		for i in BinderLayout.POCKETS_PER_PAGE:
 			var view := _pocket_views[side * BinderLayout.POCKETS_PER_PAGE + i]
 			var id := contents.card_at(first_pocket + i) if i < used else -1
-			view.visible = id >= 0
+			view.visible = id >= 0 and first_pocket + i != _lifted_pocket
 			if id >= 0:
 				var material: ShaderMaterial = view.material_override
 				CardView.apply(material, id)

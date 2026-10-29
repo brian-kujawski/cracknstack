@@ -24,7 +24,7 @@ Controls:
 | Right-click | Toss the held card back onto the pile, or the carried binder, which tumbles past other binders and lands on its cover or its back. Empty-handed, aimed at the pile: flip it, tossing a few of the top cards there up so they land face up or down at random |
 | E | Open or close the binder you're looking at |
 | Mouse wheel | Turn the pages of the open binder you're looking at. Holding several cards (Harmonize), aimed anywhere else: cycle which card is on top |
-| F | Bring the held card up close to inspect it (the view holds still and the mouse tilts the card; F again lowers it) |
+| F | Bring the held card up close to inspect it (the view holds still and the mouse tilts the card; F again lowers it). Empty-handed, aimed at a card in an open binder or a display cabinet: bring that card up close the same way; F again sends it back |
 | R | Turn the card up close over to look at its back (R again turns it face up; lowering it with F always does) |
 | T | Turn the card up close a quarter turn clockwise, to read split cards printed sideways (T again turns it upright; lowering it with F always does) |
 | Esc | Pause menu: Resume (or Esc again), Save/Load, Achievements, Settings, Exit Game (to the main menu or the desktop, saving first or not) |
