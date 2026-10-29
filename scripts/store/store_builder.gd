@@ -60,6 +60,10 @@ const ARMCHAIR_YAW := deg_to_rad(116.0)
 ## The radio sits across the side table, facing out into the room.
 const RADIO_ON_TABLE := Vector2(0.0, -0.05)
 const RADIO_YAW := deg_to_rad(70.0)
+## The longcase clock stands at the shelf end of the left-hand wall,
+## balancing the low reading corner with something tall: its floor
+## centre along z.
+const CLOCK_Z := 1.0
 ## The wall art (WallArt), hung in its order. Over the binder shelf, one
 ## landscape frame centred in each bay between pairs of legs, their bottoms
 ## 22 cm above the shelf top so what's put down there doesn't hide them:
@@ -131,6 +135,8 @@ var display_slots: Array[Marker3D] = []
 var cabinets: Array[DisplayCabinet] = []
 ## The radio on the reading corner's side table.
 var radio: ShopRadio
+## The longcase clock; the shop gives it the DayCycle to show.
+var clock: ShopClock
 ## The wall art's frames, in WallArt's order.
 var wall_frames: Array[WallFrame] = []
 
@@ -157,6 +163,7 @@ func _ready() -> void:
 	_build_display_cabinets()
 	_build_reading_corner()
 	_build_wall_art()
+	_build_clock()
 	_build_windows()
 	_build_door()
 	_build_pendants()
@@ -328,6 +335,15 @@ func _build_display_cabinets() -> void:
 		var footprint := DisplayCabinet.footprint()
 		obstacles.append(Rect2(Vector2(WIDTH - DisplayCabinet.DEPTH / 2 - footprint.end.y, CABINET_ZS[i] + footprint.position.x),
 			Vector2(footprint.size.y, footprint.size.x)))
+
+
+## The longcase clock against the left-hand wall by the shelf end, facing
+## into the room.
+func _build_clock() -> void:
+	clock = ShopClock.new()
+	clock.name = "ShopClock"
+	clock.build(_table_material, _brass_material)
+	_place(clock, Vector2(ShopClock.DEPTH / 2, CLOCK_Z), PI / 2, Vector2(ShopClock.WIDTH, ShopClock.DEPTH))
 
 
 ## Empty picture frames over the binder shelf and the reading corner (see

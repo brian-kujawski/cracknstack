@@ -66,6 +66,7 @@ func _ready() -> void:
 	_day.setup($WorldEnvironment.environment, _store.window_lights, _store.curtain_material, _store.sky_material)
 	ShopSave.restore_day(saved, _day)
 	$PauseMenu.day_cycle = _day
+	_store.clock.day = _day
 	_finished = Saves.finished
 	Saves.shop = self
 	_build_saving_icon()

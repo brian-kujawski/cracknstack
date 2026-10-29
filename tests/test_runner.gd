@@ -74,6 +74,7 @@ func _ready() -> void:
 	await _test_shop_save()
 	await _test_rare_cards()
 	_test_wall_art()
+	_test_shop_clock()
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
 	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
@@ -2869,3 +2870,41 @@ func _test_wall_art() -> void:
 	screen.free()
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	Achievements.load_from(Achievements.SAVE_PATH)
+
+
+func _test_shop_clock() -> void:
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var store: Node3D = store_script.new()
+	add_child(store)
+	var clock: ShopClock = store.clock
+	_check(clock != null and clock.global_basis.z.is_equal_approx(Vector3.RIGHT) and clock.global_position.x < ShopClock.DEPTH,
+		"the clock stands against the left-hand wall, facing into the room")
+	var foot := Vector2(clock.global_position.x, clock.global_position.z)
+	_check(store.obstacles.any(func(r: Rect2) -> bool: return r.has_point(foot)), "cards keep clear of it")
+	var shelf_end := Rect2(store_script.BACK_SHELF.x, 0, 0.1, ShelfUnit.DEPTH)
+	_check(not store.obstacles.any(func(r: Rect2) -> bool: return r.has_point(foot) and r.intersects(shelf_end)), "clear of the shelf")
+	_check(clock.is_in_group(ReadingCorner.FURNITURE), "it's furniture, not a surface")
+	var default_length: float = Settings.DAY_LENGTHS[Settings.DEFAULTS["day_length"]]
+	_check(is_equal_approx(ShopClock.pace(default_length), 1.0) and ShopClock.pace(default_length / 2) > 1.0
+		and ShopClock.pace(default_length * 2) < 1.0 and ShopClock.pace(0.0) == 0.0,
+		"the pendulum beats seconds at the default day, faster for shorter days, and stops with the clock")
+	var day := DayCycle.new()
+	day.running = false
+	add_child(day)
+	clock.day = day
+	var length_before: int = Settings.value("day_length")
+	Settings.change("day_length", Settings.DAY_LENGTHS.find(0.0))
+	day.set_hour(15.5)
+	clock.phase = 1.0
+	clock._process(0.5)
+	var pendulum: Node3D = clock.get_node("Pendulum")
+	_check(is_equal_approx(clock.phase, 1.0) and is_equal_approx(pendulum.rotation.z, ShopClock.SWING * sin(1.0)), "stopped, the pendulum holds still")
+	var hands := clock.get_children().filter(func(n: Node) -> bool: return n.get_class() == "Node3D" and n.name != "Pendulum")
+	_check(hands.size() == 2 and is_equal_approx(hands[0].rotation.z, -3.5 / 12.0 * TAU) and is_equal_approx(hands[1].rotation.z, -0.5 * TAU),
+		"the hands show half past three")
+	Settings.change("day_length", Settings.DEFAULTS["day_length"])
+	clock._process(0.5)
+	_check(is_equal_approx(clock.phase, 1.0 + PI / 2), "at the default day, half a second is a quarter of a swing there and back")
+	Settings.change("day_length", length_before)
+	day.free()
+	store.free()
