@@ -3,8 +3,9 @@
 // Per instance:  COLOR = (set accent colour, face atlas index or -1)
 //                CUSTOM = (collector number, set number,
 //                          rarity + 4 * highlighted + 8 * glowing + 16 * Alpha corners, face up)
-// With real data the face comes from the atlas (FaceAtlas); with a face
-// index of -1 the placeholder face is drawn instead. With FOIL defined the
+// With real data the face comes from the far-face atlas (FaceAtlas), and a
+// card close to the eyes fades over to its near face (NearFaces); with a
+// face index of -1 the placeholder face is drawn instead. With FOIL defined the
 // faces are foil (floor_foil.gdshader, see foil.gdshaderinc).
 render_mode cull_disabled;
 
@@ -25,14 +26,39 @@ uniform sampler2DArray faces : source_color, filter_linear_mipmap, repeat_disabl
 uniform ivec2 face_grid = ivec2(1, 1);
 uniform vec2 face_slot_uv = vec2(1.0);
 
+// Near faces (NearFaces): the pool, and per face index (in rows of 256) its
+// layer or -1, when it arrived on near_time's clock, and 1 if it arrived late.
+uniform bool near_on = false;
+uniform sampler2DArray near_faces : source_color, filter_linear_mipmap, repeat_disable;
+uniform sampler2D near_lookup : filter_nearest, repeat_disable;
+uniform float near_time = 0.0;
+uniform float near_fade_time = 0.25;
+// Debug: tints near faces that arrived late, for a couple of seconds.
+uniform bool near_show_late = false;
+
 varying vec3 accent;
 varying flat float face_index;
 varying flat vec4 card;
+varying flat float near_layer;
+varying flat float near_mix;
+varying flat float near_late;
 
 void vertex() {
 	accent = COLOR.rgb;
 	face_index = COLOR.a;
 	card = INSTANCE_CUSTOM;
+	near_layer = 0.0;
+	near_mix = 0.0;
+	near_late = 0.0;
+	int near_index = int(face_index + 0.5);
+	if (near_on && near_index >= 0) {
+		vec3 near = texelFetch(near_lookup, ivec2(near_index % 256, near_index / 256), 0).rgb;
+		if (near.r > -0.5) {
+			near_layer = near.r;
+			near_mix = clamp((near_time - near.g) / near_fade_time, 0.0, 1.0);
+			near_late = near_show_late && near.b > 0.5 ? 1.0 - clamp((near_time - near.g) / 2.0, 0.0, 1.0) : 0.0;
+		}
+	}
 #ifdef FOIL
 	// Across the face: u runs along +x, v along +z.
 	TANGENT = vec3(1.0, 0.0, 0.0);
@@ -66,6 +92,9 @@ void fragment() {
 	vec2 cell = vec2(float(slot % face_grid.x), float(slot / face_grid.x));
 	vec2 atlas_uv = (cell + clamp(uv, 0.01, 0.99)) * face_slot_uv;
 	vec3 atlas_face = texture(faces, vec3(atlas_uv, float(index / per_page))).rgb;
+	vec3 near_face = texture(near_faces, vec3(clamp(uv, 0.01, 0.99), near_layer)).rgb;
+	atlas_face = mix(atlas_face, near_face, near_mix);
+	atlas_face = mix(atlas_face, vec3(1.0, 0.1, 0.1), near_late * 0.6);
 #ifdef FOIL
 	int number = clamp(int(card.x + 0.5), 1, 36);
 	vec3 rare_face = texture(rare_faces, vec3(clamp(uv, 0.0, 1.0), float(number - 1))).rgb;

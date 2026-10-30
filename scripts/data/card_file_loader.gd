@@ -7,7 +7,8 @@ extends RefCounted
 ##   "format": 1,
 ##   "source": "...",                                       (real data only)
 ##   "sets":  [{"code", "name", "release_date", "accent_color", "artists"}],
-##   "faces": {"pages", "page_size", "slot_size", "columns", "rows"},  (real data only)
+##   "faces": {"pages", "page_size", "slot_size", "columns", "rows",   (real data only)
+##             "near", "near_size"},
 ##   "back": "back.jpg",                                     (real data only)
 ##   "cards": [[set_code, collector_number, name, rarity, colors, type_line, image], ...]
 ## }
@@ -15,7 +16,8 @@ extends RefCounted
 ## Cards are compact arrays because the full game has ~30,000 of them. The
 ## seventh column (a large face image) and "faces" (the small-face atlas,
 ## card i in slot i) and "back" (the card back image) only come with real data. Their paths are relative to
-## the data file.
+## the data file. "near" is where each card's near face is (NearFaces), with
+## {set} for the lower-case set code and {number} for the collector number.
 
 const FORMAT_VERSION := 1
 
@@ -80,6 +82,9 @@ static func load_file(path: String) -> Result:
 			card.image_large = folder.path_join(row[6])
 		if has_faces:
 			card.face_index = card.id
+			if result.faces.has("near"):
+				card.image_near = folder.path_join(str(result.faces["near"]).format(
+						{"set": card.set_code.to_lower(), "number": card.collector_number}))
 		if not counts.has(card.set_code):
 			push_error("CardFileLoader: card %s references unknown set %s" % [card.name, card.set_code])
 			result.error = ERR_INVALID_DATA

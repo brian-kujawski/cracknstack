@@ -19,6 +19,8 @@ var type_line: String
 var face_index: int = -1
 ## Path to a large face image. Empty means "draw the placeholder face".
 var image_large: String = ""
+## Path to the card's near face (NearFaces), or "" if it has none.
+var image_near: String = ""
 
 
 ## Alpha (LEA) was cut with a die that rounded the corners deeper than every

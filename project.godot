@@ -17,12 +17,12 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 
 [autoload]
 
+Settings="*res://scripts/settings/settings.gd"
 CardDatabase="*res://scripts/data/card_database.gd"
 Controls="*res://scripts/input/controls.gd"
 Progression="*res://scripts/progression/progression.gd"
 Achievements="*res://scripts/progression/achievements.gd"
 SceneFlow="*res://scripts/ui/scene_flow.gd"
-Settings="*res://scripts/settings/settings.gd"
 Saves="*res://scripts/save/saves.gd"
 Radio="*res://scripts/audio/radio.gd"
 

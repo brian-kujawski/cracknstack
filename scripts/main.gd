@@ -51,6 +51,7 @@ func _ready() -> void:
 	var started := Time.get_ticks_msec()
 	var saved := Saves.take_pending()
 	_pile.surfaces = _store.surfaces
+	_pile.crouch_eye_height = $Player.crouch_eye_height
 	_hands.pile = _pile
 	_hands.cabinets = _store.cabinets
 	if saved.is_empty():
