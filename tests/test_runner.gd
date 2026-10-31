@@ -172,14 +172,14 @@ func _test_shelf_layout() -> void:
 	for i in layout.binders.size():
 		var left := layout.lefts[i]
 		var right := left + layout.widths[i]
-		fits = fits and absf(layout.widths[i] - BinderLayout.thickness(few[i]) - ShelfLayout.SPACE_GAP) < 0.0001
+		fits = fits and layout.widths[i] >= BinderLayout.thickness(few[i]) + ShelfLayout.SPACE_GAP - 0.0001
 		fits = fits and ((left >= bays[0].x and right <= bays[0].y) or (left >= bays[1].x and right <= bays[1].y))
 		if i > 0:
 			var same_shelf := layout.shelves[i] == layout.shelves[i - 1]
 			fits = fits and layout.shelves[i] >= layout.shelves[i - 1]
 			fits = fits and (not same_shelf or left >= layout.lefts[i - 1] + layout.widths[i - 1] - 0.0001)
 		fill[layout.shelves[i]] += layout.widths[i]
-	_check(fits, "spaces are as wide as their binder, in order, never overlapping or straddling a divider")
+	_check(fits, "spaces are at least as wide as their binder, in order, never overlapping or straddling a divider")
 	_check(layout.shelves[0] == 0 and layout.shelves[-1] == 1 and absf(fill[0] - fill[1]) < 0.15,
 		"the binders split evenly over both shelves (%.2f m and %.2f m)" % fill)
 
@@ -188,8 +188,26 @@ func _test_shelf_layout() -> void:
 	var cramped := ShelfLayout.plan(eight, 1, [Vector2(0.0, 0.5)] as Array[Vector2])
 	_check(cramped.binders.size() < 8 and cramped.binders.size() > 0, "binders that don't fit are left out (with an error)")
 
-	var full := ShelfLayout.plan(binders, ShelfUnit.SHELF_HEIGHTS.size(), [Vector2(0.0, 7.9)] as Array[Vector2])
-	_check(full.binders.size() == binders.size(), "every binder fits on the back wall's shelves (%d of %d)" % [full.binders.size(), binders.size()])
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var fitted := ShelfUnit.fitted_width(binders)
+	var most: float = store_script.BACK_SHELF.y - store_script.BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS
+	_check(fitted <= most, "every binder fits on the back wall (%.2f m of %.2f m)" % [fitted, most])
+	var bay := fitted / ShelfUnit.BAYS
+	var spans: Array[Vector2] = []
+	for i in ShelfUnit.BAYS:
+		spans.append(Vector2(bay * i + ShelfUnit.DIVIDER_THICKNESS / 2, bay * (i + 1) - ShelfUnit.DIVIDER_THICKNESS / 2))
+	var full := ShelfLayout.plan(binders, ShelfUnit.SHELF_HEIGHTS.size(), spans)
+	_check(full.binders.size() == binders.size(), "on a fitted shelf every binder gets a space (%d of %d)" % [full.binders.size(), binders.size()])
+	# No bay runs empty: every bay's last space ends at its divider, and no
+	# space is stretched by much more than a binder's width.
+	var filled := true
+	for i in full.binders.size():
+		var end := full.lefts[i] + full.widths[i]
+		var last_in_bay := i == full.binders.size() - 1 or full.shelves[i + 1] != full.shelves[i] \
+			or full.lefts[i + 1] > end + ShelfUnit.DIVIDER_THICKNESS / 2
+		filled = filled and (not last_in_bay or absf(end - spans[floori(full.lefts[i] / bay)].y) < 0.001)
+		filled = filled and full.widths[i] - ShelfLayout.space_width(full.binders[i]) < 0.03
+	_check(filled, "the fitted shelf is full: every bay's spaces reach its divider, spread by under 3 cm each")
 
 
 func _test_pile() -> void:
@@ -573,8 +591,8 @@ func _test_shelving() -> void:
 	var spots := unit.leg_spots()
 	var spaced := spots.size() >= 2
 	for i in range(1, spots.size()):
-		spaced = spaced and spots[i] > spots[i - 1] and spots[i] - spots[i - 1] <= ShelfUnit.LEG_SPACING + ShelfUnit.BAY_WIDTH / 2
-	_check(spaced and spots[0] < -1.1 and spots[-1] > 1.1, "leg pairs stand under both ends and along the span")
+		spaced = spaced and spots[i] > spots[i - 1] and absf((spots[i] - spots[i - 1]) - (spots[1] - spots[0])) < 0.05
+	_check(spaced and spots[0] < -1.1 and spots[-1] > 1.1, "leg pairs stand under both ends and evenly along the span")
 	var top := unit.top_rect()
 	_check(is_equal_approx(top.position.y, -ShelfUnit.DEPTH / 2) and top.end.y > ShelfUnit.DEPTH / 2 and top.size.x > 2.4,
 		"the top covers the whole unit, back to the wall")

@@ -2,13 +2,15 @@ class_name ShelfLayout
 extends RefCounted
 ## Where each binder's space is on a shelving unit (plan §3.2, Layer 2).
 ## Binders go in shelf order (release date): left to right along the top
-## shelf, then the next one down, like a book. They're split as evenly as
-## possible between the shelves, so every shelf ends with the same room to
-## spare. Each space is as wide as its binder plus SPACE_GAP, and none
-## straddles a bay divider.
+## shelf, then the next one down, like a book. They're shared out as evenly
+## as possible between all the bays of all the shelves, so every bay holds
+## about the same width of binders, and none straddles a bay divider. Each
+## space is as wide as its binder plus at least SPACE_GAP; whatever room a
+## bay has left over is spread between its spaces, so no shelf ends in an
+## empty run.
 
-## Room around a binder in its space, so its label fits under it and it's
-## easy to aim at.
+## Room around a binder in its space, at least, so its label fits under it
+## and it's easy to aim at.
 const SPACE_GAP := 0.03
 
 ## Per space, in shelf order: the binder that belongs there, which shelf
@@ -24,43 +26,80 @@ static func space_width(binder: BinderRange) -> float:
 	return BinderLayout.thickness(binder) + SPACE_GAP
 
 
-## Lays `all` out over `shelf_count` shelves split into bays, given as the
-## (start, end) of each bay along the shelf. Binders that don't fit are left
-## out, with an error.
-static func plan(all: Array[BinderRange], shelf_count: int, bays: Array[Vector2]) -> ShelfLayout:
-	var layout := ShelfLayout.new()
+## Which of `bay_count` bays (all shelves', in reading order) each binder
+## falls in when they're shared out evenly: a binder goes in the bay its
+## middle falls in, if every bay held exactly its share.
+static func even_bays(all: Array[BinderRange], bay_count: int) -> PackedInt32Array:
 	var total := 0.0
 	for binder in all:
 		total += space_width(binder)
-	var share := total / shelf_count
-	var shelf := 0
-	var bay := 0
-	var cursor := bays[0].x
+	var share := total / bay_count
+	var bays := PackedInt32Array()
 	var filled := 0.0
 	for binder in all:
 		var width := space_width(binder)
-		# A binder goes on the shelf its middle falls on, if the shelves were
-		# filled to exactly their share.
-		var wanted := mini(floori((filled + width / 2) / share), shelf_count - 1) if share > 0.0 else 0
+		bays.append(mini(floori((filled + width / 2) / share), bay_count - 1) if share > 0.0 else 0)
 		filled += width
-		if wanted > shelf:
-			shelf = wanted
-			bay = 0
-			cursor = bays[0].x
-		while bay < bays.size() and cursor + width > bays[bay].y:
+	return bays
+
+
+## The narrowest a bay can be for `all` to fit `bay_count` bays shared out
+## evenly, binders at their tightest: the widest bay's binders.
+static func fit_bay_width(all: Array[BinderRange], bay_count: int) -> float:
+	var sums := PackedFloat32Array()
+	sums.resize(bay_count)
+	var bays := even_bays(all, bay_count)
+	for i in all.size():
+		sums[bays[i]] += space_width(all[i])
+	var widest := 0.0
+	for sum in sums:
+		widest = maxf(widest, sum)
+	return widest
+
+
+## Lays `all` out over `shelf_count` shelves split into bays, given as the
+## (start, end) of each bay along the shelf (the same on every shelf).
+## Binders that don't fit are left out, with an error.
+static func plan(all: Array[BinderRange], shelf_count: int, bays: Array[Vector2]) -> ShelfLayout:
+	var layout := ShelfLayout.new()
+	var bay_count := shelf_count * bays.size()
+	var wanted := even_bays(all, bay_count)
+	# Each bay's binders, in order. A bay too full for its share spills over
+	# into the next one.
+	var contents: Array = []
+	var used := PackedFloat32Array()
+	for i in bay_count:
+		contents.append([])
+		used.append(0.0)
+	var bay := 0
+	for i in all.size():
+		var width := space_width(all[i])
+		bay = maxi(bay, wanted[i])
+		while bay < bay_count and used[bay] + width > _bay_length(bays, bay) + 0.0001:
 			bay += 1
-			cursor = bays[bay].x if bay < bays.size() else 0.0
-		if bay == bays.size():
-			# This shelf's full: carry on along the next one, if there is one.
-			if shelf == shelf_count - 1:
-				push_error("ShelfLayout: no room for %s" % binder.label)
-				continue
-			shelf += 1
-			bay = 0
-			cursor = bays[0].x
-		layout.binders.append(binder)
-		layout.shelves.append(shelf)
-		layout.lefts.append(cursor)
-		layout.widths.append(width)
-		cursor += width
+		if bay == bay_count:
+			push_error("ShelfLayout: no room for %s" % all[i].label)
+			bay = bay_count - 1
+			continue
+		contents[bay].append(all[i])
+		used[bay] += width
+
+	for b in bay_count:
+		var span := bays[b % bays.size()]
+		var spare := 0.0
+		if not contents[b].is_empty():
+			spare = (span.y - span.x - used[b]) / contents[b].size()
+		var cursor := span.x
+		for binder: BinderRange in contents[b]:
+			var width := space_width(binder) + spare
+			layout.binders.append(binder)
+			layout.shelves.append(b / bays.size())
+			layout.lefts.append(cursor)
+			layout.widths.append(width)
+			cursor += width
 	return layout
+
+
+static func _bay_length(bays: Array[Vector2], bay: int) -> float:
+	var span := bays[bay % bays.size()]
+	return span.y - span.x

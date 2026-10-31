@@ -8,7 +8,8 @@ extends StaticBody3D
 ## under the unit, and its open front faces local +Z.
 ##
 ## Every space is labelled for one binder, with a nameplate on the shelf's
-## edge under it (Nameplates), and is as wide as that binder (ShelfLayout).
+## edge under it (Nameplates), and is as wide as that binder, give or take
+## the bay's spare room (ShelfLayout).
 ## A binder stood in its own space locks in; in any other labelled space it
 ## glows red. Once its own completed binder stands there, a space's plate
 ## turns from black to gold; when every space on a shelf has, the light under
@@ -26,8 +27,11 @@ const SIDE_THICKNESS := 0.03
 const SHELF_HEIGHTS := [0.95, 0.55]
 ## Height of the top board's top surface (the cap sits on it).
 const HEIGHT := 1.35
-## Roughly how wide a bay is between dividers.
-const BAY_WIDTH := 0.8
+## How many bays each shelf is split into by dividers. The unit is as wide
+## as the binders need (fitted_width()), so the bays are too.
+const BAYS := 10
+## The narrowest a bay gets, however few binders there are.
+const MIN_BAY_WIDTH := 0.3
 const DIVIDER_THICKNESS := 0.012
 const BACK_THICKNESS := 0.02
 ## The edge band on each board's front: its depth, and how far it hangs below
@@ -39,9 +43,8 @@ const CAP_THICKNESS := 0.025
 const CAP_OVERHANG := 0.012
 ## How much narrower than its space a nameplate is, at least (half each side).
 const PLATE_CLEARANCE := 0.008
-## Leg pairs stand under every so many bay boundaries, evenly, no further
-## apart than this.
-const LEG_SPACING := 2.0
+## Leg pairs stand under both ends and every so many bay dividers.
+const LEGS_EVERY := 2
 ## How far a leg's centre sits in from the unit's front and back.
 const LEG_INSET := 0.06
 
@@ -66,6 +69,14 @@ static func outer_width(inner_width: float) -> float:
 	return inner_width + 2 * SIDE_THICKNESS
 
 
+## How wide inside a unit of `bays` bays a shelf must be to hold `binders`
+## with no shelf running empty: each bay as wide as its fair share of the
+## binders needs, at their tightest.
+static func fitted_width(binders: Array[BinderRange], bays := BAYS) -> float:
+	var bay := ShelfLayout.fit_bay_width(binders, SHELF_HEIGHTS.size() * bays)
+	return bays * (maxf(bay, MIN_BAY_WIDTH) + DIVIDER_THICKNESS)
+
+
 ## The height of the lowest board's underside: how tall the legs are.
 static func leg_height() -> float:
 	return SHELF_HEIGHTS[-1] - BOARD_THICKNESS
@@ -73,9 +84,8 @@ static func leg_height() -> float:
 
 ## Builds the meshes, collision and nameplates, with a labelled space for each
 ## binder, in order. Call once before adding to the tree.
-func build(binders: Array[BinderRange], material: Material, inner_width: float) -> void:
+func build(binders: Array[BinderRange], material: Material, inner_width: float, bays := BAYS) -> void:
 	width = inner_width
-	var bays := maxi(1, roundi(width / BAY_WIDTH))
 	_bays = bays
 	var bay_ranges: Array[Vector2] = []
 	for bay in bays:
@@ -134,16 +144,13 @@ func top_rect() -> Rect2:
 	return Rect2(-cap_width / 2, -DEPTH / 2, cap_width, cap_depth)
 
 
-## The x of each pair of legs, along the unit: one under each end, and more
-## between, under every so many dividers (every second one for 0.8 m bays),
-## so no two are more than LEG_SPACING apart.
+## The x of each pair of legs, along the unit: one under each end, and one
+## under every LEGS_EVERY-th divider between.
 func leg_spots() -> Array[float]:
 	var half := outer_width(width) / 2 - LEG_INSET
-	var bays_per_gap := maxi(1, floori(LEG_SPACING / (width / _bays)))
-	var gaps := ceili(float(_bays) / bays_per_gap)
 	var spots: Array[float] = [-half]
-	for i in range(1, gaps):
-		spots.append(_dividers[roundi(float(i * _bays) / gaps) - 1])
+	for i in range(LEGS_EVERY, _bays, LEGS_EVERY):
+		spots.append(_dividers[i - 1])
 	spots.append(half)
 	return spots
 
