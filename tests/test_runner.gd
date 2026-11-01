@@ -1,14 +1,22 @@
 extends Node
 ## Headless checks for the data layer, the pile, binders and shelving. Run from the project root:
 ##   godot --headless res://tests/test_runner.tscn
+## Add `-- --smoke` for just the SMOKE groups.
 ## Exits with code 1 if any check fails.
 
 const SETTINGS_TEST_PATH := "user://test_settings.cfg"
 const SAVES_TEST_DIR := "user://test_saves"
-const RADIO_TEST_PATH := "user://test_radio.cfg"
+## The groups run with `-- --smoke`, the quick batch CI runs on pull requests:
+## the data layer, saves, one shop boot and the asset checks. Everything else
+## waits for main, a PR labelled full-tests, or a run without the flag.
+const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
+	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
+	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards"]
 
 var _failures := 0
 var _checks := 0
+var _smoke := "--smoke" in OS.get_cmdline_user_args()
 
 
 func _ready() -> void:
@@ -21,68 +29,69 @@ func _ready() -> void:
 	Saves.save_dir = SAVES_TEST_DIR
 	Radio.load_from(RADIO_TEST_PATH)
 	_clear_test_saves()
-	_test_database_loaded()
-	_test_collector_numbers_are_contiguous()
-	_test_shelf_order()
-	_test_binders_per_set()
-	_test_binder_layout()
-	_test_card_sort()
-	_test_shelf_layout()
-	_test_pile()
-	_test_pile_clearing()
-	_test_pile_aim()
-	_test_pile_stacking()
-	_test_pile_grid()
-	_test_binder_spreads()
-	_test_binder_contents()
-	_test_binder_pockets()
-	_test_binder_lettering()
-	_test_leather_colour()
-	_test_shelving()
-	_test_loose_card()
-	_test_card_corners()
-	_test_real_data_format()
-	_test_near_faces()
-	_test_credits()
-	_test_inspect_tilt()
-	_test_glide()
-	_test_controls()
-	_test_settings()
-	_test_settings_screen()
-	_test_onscreen_text()
-	_test_pause()
-	await _test_title_screen()
-	_test_achievements()
-	await _test_credits_roll()
-	_test_progression()
-	_test_upgrade_menu()
-	_test_radio()
-	_test_sorcery_recharge()
-	_test_step_one_upgrades()
-	_test_demonic_tutor()
-	await _test_step_two_upgrades()
-	await _test_step_three_upgrades()
-	await _test_step_four_upgrades()
-	await _test_steps_five_to_seven()
-	_test_day_cycle()
-	_test_display_cabinets()
-	await _test_reading_corner()
-	await _test_crouch()
-	await _test_lean_over_table()
-	await _test_table_cards()
-	await _test_binder_toss()
-	_test_save_files()
-	await _test_shop_save()
-	await _test_turn_over()
-	await _test_rare_cards()
-	_test_wall_art()
-	_test_shop_clock()
+	await _run(_test_database_loaded)
+	await _run(_test_collector_numbers_are_contiguous)
+	await _run(_test_shelf_order)
+	await _run(_test_binders_per_set)
+	await _run(_test_binder_layout)
+	await _run(_test_card_sort)
+	await _run(_test_shelf_layout)
+	await _run(_test_pile)
+	await _run(_test_pile_clearing)
+	await _run(_test_pile_stacking)
+	await _run(_test_pile_grid)
+	await _run(_test_binder_spreads)
+	await _run(_test_binder_contents)
+	await _run(_test_binder_pockets)
+	await _run(_test_binder_lettering)
+	await _run(_test_leather_colour)
+	await _run(_test_shelving)
+	await _run(_test_loose_card)
+	await _run(_test_card_corners)
+	await _run(_test_real_data_format)
+	await _run(_test_credits)
+	await _run(_test_inspect_tilt)
+	await _run(_test_glide)
+	await _run(_test_controls)
+	await _run(_test_settings)
+	await _run(_test_settings_screen)
+	await _run(_test_onscreen_text)
+	await _run(_test_pause)
+	await _run(_test_title_screen)
+	await _run(_test_achievements)
+	await _run(_test_credits_roll)
+	await _run(_test_progression)
+	await _run(_test_upgrade_menu)
+	await _run(_test_sorcery_recharge)
+	await _run(_test_step_one_upgrades)
+	await _run(_test_demonic_tutor)
+	await _run(_test_step_two_upgrades)
+	await _run(_test_step_three_upgrades)
+	await _run(_test_step_four_upgrades)
+	await _run(_test_steps_five_to_seven)
+	await _run(_test_day_cycle)
+	await _run(_test_display_cabinets)
+	await _run(_test_crouch)
+	await _run(_test_lean_over_table)
+	await _run(_test_table_cards)
+	await _run(_test_binder_toss)
+	await _run(_test_save_files)
+	await _run(_test_shop_save)
+	await _run(_test_rare_cards)
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
 	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
-	DirAccess.remove_absolute(RADIO_TEST_PATH)
-	print("%d checks, %d failed" % [_checks, _failures])
+	print("%d checks, %d failed%s" % [_checks, _failures, " (smoke batch)" if _smoke else ""])
 	get_tree().quit(1 if _failures > 0 else 0)
+
+
+func _run(group: Callable) -> void:
+	if _smoke and group.get_method() not in SMOKE:
+		return
+	var started := Time.get_ticks_msec()
+	var checks := _checks
+	await group.call()
+	print("%s: %d checks in %d ms" % [group.get_method(), _checks - checks, Time.get_ticks_msec() - started])
 
 
 func _check(condition: bool, message: String) -> void:

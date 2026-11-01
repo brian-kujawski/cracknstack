@@ -95,10 +95,11 @@ The output (`data/placeholder/cards.json`) is deterministic and committed. CI ch
 ```sh
 godot --headless --import            # once, to build the class cache
 godot --headless res://tests/test_runner.tscn
+godot --headless res://tests/test_runner.tscn -- --smoke   # just the quick batch
 python3 -m unittest discover -s tools -p "test_*.py"   # the importer, offline
 ```
 
-Exits non-zero if any check fails. CI runs the same thing on every pull request.
+Exits non-zero if any check fails, and prints how long each group took. CI runs the smoke batch (`SMOKE` in `tests/test_runner.gd`) on pull requests, and the full suite on main, on pull requests labelled `full-tests`, and when run by hand from the Actions tab.
 
 ## Layout
 

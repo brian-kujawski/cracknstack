@@ -3,15 +3,27 @@ name: Tests
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md"]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths-ignore: ["**.md"]
+  workflow_dispatch:
 
 jobs:
   godot-headless:
+    # Adding any other label to a PR doesn't need a run.
+    if: github.event.action != 'labeled' || github.event.label.name == 'full-tests'
     runs-on: ubuntu-latest
+    # A newer push to the same PR replaces the run still going.
+    concurrency:
+      group: tests-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # A script parse error leaves the test scene running forever; fail fast instead.
     timeout-minutes: 10
     env:
       GODOT_VERSION: 4.7.2
+      # Pull requests run the smoke batch unless labelled full-tests; main and manual runs get everything.
+      FULL_SUITE: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-tests') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,5 +50,10 @@ jobs:
           $RUNNER_TEMP/godot --headless --script res://tools/gen_placeholder_sets.gd
           git diff --exit-code -- data/placeholder
 
-      - name: Run tests
-        run: $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn
+      - name: Run tests (${{ env.FULL_SUITE == 'true' && 'full suite' || 'smoke batch' }})
+        run: |
+          if [ "$FULL_SUITE" = true ]; then
+            $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn
+          else
+            $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn -- --smoke
+          fi
