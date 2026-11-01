@@ -42,6 +42,7 @@ func _ready() -> void:
 	_test_loose_card()
 	_test_card_corners()
 	_test_real_data_format()
+	_test_near_faces()
 	_test_credits()
 	_test_inspect_tilt()
 	_test_glide()
@@ -654,9 +655,10 @@ func _test_loose_card() -> void:
 
 
 const FIXTURE_DIR := "user://test_real_data"
-## A tiny atlas: 4 × 2 slots of 16 × 22 px on 64 px pages, so 10 cards need two pages.
+## A tiny atlas: 4 × 2 slots of 16 × 22 px on 64 px pages, so 10 cards need two pages,
+## and 32 × 44 px near faces.
 const FIXTURE_FACES := {"pages": ["faces/page_0.png", "faces/page_1.png"], "page_size": 64,
-	"slot_size": [16, 22], "columns": 4, "rows": 2}
+	"slot_size": [16, 22], "columns": 4, "rows": 2, "near": "near/{set}/{number}.dds", "near_size": [32, 44]}
 const FIXTURE_CARDS := 10
 
 
@@ -666,11 +668,17 @@ const FIXTURE_CARDS := 10
 func _write_fixture(with_pages := true) -> String:
 	DirAccess.make_dir_recursive_absolute(FIXTURE_DIR + "/faces")
 	DirAccess.make_dir_recursive_absolute(FIXTURE_DIR + "/images/tst")
+	DirAccess.make_dir_recursive_absolute(FIXTURE_DIR + "/near/tst")
 	var rows := []
 	for id in FIXTURE_CARDS:
 		var face := Image.create(48, 66, false, Image.FORMAT_RGB8)
 		face.fill(Color8((id + 1) * 20, 100, 50))
 		face.save_png("%s/images/tst/%d.png" % [FIXTURE_DIR, id + 1])
+		var near := Image.create(32, 44, false, Image.FORMAT_RGB8)
+		near.fill(Color8((id + 1) * 20, 100, 50))
+		near.generate_mipmaps()
+		near.compress(Image.COMPRESS_S3TC)
+		near.save_dds("%s/near/tst/%d.dds" % [FIXTURE_DIR, id + 1])
 		rows.append(["TST", id + 1, "Test Card %d" % (id + 1), "rare", ["G"], "Creature — Bear", "images/tst/%d.png" % (id + 1)])
 	for p in 2:
 		var page := Image.create(64, 64, false, Image.FORMAT_RGB8)
@@ -747,6 +755,19 @@ func _test_real_data_format() -> void:
 	_check(material.get_shader_parameter("has_face") == true, "single-card materials switch to the real face")
 	_check(CardDatabase.card_back != null and CardDatabase.card_back.get_size() == Vector2(48, 66), "the card back loads")
 	_check(material.get_shader_parameter("has_back") == true, "single-card materials get the real card back")
+	_check(card.image_near == FIXTURE_DIR + "/near/tst/10.dds", "cards know their near face")
+	_check(CardDatabase.near_paths.size() == FIXTURE_CARDS and CardDatabase.near_paths[9] == card.image_near
+		and CardDatabase.near_size == Vector2i(32, 44), "the database lists near faces by face index")
+	var binder_material := ShaderMaterial.new()
+	binder_material.shader = preload("res://shaders/binder_card.gdshader")
+	CardView.apply(binder_material, 9)
+	var pocket_face: Texture2D = binder_material.get_shader_parameter("face_texture")
+	_check(pocket_face != null and pocket_face.get_size() == Vector2(32, 44), "binder and table cards show the near face")
+	var held_face: Texture2D = material.get_shader_parameter("face_texture")
+	_check(held_face.get_size() == Vector2(48, 66), "the held card keeps the large image")
+	var low := FaceAtlas.load_pages(CardDatabase._faces, true)
+	_check(low.texture.get_width() == 32 and low.slot_height() == 11 and atlas.slot_height() == 22,
+		"low card detail loads the far faces at half size")
 
 	# One set, one binder: one labelled shelf space, the rest blank.
 	var layout := ShelfLayout.plan(CardDatabase.all_binders(), 2, [Vector2(0.0, 7.9)] as Array[Vector2])
@@ -764,6 +785,8 @@ func _test_real_data_format() -> void:
 		faces_ok = faces_ok and pile._faces[id] == id
 	_check(faces_ok, "floor cards carry their face atlas slot")
 	_check(pile._material.get_shader_parameter("has_back") == true, "face-down floor cards show the real card back")
+	_check(pile.near_faces != null and pile._material.get_shader_parameter("near_on") == true, "the floor gets a pool of near faces")
+	_test_near_request(pile)
 	pile.free()
 
 	# A missing page falls back to placeholder faces rather than failing.
@@ -771,6 +794,64 @@ func _test_real_data_format() -> void:
 	_check(CardDatabase.load_file(path) == OK and CardDatabase.face_atlas == null, "missing atlas pages fall back to placeholder faces")
 	_check(CardDatabase.get_card(0).face_index == -1, "and cards stop pointing into the atlas")
 	_write_fixture()
+
+
+## Which floor cards PileWorld asks near faces for: face up, not buried, the
+## nearest first.
+func _test_near_request(pile: PileWorld) -> void:
+	var near := NearFaces.new(CardDatabase.near_paths, CardDatabase.near_size, 4)
+	pile.near_faces = near
+	var target := 3
+	var top := pile._positions[target]
+	pile._face_up[target] = 1
+	pile.request_near_faces(top + Vector3(0, 0.3, 0), 0.5)
+	_check(near._wanted.has(target) == (top.y >= pile.height_at(Vector2(top.x, top.z)) - PileWorld.NEAR_BURIED),
+		"a card right under the eye wants its near face unless it's buried")
+	pile.request_near_faces(top + Vector3(0, 0.3, 0), 0.001)
+	_check(near._wanted.is_empty(), "nothing wants a near face when every card is far enough away")
+	pile._face_up[target] = 0
+	pile._heights.fill(0.0) # nothing counts as buried
+	pile.request_near_faces(top + Vector3(0, 0.3, 0), 10.0)
+	_check(not near._wanted.has(target) and near._wanted.size() == 4, "face-down cards want none; the rest fill the pool")
+
+
+func _test_near_faces() -> void:
+	_write_fixture()
+	CardDatabase.load_file(FIXTURE_DIR + "/cards.json")
+	var near := NearFaces.new(CardDatabase.near_paths, CardDatabase.near_size, 2)
+	_check(near.pool.get_layers() == 2 and near.pool.get_width() == 32 and near.pool.get_height() == 44, "the pool holds its capacity of near faces")
+	near.request(PackedInt32Array([4, 7, 1]), PackedInt32Array([7]))
+	_check(near._wanted.size() == 2 and near._wanted.has(4) and near._wanted.has(7), "only as many cards as the pool holds are wanted, nearest first")
+	_wait_for_near(near, 2)
+	_check(near.has_face(4) and near.has_face(7) and not near.has_face(1), "wanted near faces load")
+	var lookup := near._lookup_image.get_pixel(7, 0)
+	_check(lookup.r >= 0.0 and lookup.b == 1.0 and near._lookup_image.get_pixel(4, 0).b == 0.0,
+		"the lookup gives each face its layer, and marks the one that arrived late")
+	_check(near._lookup_image.get_pixel(1, 0).r == -1.0, "cards without a near face read -1")
+	_check(near.late_count == 1 and near.arrived_count == 2, "late arrivals are counted")
+	near.request(PackedInt32Array([1, 4]), PackedInt32Array())
+	_wait_for_near(near, 3)
+	_check(near.has_face(1) and near.has_face(4) and not near.has_face(7), "a card no longer wanted gives its layer up")
+	_check(near._lookup_image.get_pixel(7, 0).r == -1.0, "and goes back to its far face")
+	var gone := NearFaces.new(PackedStringArray(["user://no_such_face.dds"]), Vector2i(32, 44), 1)
+	gone.request(PackedInt32Array([0]), PackedInt32Array())
+	for i in 200:
+		if gone.loading_count() == 0:
+			break
+		gone.update(0.01)
+		OS.delay_msec(5)
+	_check(not gone.has_face(0), "a missing near face just leaves the far face")
+	_check(NearFaces.pool_capacity(1080, false) == 1024 and NearFaces.pool_capacity(2160, false) == 2048
+		and NearFaces.pool_capacity(2160, true) == 256, "the pool is sized for the screen and card detail")
+
+
+## Updates `near` until it has shown `count` faces in all (or gives up).
+func _wait_for_near(near: NearFaces, count: int) -> void:
+	for i in 200:
+		if near.arrived_count >= count and near.loading_count() == 0:
+			return
+		near.update(0.01)
+		OS.delay_msec(5)
 
 
 func _test_credits() -> void:
@@ -998,8 +1079,8 @@ func _test_settings() -> void:
 	FeedbackSounds.reset()
 
 	Settings.change("quality", 0)
-	_check(Settings.value("render_scale") == 2 and Settings.value("shadows") == 0 and Settings.value("anti_aliasing") == 0,
-		"Low sets the three quality rows")
+	_check(Settings.value("render_scale") == 2 and Settings.value("shadows") == 0 and Settings.value("anti_aliasing") == 0
+		and Settings.value("card_detail") == Settings.CARD_DETAIL_LOW, "Low sets the four quality rows")
 	_check(is_equal_approx(get_tree().root.scaling_3d_scale, 0.75), "render scale applies to the window")
 	Settings.change("anti_aliasing", 3)
 	_check(Settings.value("quality") == Settings.CUSTOM_QUALITY and get_tree().root.msaa_3d == Viewport.MSAA_4X,

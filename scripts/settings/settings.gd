@@ -4,8 +4,9 @@ extends Node
 ## change(); the game reads them with value() and redraws on `changed`.
 ## Settings that belong to the engine as a whole (window, frame rate, render
 ## scale, shadows, anti-aliasing, volumes, interface size) are applied here;
-## the rest (look, crouch, field of view, brightness, day length, autosave)
-## are read by the player, the main scene, DayCycle and Saves. Kept in user://settings.cfg,
+## the rest (look, crouch, field of view, brightness, day length, autosave,
+## card detail) are read by the player, the main scene, DayCycle, Saves and
+## CardDatabase. Kept in user://settings.cfg,
 ## which New Game and saves never touch.
 
 ## Emitted after a setting changes, with its key.
@@ -44,14 +45,18 @@ const ANTI_ALIASING := [
 	[Viewport.MSAA_2X, Viewport.SCREEN_SPACE_AA_DISABLED],
 	[Viewport.MSAA_4X, Viewport.SCREEN_SPACE_AA_DISABLED],
 ]
-## Quality presets (Low, Medium, High): render scale, shadows and
-## anti-aliasing, as indexes into the lists above. A fourth choice, Custom,
-## is whatever doesn't match one of these.
-const QUALITY_KEYS := ["render_scale", "shadows", "anti_aliasing"]
+## Card detail: High, or Low for less video memory (softer card faces on
+## the floor, fewer sharp ones up close; see FaceAtlas and NearFaces).
+const CARD_DETAIL_HIGH := 0
+const CARD_DETAIL_LOW := 1
+## Quality presets (Low, Medium, High): render scale, shadows,
+## anti-aliasing and card detail, as indexes into the lists above. A fourth
+## choice, Custom, is whatever doesn't match one of these.
+const QUALITY_KEYS := ["render_scale", "shadows", "anti_aliasing", "card_detail"]
 const QUALITY_PRESETS := [
-	{"render_scale": 2, "shadows": 0, "anti_aliasing": 0},
-	{"render_scale": 0, "shadows": 1, "anti_aliasing": 1},
-	{"render_scale": 0, "shadows": 2, "anti_aliasing": 2},
+	{"render_scale": 2, "shadows": 0, "anti_aliasing": 0, "card_detail": CARD_DETAIL_LOW},
+	{"render_scale": 0, "shadows": 1, "anti_aliasing": 1, "card_detail": CARD_DETAIL_HIGH},
+	{"render_scale": 0, "shadows": 2, "anti_aliasing": 2, "card_detail": CARD_DETAIL_HIGH},
 ]
 const CUSTOM_QUALITY := 3
 
@@ -82,6 +87,7 @@ const DEFAULTS := {
 	"render_scale": 0,
 	"shadows": 2,
 	"anti_aliasing": 2,
+	"card_detail": CARD_DETAIL_HIGH,
 }
 
 ## Which settings each Reset button puts back.
@@ -89,7 +95,7 @@ const TABS := {
 	"Audio": ["master_volume", "effects_volume", "ambience_volume", "music_volume", "mute_in_background"],
 	"Controls": ["mouse_sensitivity", "invert_y", "crouch_toggle"],
 	"Gameplay": ["day_length", "stopped_at", "autosave_every", "interface_size"],
-	"Graphics": ["fullscreen", "vsync", "frame_limit", "field_of_view", "brightness", "quality", "render_scale", "shadows", "anti_aliasing"],
+	"Graphics": ["fullscreen", "vsync", "frame_limit", "field_of_view", "brightness", "quality", "render_scale", "shadows", "anti_aliasing", "card_detail"],
 }
 
 ## Where save() and load_settings() go by default; the tests point it
@@ -110,7 +116,7 @@ func value(key: String) -> Variant:
 
 
 ## Sets one setting and applies it at once. Choosing a quality preset sets
-## the three quality rows; changing one of those by hand makes it Custom.
+## the four quality rows; changing one of those by hand makes it Custom.
 func change(key: String, new_value: Variant) -> void:
 	assert(DEFAULTS.has(key), "no setting called %s" % key)
 	if _values[key] == new_value:
@@ -125,7 +131,7 @@ func change(key: String, new_value: Variant) -> void:
 	changed.emit(key)
 
 
-## The preset the three quality rows match, or CUSTOM_QUALITY.
+## The preset the four quality rows match, or CUSTOM_QUALITY.
 func matching_quality() -> int:
 	for preset in QUALITY_PRESETS.size():
 		var matches := true

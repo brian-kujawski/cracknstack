@@ -37,7 +37,7 @@ Controls:
 
 These are the defaults. Every binding is defined in one place, `scripts/input/controls.gd` (the `Controls` autoload), and the hints on screen read their key names from it. The Settings page (main menu or pause) lists them for reference; they aren't rebindable in game.
 
-**Settings** has four tabs: Audio (Master, Effects, Ambience and Music volume, mute in background), Controls (mouse sensitivity, invert Y, crouch Hold/Toggle, the key list), Gameplay (day length or a stopped clock, how often to autosave, interface size) and Graphics (window mode, vsync, frame limit, field of view, brightness, and a Low/Medium/High quality preset over render scale, shadows and anti-aliasing). Changes apply at once and are saved to `user://settings.cfg` (the `Settings` autoload, `scripts/settings/settings.gd`).
+**Settings** has four tabs: Audio (Master, Effects, Ambience and Music volume, mute in background), Controls (mouse sensitivity, invert Y, crouch Hold/Toggle, the key list), Gameplay (day length or a stopped clock, how often to autosave, interface size) and Graphics (window mode, vsync, frame limit, field of view, brightness, and a Low/Medium/High quality preset over render scale, shadows, anti-aliasing and card detail). Changes apply at once and are saved to `user://settings.cfg` (the `Settings` autoload, `scripts/settings/settings.gd`).
 
 **Saves:** one autosave and three slots, in `user://saves/` (the `Saves` autoload, `scripts/save/`). The autosave is written when a New Game's intro ends, every 5 minutes of play by default, when the ending starts and by Save And Quit; slots are written from the pause menu's Save/Load page. Continue loads the newest save; Load Game lists them all. Achievements and settings are kept apart and never touched by a save or New Game. A change that breaks old saves bumps `SaveGame.SAVE_VERSION`, and older saves then show as *From an older version* and can't be loaded; card data changes (a new import) carry over without that. In developer builds, `godot --path . -- --dump-save <file>` prints a save as JSON.
 
@@ -49,6 +49,7 @@ The full game puts the whole collection (~30,000 cards) on the floor at once. To
 
 ```sh
 godot --path . -- --benchmark --placeholder
+godot --path . -- --benchmark --crouched    # at crouched eye height, with real data: counts near faces that arrived late
 ```
 
 The target is 60 fps on a mid-range laptop.
@@ -62,7 +63,7 @@ All game code reads cards through the `CardDatabase` autoload (`scripts/data/car
 Card data and images come from [Scryfall](https://scryfall.com) and stay out of git (`data/real/` is ignored). The importer adds one set at a time, so a metered connection can take it in steps:
 
 ```sh
-python3 -m pip install pillow                   # once, for packing the face atlas
+python3 -m pip install pillow numpy             # once, for packing the card faces
 python3 tools/import_scryfall.py --list         # core and expansion sets not yet added, their size and estimated download
 python3 tools/import_scryfall.py --listadded    # sets already in the game (--listall shows both)
 python3 tools/import_scryfall.py ktk --dry-run  # fetch one set's card data (a few hundred KB) and price its images
@@ -71,9 +72,13 @@ python3 tools/import_scryfall.py ktk frf dtk    # several sets in one run (one q
 python3 tools/import_scryfall.py --all          # every set --list shows, for an unmetered connection
 ```
 
-Each import fetches a set's card data once (cached in `data/real/sets/`), downloads the large face images it doesn't already have (`data/real/images/<set>/`, about 135 KB a card, 40 MB for Khans of Tarkir), then rebuilds `data/real/cards.json`, the small faces packed into atlas pages (`data/real/faces/`) and the card back (`data/real/back.jpg`) from every set imported so far, oldest first. Every run ends with the bytes and time it actually used. An interrupted download keeps what it finished; run the same command to carry on. Running with no set code rebuilds the game files without touching the network.
+Each import fetches a set's card data once (cached in `data/real/sets/`), downloads the large face images it doesn't already have (`data/real/images/<set>/`, about 135 KB a card, 40 MB for Khans of Tarkir), then rebuilds `data/real/cards.json`, the far faces packed into atlas pages (`data/real/faces/`), each card's near face (`data/real/near/<set>/`) and the card back (`data/real/back.jpg`) from every set imported so far, oldest first. Faces are written BC1-compressed with their mipmaps (`.dds`), so the game sends them to the GPU as they are; only new or changed ones are packed again. Every run ends with the bytes and time it actually used. An interrupted download keeps what it finished; run the same command to carry on. Running with no set code rebuilds the game files without touching the network.
 
 Only each set's main run is kept: one printing per collector number, from 1 to the set's printed size (or, when Scryfall doesn't know it, to where the showcase, borderless and other extra versions start). A plain printing wins over an alternate art (1 over 1a) and a lettered one over a special version. A set with a hole inside that run is reported and left out of the game; `--list` and `--listall` mark it. Cards printed only in another language, like Neon Dynasty's Japanese basics and All Will Be One's Phyrexian ones, are kept in that language (one extra small request for those sets). `--types all` with any of the lists shows every set type, `--yes` skips the question, and `--no-images` writes card data only. To drop a set from the game, delete its file in `data/real/sets/` and run the importer with no set code.
+
+**Card faces at full scale**: every card's far face (64 × 88 px) is always loaded, about 130 MB of video memory for ~34,000 cards. Cards close to your eyes (crouched, or right at your feet) get their near face (256 × 356 px), streamed into a fixed pool in the background (`NearFaces`) and faded in. Cards on tables and in binders show the near face too; the card in your hand shows the full large image. Settings → Graphics → Card detail: Low draws far faces one size smaller and keeps fewer near faces, for less video memory. In debug builds the pause menu has a button that switches the floor between near faces, far faces only, and late near faces tinted red.
+
+The importer puts a `.gdignore` in `data/real/`, so the Godot editor doesn't import the ~34,000 images (the game reads them straight from disk). If the editor imported them before, delete `.godot/imported/` once to get the space back.
 
 To play with the placeholders again, delete `data/real/` or run with `-- --placeholder`.
 
@@ -106,7 +111,7 @@ scripts/data/       CardData, SetData, BinderRange, BinderLayout, CardSort, Card
 scripts/input/      Controls: every bindable action, its defaults, rebinds and key names
 scripts/feedback/   placeholder sounds, synthesised in code
 scripts/player/     first-person controller and Hands (everything you do with a card or binder)
-scripts/pile/       the card pile: PileWorld (packed arrays + chunked MultiMeshes), scatter, picking, face atlas
+scripts/pile/       the card pile: PileWorld (packed arrays + chunked MultiMeshes), scatter, picking, far faces (FaceAtlas) and near faces (NearFaces)
 scripts/store/      graybox room builder, shelf units, shelf layout (binders split evenly across the three wall shelves)
 scripts/ui/         credits, pause screen
 shaders/            card faces (real images, or placeholders drawn procedurally) and binder pages
