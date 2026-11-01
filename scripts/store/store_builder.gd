@@ -15,8 +15,11 @@ const WIDTH := 12.0
 const DEPTH := 8.0
 const CEILING_HEIGHT := 3.0
 const WALL_THICKNESS := 0.2
-## The binder shelf's x range along the back wall. Binders read left to
-## right, top shelf first, so the shelf reads the timeline like a book.
+## The most of the back wall the binder shelf may take, as an x range. The
+## shelf itself is only as long as its binders need (ShelfUnit.fitted_width),
+## centred in this range, so no shelf runs empty; new sets lengthen it.
+## Binders read left to right, top shelf first, so the shelf reads the
+## timeline like a book.
 const BACK_SHELF := Vector2(2.0, 10.0)
 const TABLE_SIZE := Vector3(1.3, 1.0, 1.3)
 const TABLE_CENTERS := [Vector2(4.6, 2.9), Vector2(7.4, 2.9), Vector2(4.6, 5.3), Vector2(7.4, 5.3)]
@@ -65,11 +68,12 @@ const RADIO_YAW := deg_to_rad(70.0)
 ## centre along z.
 const CLOCK_Z := 1.0
 ## The wall art (WallArt), hung in its order. Over the binder shelf, one
-## landscape frame centred in each bay between pairs of legs, their bottoms
-## 22 cm above the shelf top so what's put down there doesn't hide them:
-## centres along x, and the height, art size, mat and moulding they share.
-const SHELF_ART_XS := [2.8, 4.4, 6.0, 7.6, 9.2]
+## landscape frame centred over each span between pairs of legs, their
+## bottoms 22 cm above the shelf top so what's put down there doesn't hide
+## them: the height they share, and the art size, mat and moulding for a
+## SHELF_ART_SPAN-wide span. Narrower spans get smaller frames, in proportion.
 const SHELF_ART := [2.055, Vector2(0.88, 0.64), 0.09, 0.05]
+const SHELF_ART_SPAN := 1.6
 ## Over the reading corner, a grid of seven around a centre piece over the
 ## floor lamp (its bottom clear of the shade): the centre piece, the pair
 ## stacked on its shelf side (top, bottom), the pair on its door side, then
@@ -139,6 +143,8 @@ var radio: ShopRadio
 var clock: ShopClock
 ## The wall art's frames, in WallArt's order.
 var wall_frames: Array[WallFrame] = []
+## The back-wall binder shelf.
+var binder_shelf: ShelfUnit
 
 var _wall_material := _textured(PLASTER, PLASTER_SIZE)
 var _floor_material := _textured(CARPET, CARPET_SIZE)
@@ -187,10 +193,17 @@ func _build_binder_shelves() -> void:
 	## Legs: square, wider at the top than at the foot, like the tables'.
 	const LEG_TOP := 0.07
 	const LEG_FOOT := 0.05
+	var binders := CardDatabase.all_binders()
+	var most := BACK_SHELF.y - BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS
+	var inner := ShelfUnit.fitted_width(binders)
+	if inner > most:
+		push_error("StoreBuilder: the binders need %.2f m of shelf; the back wall has room for %.2f m" % [inner, most])
+		inner = most
 	var unit := ShelfUnit.new()
 	unit.name = "BinderShelf"
-	unit.build(CardDatabase.all_binders(), _table_material, BACK_SHELF.y - BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS)
+	unit.build(binders, _table_material, inner)
 	unit.position = Vector3((BACK_SHELF.x + BACK_SHELF.y) / 2, 0, ShelfUnit.DEPTH / 2)
+	binder_shelf = unit
 	var leg_mesh := _tapered_leg(LEG_TOP, LEG_FOOT, ShelfUnit.leg_height())
 	for x in unit.leg_spots():
 		for z in [-1, 1]:
@@ -349,8 +362,12 @@ func _build_clock() -> void:
 ## Empty picture frames over the binder shelf and the reading corner (see
 ## SHELF_ART and CORNER_ART), waiting for their cards (WallArt).
 func _build_wall_art() -> void:
-	for x in SHELF_ART_XS:
-		_hang_frame(Vector3(x, SHELF_ART[0], 0), 0.0, SHELF_ART[1], SHELF_ART[2], SHELF_ART[3])
+	var legs := binder_shelf.leg_spots()
+	for i in range(1, legs.size()):
+		var span := legs[i] - legs[i - 1]
+		var shrink := minf(1.0, span / SHELF_ART_SPAN)
+		var x := binder_shelf.position.x + (legs[i] + legs[i - 1]) / 2
+		_hang_frame(Vector3(x, SHELF_ART[0], 0), 0.0, SHELF_ART[1] * shrink, SHELF_ART[2] * shrink, SHELF_ART[3] * shrink)
 	for frame in CORNER_ART:
 		_hang_frame(Vector3(0, frame[1], frame[0]), PI / 2, frame[2], frame[3], frame[4])
 
@@ -548,9 +565,10 @@ func _build_pendants() -> void:
 ## A ceiling track along the shelf with spotlights angled at its face, so
 ## the labels and spines read clearly. No shadows: it's there to light faces.
 func _build_track_light() -> void:
-	var length: float = BACK_SHELF.y - BACK_SHELF.x
+	var length := ShelfUnit.outer_width(binder_shelf.width)
+	var start := binder_shelf.position.x - length / 2
 	var track_y := CEILING_HEIGHT - 0.02
-	_add_part(self, Vector3(length, 0.03, 0.035), Vector3((BACK_SHELF.x + BACK_SHELF.y) / 2, track_y, TRACK_Z), _fixture_material, false)
+	_add_part(self, Vector3(length, 0.03, 0.035), Vector3(binder_shelf.position.x, track_y, TRACK_Z), _fixture_material, false)
 	var lens_material := StandardMaterial3D.new()
 	lens_material.emission_enabled = true
 	lens_material.emission = FIXTURE_LIGHT
@@ -558,7 +576,7 @@ func _build_track_light() -> void:
 	var target_y := 0.95
 	var target_z := ShelfUnit.DEPTH
 	for i in TRACK_HEADS:
-		var x: float = BACK_SHELF.x + length * (i + 0.5) / TRACK_HEADS
+		var x: float = start + length * (i + 0.5) / TRACK_HEADS
 		_add_cylinder(Vector3(x, track_y - 0.05, TRACK_Z), 0.008, 0.008, 0.08, _fixture_material)
 		var head := Node3D.new()
 		head.position = Vector3(x, track_y - 0.1, TRACK_Z)
