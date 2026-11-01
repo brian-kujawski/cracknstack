@@ -20,7 +20,12 @@ extends Node
 ## Right-click tosses a held card back onto the pile (or a table, if it
 ## comes down on one), or a carried binder, which tumbles through the air
 ## past other binders and settles on whatever it comes down on. F brings
-## the held card up close to inspect it (F again lowers it). E opens or closes the binder
+## the held card up close to inspect it (F again lowers it); while it's up
+## close, R turns it over to show its back and T turns it a quarter turn
+## clockwise (for split cards, printed sideways), and lowering it always turns
+## it back face up and upright, so a held card is that way everywhere else.
+## With empty hands, F on a card in an open binder or in a shadow box brings
+## that card up close the same way, and F again sends it home. E opens or closes the binder
 ## you're looking at, and the mouse wheel turns its pages.
 ##
 ## Right-click with empty hands, aimed at the pile or cards on a table, flips
@@ -66,8 +71,10 @@ signal shown_card_changed(card: CardData, set_only: bool)
 signal hint_changed(text: String)
 ## The first rare card of the game came to hand (the shop explains them).
 signal rare_card_found
+## The shop's radio was clicked (the shop opens the Radio menu).
+signal radio_used
 
-enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET }
+enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO }
 
 ## How far from the eye the player can reach, and with Spider Climb.
 @export var reach := 2.6
@@ -133,6 +140,10 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET }
 ## How far a card up close can tilt each way (degrees), on both axes. Kept
 ## narrow so the card never turns far enough to show it's a flat quad.
 @export var inspect_tilt_degrees := 15.0
+## How long turning a card up close over (or back) takes.
+@export var turn_over_seconds := 0.3
+## How long turning a card up close sideways (or back upright) takes.
+@export var turn_sideways_seconds := 0.2
 
 ## Where the held card sits relative to the camera: low and to the right,
 ## or close up and square to your face (see zoomed_distance).
@@ -200,6 +211,22 @@ var _zoom_amount := 0.0
 ## Up-close tilt in radians: x tips the top toward or away from you, y turns
 ## the face left or right.
 var _tilt := Vector2.ZERO
+## Whether the card up close is turned to show its back, and how far round
+## it is (0 face up, 1 back); tweened.
+var _turned_over := false
+var _turn_amount := 0.0
+var _turn_tween: Tween
+## The same for a quarter turn clockwise, to read a card printed sideways.
+var _sideways := false
+var _sideways_amount := 0.0
+var _sideways_tween: Tween
+## A card brought up close from its pocket or shadow box (F with empty
+## hands): its id, or -1. It never leaves home: `_viewed_home` returns where
+## it lies there, as a global pose, and `_viewed_lift` shows it gone from
+## there (true) or back (false) while the hand shows it up close.
+var _viewed_id := -1
+var _viewed_home: Callable
+var _viewed_lift: Callable
 ## The glide in progress, if any: something coming to hand or being put down.
 var _glide: Tween
 ## While the button is held to put something down: how long it's been held.
@@ -221,6 +248,8 @@ var _aim_loose_card: LooseCard
 var _aim_shelf: ShelfUnit
 var _aim_space := -1
 var _aim_cabinet: DisplayCabinet
+## The shadow box the crosshair is on, in _aim_cabinet, or -1.
+var _aim_slot := -1
 var _hovered_binder: Binder
 var _hint := ""
 var _shown_card: CardData
@@ -278,7 +307,6 @@ func _physics_process(delta: float) -> void:
 	if pile == null:
 		return
 	_update_aim()
-	_aim_floor_card = pile.top_card_at(_aim_point) if _aim == Aim.FLOOR else -1
 	pile.set_highlight(_aim_lying_card() if has_room() else -1)
 	_update_hover()
 	_update_blessing(delta)
@@ -298,6 +326,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 	if _gliding():
+		return
+	if _viewed_id >= 0:
+		# Nothing else while a card from a pocket or a shadow box is up close.
+		if event.is_action_pressed(Controls.INSPECT):
+			_end_viewing()
+		elif event.is_action_pressed(Controls.FLIP_CARD):
+			turn_over(not _turned_over)
+		elif event.is_action_pressed(Controls.TURN_SIDEWAYS):
+			turn_sideways(not _sideways)
 		return
 	if event.is_action_released(Controls.USE_HAND):
 		if _placing >= 0.0:
@@ -324,6 +361,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		_toggle_binder()
 	elif event.is_action_pressed(Controls.INSPECT) and held_card_id >= 0:
 		_set_zoomed(not _zoomed)
+	elif event.is_action_pressed(Controls.INSPECT) and _hands_empty():
+		view_aimed()
+	elif event.is_action_pressed(Controls.FLIP_CARD) and _zoomed:
+		turn_over(not _turned_over)
+	elif event.is_action_pressed(Controls.TURN_SIDEWAYS) and _zoomed:
+		turn_sideways(not _sideways)
 	elif event.is_action_pressed(Controls.FLIP_NEXT):
 		_flip(1)
 	elif event.is_action_pressed(Controls.FLIP_PREVIOUS):
@@ -363,6 +406,9 @@ func _gliding() -> bool:
 
 
 func _use_hand() -> void:
+	if _aim == Aim.RADIO:
+		radio_used.emit()
+		return
 	if carried_binder != null:
 		if _aim == Aim.SHELF:
 			_shelve_carried_binder()
@@ -505,7 +551,7 @@ func shunt_pocket(binder: Binder) -> int:
 func _file(binder: Binder, pocket: int, id: int) -> void:
 	var result := binder.insert(pocket, id)
 	if result != BinderContents.Result.LOCKED:
-		return # Misplaced: it stays in the pocket glowing red, and makes no sound.
+		return # Misplaced: it stays in the pocket glowing red, with no chime.
 	Progression.card_filed_by_hand()
 	_locked_in(binder, pocket)
 	if binder.contents.is_page_complete(pocket / BinderLayout.POCKETS_PER_PAGE):
@@ -1006,12 +1052,14 @@ func _yaw_facing_player(point: Vector3) -> float:
 
 func _update_aim() -> void:
 	_aim = Aim.NONE
+	_aim_floor_card = -1
 	_aim_binder = null
 	_aim_pocket = -1
 	_aim_loose_card = null
 	_aim_shelf = null
 	_aim_space = -1
 	_aim_cabinet = null
+	_aim_slot = -1
 	var from := _camera.global_position
 	var to := from - _camera.global_transform.basis.z * current_reach()
 	var query := PhysicsRayQueryParameters3D.create(from, to)
@@ -1021,6 +1069,14 @@ func _update_aim() -> void:
 	# only for the player's body.
 	query.collision_mask = ~(PileWorld.SURFACE_LAYER | preload("res://scripts/store/store_builder.gd").LEAN_STOP_LAYER)
 	var hit := _camera.get_world_3d().direct_space_state.intersect_ray(query)
+	# The floor's cards aren't colliders: the one you aim at is the first one
+	# the crosshair's ray meets, unless something else is in front of it.
+	var card: Dictionary = pile.card_on_ray(from, to) if pile != null else {}
+	if not card.is_empty() and (hit.is_empty() or from.distance_to(card.position) < from.distance_to(hit.position)):
+		_aim = Aim.FLOOR
+		_aim_point = card.position
+		_aim_floor_card = card.id
+		return
 	if hit.is_empty():
 		return
 	_aim_point = hit.position
@@ -1035,6 +1091,11 @@ func _update_aim() -> void:
 	elif collider is DisplayCabinet:
 		_aim = Aim.CABINET
 		_aim_cabinet = collider
+		_aim_slot = _aim_cabinet.slot_on_ray(from, to)
+	elif collider is ShopRadio:
+		_aim = Aim.RADIO
+	elif collider is Node and (collider as Node).is_in_group(ReadingCorner.FURNITURE):
+		return # Nothing to do with the armchair, the side table or the lamp.
 	elif collider is ShelfUnit:
 		var space: int = collider.space_at(hit.position)
 		if space < 0:
@@ -1061,7 +1122,14 @@ func _update_hover() -> void:
 
 
 func _update_hint() -> void:
-	var text := _binder_hint(_aim_binder) if _aim == Aim.BINDER else (_cabinet_hint() if _aim == Aim.CABINET else "")
+	var text := ""
+	match _aim:
+		Aim.BINDER:
+			text = _binder_hint(_aim_binder)
+		Aim.CABINET:
+			text = _cabinet_hint()
+		Aim.RADIO:
+			text = _radio_hint()
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
@@ -1080,6 +1148,8 @@ func _update_hint() -> void:
 ## the Fallen, one you're looking at that you've held before, lying about
 ## (on the floor or a table) or misplaced in a pocket. -1 for none.
 func shown_card_id() -> int:
+	if _viewed_id >= 0:
+		return _viewed_id
 	if held_card_id >= 0:
 		return held_card_id
 	if not _hands_empty():
@@ -1153,6 +1223,13 @@ func _cabinet_hint() -> String:
 		shown += cabinet.displayed_count()
 		total += cabinet.slots.size()
 	return "Rare Cards Displayed: %d/%d" % [shown, total]
+
+
+## What's on the radio, or that it's off.
+static func _radio_hint() -> String:
+	if not Radio.playing or Radio.current < 0:
+		return "Radio: Off"
+	return "Radio: %s" % Radio.songs[Radio.current].title
 
 
 ## A pocket shows its number, and the card's name once its own card is locked
@@ -1240,6 +1317,56 @@ func _set_zoomed(zoomed: bool) -> void:
 	if not zoomed:
 		# The tilt eases out with the lowering, so the card settles flat.
 		_zoom_tween.parallel().tween_property(self, "_tilt", Vector2.ZERO, zoom_seconds)
+		# And it turns face up and upright as it comes down, so it's never
+		# held any other way.
+		if _turned_over or _turn_amount > 0.0:
+			turn_over(false, zoom_seconds)
+		if _sideways or _sideways_amount > 0.0:
+			turn_sideways(false, zoom_seconds)
+
+
+## Turns the card up close over to show its back (or face up again), round
+## its own upright axis, taking `seconds` (turn_over_seconds for a whole
+## turn if negative).
+func turn_over(back: bool, seconds := -1.0) -> void:
+	_turned_over = back
+	if _turn_tween:
+		_turn_tween.kill()
+	var target := 1.0 if back else 0.0
+	if seconds < 0.0:
+		seconds = turn_over_seconds * absf(target - _turn_amount)
+	if seconds <= 0.0:
+		_set_turn_amount(target)
+		return
+	_turn_tween = create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_turn_tween.tween_method(_set_turn_amount, _turn_amount, target, seconds)
+
+
+func _set_turn_amount(amount: float) -> void:
+	_turn_amount = amount
+	_pose_held_card()
+
+
+## Turns the card up close a quarter turn clockwise (or upright again), in
+## the plane of the screen, taking `seconds` (turn_sideways_seconds for a
+## whole quarter turn if negative).
+func turn_sideways(sideways: bool, seconds := -1.0) -> void:
+	_sideways = sideways
+	if _sideways_tween:
+		_sideways_tween.kill()
+	var target := 1.0 if sideways else 0.0
+	if seconds < 0.0:
+		seconds = turn_sideways_seconds * absf(target - _sideways_amount)
+	if seconds <= 0.0:
+		_set_sideways_amount(target)
+		return
+	_sideways_tween = create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_sideways_tween.tween_method(_set_sideways_amount, _sideways_amount, target, seconds)
+
+
+func _set_sideways_amount(amount: float) -> void:
+	_sideways_amount = amount
+	_pose_held_card()
 
 
 func _set_zoom_amount(amount: float) -> void:
@@ -1250,13 +1377,90 @@ func _set_zoom_amount(amount: float) -> void:
 
 ## Places the held card between its low and up-close poses, with the tilt on
 ## top. Tilt only shows up close, so it's scaled by how far up the card is.
+## Turning over is innermost, round the card's own upright axis, then the
+## quarter turn sideways, so the tilt follows the mouse the same way
+## whichever side is showing and the quarter turn is always clockwise.
 func _pose_held_card() -> void:
-	if _gliding() and held_card_id >= 0:
-		return # Still on its way to the hand.
+	if _gliding() and (held_card_id >= 0 or _viewed_id >= 0):
+		return # Still on its way to the hand (or back home).
 	var zoomed_position := Vector3(0.0, 0.0, -zoomed_distance(_camera.fov, PileWorld.CARD_SIZE.y))
+	# Edge on, halfway over, a side of the card comes this much nearer; it
+	# backs off by that much so it stays clear of the near plane.
+	zoomed_position.z -= sin(PI * _turn_amount) * PileWorld.CARD_SIZE.x / 2.0
 	_held_view.position = HELD_POSITION.lerp(zoomed_position, _zoom_amount)
-	_held_view.rotation = HELD_ROTATION.lerp(ZOOMED_ROTATION, _zoom_amount) \
-			+ Vector3(_tilt.x, _tilt.y, 0.0) * _zoom_amount
+	_held_view.basis = held_basis(HELD_ROTATION.lerp(ZOOMED_ROTATION, _zoom_amount) \
+			+ Vector3(_tilt.x, _tilt.y, 0.0) * _zoom_amount, _turn_amount, _sideways_amount)
+
+
+## The held card's orientation: `euler` (as Node3D.rotation) with the card
+## turned `turn` of the way over (0 face up, 1 showing its back) and
+## `sideways` of a quarter turn clockwise as you look at it.
+static func held_basis(euler: Vector3, turn: float, sideways := 0.0) -> Basis:
+	return Basis.from_euler(euler) * Basis(Vector3.BACK, -PI / 2.0 * sideways) * Basis(Vector3.UP, PI * turn)
+
+
+## With empty hands, F on a card in an open binder's pocket or in a shadow
+## box brings it up close, as if held, until F again sends it back. Returns
+## false if there's no card there.
+func view_aimed() -> bool:
+	if _aim == Aim.BINDER and _aim_pocket >= 0 and _aim_binder.is_open():
+		var binder := _aim_binder
+		var pocket := _aim_pocket
+		var id := binder.contents.card_at(pocket)
+		if id < 0:
+			return false
+		_view(id, func() -> Transform3D: return binder.pocket_pose(pocket),
+			func(lifted: bool) -> void: binder.set_lifted(pocket if lifted else -1))
+		return true
+	if _aim == Aim.CABINET and _aim_slot >= 0 and _aim_cabinet.displayed[_aim_slot] >= 0:
+		var cabinet := _aim_cabinet
+		var slot := _aim_slot
+		_view(cabinet.displayed[slot], func() -> Transform3D: return cabinet.slot_pose(slot),
+			func(lifted: bool) -> void: cabinet.set_lifted(slot, lifted))
+		return true
+	return false
+
+
+func _view(id: int, home: Callable, lift: Callable) -> void:
+	_viewed_id = id
+	_viewed_home = home
+	_viewed_lift = lift
+	lift.call(true)
+	CardView.apply(_held_view.material_override, id)
+	_zoomed = true
+	_zoom_amount = 1.0
+	_tilt = Vector2.ZERO
+	_pose_held_card()
+	var close := _held_view.transform
+	var from: Transform3D = home.call()
+	_held_view.global_transform = from
+	_held_view.visible = true
+	_glide = Glide.start(_held_view, from, func() -> Transform3D: return _camera.global_transform * close,
+		glide_seconds(card_glide_seconds))
+
+
+## Sends the card up close back to its pocket or shadow box, turning face up
+## and upright on the way.
+func _end_viewing() -> void:
+	for tween in [_zoom_tween, _turn_tween, _sideways_tween]:
+		if tween:
+			tween.kill()
+	_zoomed = false
+	_turned_over = false
+	_sideways = false
+	_glide = Glide.start(_held_view, _held_view.global_transform, _viewed_home, glide_seconds(card_glide_seconds))
+	_glide.tween_callback(_finish_viewing)
+
+
+func _finish_viewing() -> void:
+	_viewed_lift.call(false)
+	_viewed_id = -1
+	_zoom_amount = 0.0
+	_tilt = Vector2.ZERO
+	_turn_amount = 0.0
+	_sideways_amount = 0.0
+	_held_view.visible = held_card_id >= 0
+	_pose_held_card()
 
 
 ## Puts card `id` on top of the hand, the old top card going just behind it
@@ -1295,9 +1499,16 @@ func _show_fan() -> void:
 func _hold(id: int, from = null, seconds := -1.0, lift := 0.0) -> void:
 	if _zoom_tween:
 		_zoom_tween.kill()
+	for tween in [_turn_tween, _sideways_tween]:
+		if tween:
+			tween.kill()
 	_zoomed = false
 	_zoom_amount = 0.0
 	_tilt = Vector2.ZERO
+	_turned_over = false
+	_turn_amount = 0.0
+	_sideways = false
+	_sideways_amount = 0.0
 	held_card_id = -1
 	_pose_held_card()
 	held_card_id = id

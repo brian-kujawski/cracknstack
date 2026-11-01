@@ -1,8 +1,10 @@
 extends Node
 ## Frame-rate benchmark for the pile (M2's 60 fps target). Run with:
-##   godot --path . -- --benchmark
+##   godot --path . -- --benchmark             (standing)
+##   godot --path . -- --benchmark --crouched  (at crouched eye height)
 ## The camera walks a fixed loop through the store for DURATION seconds, then
-## prints average fps, 1% low and draw calls, and quits.
+## prints average fps, 1% low, draw calls and, with real data, how many near
+## faces (NearFaces) arrived and how many of them late, and quits.
 
 const WARMUP := 2.0
 const DURATION := 20.0
@@ -13,7 +15,11 @@ const PATH := [
 	Vector2(10.6, 6.6), Vector2(6, 6.6), Vector2(6, 1.6), Vector2(6, 7.3),
 ]
 
+const STANDING_EYE := 1.65
+const CROUCHED_EYE := 0.5
+
 var _camera: Camera3D
+var _eye := STANDING_EYE
 var _elapsed := 0.0
 var _frame_times := PackedFloat32Array()
 var _max_draw_calls := 0
@@ -24,6 +30,8 @@ func _ready() -> void:
 		queue_free()
 		return
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	if "--crouched" in OS.get_cmdline_user_args():
+		_eye = CROUCHED_EYE
 	var player: Node3D = get_node("../Player")
 	player.process_mode = Node.PROCESS_MODE_DISABLED
 	_camera = Camera3D.new()
@@ -41,10 +49,10 @@ func _process(delta: float) -> void:
 	var a: Vector2 = PATH[i]
 	var b: Vector2 = PATH[i + 1]
 	var p := a.lerp(b, t - i)
-	_camera.global_position = Vector3(p.x, 1.65, p.y)
+	_camera.global_position = Vector3(p.x, _eye, p.y)
 	var ahead := a.lerp(b, minf(1.0, t - i + 0.2))
 	if ahead.distance_to(p) > 0.01:
-		_camera.look_at(Vector3(ahead.x, 0.6, ahead.y))
+		_camera.look_at(Vector3(ahead.x, _eye - 1.05, ahead.y))
 	if _elapsed > WARMUP:
 		_frame_times.append(delta)
 		_max_draw_calls = maxi(_max_draw_calls, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
@@ -65,7 +73,9 @@ func _report() -> void:
 	for ft in slowest:
 		slow_total += ft
 	var low_fps := slowest.size() / slow_total
-	var line := "BENCHMARK cards=%d frames=%d avg_fps=%.1f one_percent_low_fps=%.1f max_draw_calls=%d gpu=%s" % [
-		CardDatabase.card_count(), sorted.size(), average_fps, low_fps, _max_draw_calls,
+	var near: NearFaces = get_node("../Pile").near_faces
+	var line := "BENCHMARK cards=%d eye=%.2f frames=%d avg_fps=%.1f one_percent_low_fps=%.1f max_draw_calls=%d near_arrived=%d near_late=%d gpu=%s" % [
+		CardDatabase.card_count(), _eye, sorted.size(), average_fps, low_fps, _max_draw_calls,
+		near.arrived_count if near != null else 0, near.late_count if near != null else 0,
 		RenderingServer.get_video_adapter_name()]
 	print(line)

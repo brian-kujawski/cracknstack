@@ -51,6 +51,7 @@ func _ready() -> void:
 	var started := Time.get_ticks_msec()
 	var saved := Saves.take_pending()
 	_pile.surfaces = _store.surfaces
+	_pile.crouch_eye_height = $Player.crouch_eye_height
 	_hands.pile = _pile
 	_hands.cabinets = _store.cabinets
 	if saved.is_empty():
@@ -66,11 +67,13 @@ func _ready() -> void:
 	_day.setup($WorldEnvironment.environment, _store.window_lights, _store.curtain_material, _store.sky_material)
 	ShopSave.restore_day(saved, _day)
 	$PauseMenu.day_cycle = _day
+	_store.clock.day = _day
 	_finished = Saves.finished
 	Saves.shop = self
 	_build_saving_icon()
 	if not _falling.is_empty():
 		_land_falling()
+	_hang_wall_art(false)
 	if _finished and not ENDING_RETURN_MESSAGE.is_empty():
 		_show_return_message()
 	_hands.shown_card_changed.connect(_on_shown_card_changed)
@@ -83,11 +86,18 @@ func _ready() -> void:
 	_update_stats()
 	_achievement.text = ""
 	Achievements.unlocked.connect(_on_achievement_unlocked)
+	var radio_menu := RadioMenu.new()
+	add_child(radio_menu)
+	_hands.radio_used.connect(radio_menu.open)
+	Radio.enter_shop(_organized_share())
+	Radio.song_unlocked.connect(func(index: int) -> void:
+		_show_notice("New on the radio: %s" % Radio.songs[index].title))
 	Settings.changed.connect(_apply_brightness.unbind(1))
 	_apply_brightness()
 
 
 func _exit_tree() -> void:
+	Radio.leave_shop()
 	if Saves.shop == self:
 		Saves.shop = null
 
@@ -172,11 +182,24 @@ func _process(delta: float) -> void:
 	if _stats_timer >= 0.5:
 		_stats_timer = 0.0
 		_update_stats()
+		_hang_wall_art(true)
 		if not _finished and is_finished(_pile.binders, _shelves(), _store.cabinets):
 			_finished = true
 			Saves.finished = true
 			Saves.save(Saves.AUTOSAVE)
 			SceneFlow.play_ending()
+
+
+## Fills each wall art frame whose card is now locked into its pocket, and
+## unlocks its achievement; with `fade`, the art fades in (a loaded game
+## shows what was already up at once).
+func _hang_wall_art(fade: bool) -> void:
+	var frames: Array[WallFrame] = _store.wall_frames
+	for index in frames.size():
+		if not frames[index].filled and WallArt.is_filed(index, _pile.binders):
+			var art := WallArt.art(index)
+			frames[index].fill(art[0], art[1], fade)
+			Achievements.wall_art_hung(index)
 
 
 ## Frame rate, draw calls and the placeholder-data note are for us while
@@ -195,6 +218,12 @@ func _update_stats() -> void:
 			debug += "\nPlaceholder cards: run tools/import_scryfall.py for Khans of Tarkir"
 		text = debug + "\n" + text
 	_status.text = text
+	Radio.set_progress(_organized_share())
+
+
+## Cards Organized as a share of every card, for the radio's unlocks.
+func _organized_share() -> float:
+	return float(cards_organized(_pile.binders, _store.cabinets)) / maxf(1.0, CardDatabase.card_count())
 
 
 ## The game is finished when every card is locked into its own pocket,
@@ -246,7 +275,13 @@ static func sorcery_lines() -> PackedStringArray:
 ## "Achievement: Tithe" in the top right for a few seconds. A newer one
 ## takes its place.
 func _on_achievement_unlocked(index: int) -> void:
-	_achievement.text = "Achievement: %s" % Achievements.card_name(index)
+	_show_notice("Achievement: %s" % Achievements.card_name(index))
+
+
+## A line in the top right for a few seconds (an achievement, a new song on
+## the radio). A newer one takes its place.
+func _show_notice(text: String) -> void:
+	_achievement.text = text
 	_achievement.modulate.a = 1.0
 	if _achievement_tween != null:
 		_achievement_tween.kill()

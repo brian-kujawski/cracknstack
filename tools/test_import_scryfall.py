@@ -4,6 +4,8 @@ file format, the per-set cache and atlas packing. No network. Run from the proje
   python3 -m unittest discover -s tools -p "test_*.py"
 """
 
+import gzip
+import io
 import json
 import tempfile
 import unittest
@@ -137,12 +139,19 @@ class CardFile(unittest.TestCase):
         self.assertRegex(importer.derived_accent("abc"), r"^#[0-9a-f]{6}$")
 
 
+def open_page(path):
+    """A gzipped DDS page as a Pillow image."""
+    from PIL import Image
+    return Image.open(io.BytesIO(gzip.decompress(path.read_bytes())))
+
+
 class Atlas(unittest.TestCase):
     def setUp(self):
         try:
             from PIL import Image  # noqa: F401
+            import numpy  # noqa: F401
         except ImportError:
-            self.skipTest("Pillow not installed")
+            self.skipTest("Pillow or NumPy not installed")
 
     def test_faces_land_in_their_slots(self):
         from PIL import Image
@@ -150,19 +159,20 @@ class Atlas(unittest.TestCase):
         cards = [printing(n) for n in range(1, per_page + 3)]
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)
-            # JPEG is lossy, so colours are compared within a few steps.
+            # JPEG and BC1 are lossy, so colours are compared within a few steps.
             for n, card in enumerate(cards):
                 path = out / importer.image_path(card)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 Image.new("RGB", (488, 680), (n * 7 % 256, 40, 200)).save(path)
             faces = importer.pack_atlas(cards, out)
-            self.assertEqual(faces["pages"], ["faces/page_0.png", "faces/page_1.png"])
-            with Image.open(out / faces["pages"][0]) as page:
+            self.assertEqual(faces["pages"], ["faces/page_0.dds.gz", "faces/page_1.dds.gz"])
+            with open_page(out / faces["pages"][0]) as page:
                 self.assertEqual(page.size, (importer.PAGE_SIZE, importer.PAGE_SIZE))
-                # Card 18 (index 17) is the second slot of the second row.
+                # The card after a full row is the second slot of the second row.
                 w, h = importer.SLOT_SIZE
-                self.assertAlmostEqual(page.getpixel((w + w // 2, h + h // 2))[0], 17 * 7, delta=3)
-            with Image.open(out / faces["pages"][1]) as page:
+                second_row = importer.COLUMNS + 1
+                self.assertAlmostEqual(page.getpixel((w + w // 2, h + h // 2))[0], second_row * 7 % 256, delta=3)
+            with open_page(out / faces["pages"][1]) as page:
                 self.assertAlmostEqual(page.getpixel((importer.SLOT_SIZE[0] + 5, 5))[0], (per_page + 1) * 7 % 256, delta=3)
 
             # Packing the same cards again leaves the pages alone; fewer cards drop the spare page.
@@ -170,12 +180,78 @@ class Atlas(unittest.TestCase):
             importer.pack_atlas(cards, out)
             self.assertEqual((out / faces["pages"][0]).stat().st_mtime_ns, stamp)
             # A page replaced behind the manifest's back (an old copy, say) is packed again.
-            Image.new("RGB", (importer.PAGE_SIZE, importer.PAGE_SIZE), (0, 0, 0)).save(out / faces["pages"][1])
+            (out / faces["pages"][1]).write_bytes(gzip.compress(b"an old copy"))
             importer.pack_atlas(cards, out)
-            with Image.open(out / faces["pages"][1]) as page:
+            with open_page(out / faces["pages"][1]) as page:
                 self.assertAlmostEqual(page.getpixel((importer.SLOT_SIZE[0] + 5, 5))[0], (per_page + 1) * 7 % 256, delta=3)
-            self.assertEqual(importer.pack_atlas(cards[:per_page], out)["pages"], ["faces/page_0.png"])
-            self.assertFalse((out / "faces/page_1.png").exists())
+            self.assertEqual(importer.pack_atlas(cards[:per_page], out)["pages"], ["faces/page_0.dds.gz"])
+            self.assertFalse((out / "faces/page_1.dds.gz").exists())
+
+    def test_pages_from_an_older_layout_are_packed_again(self):
+        from PIL import Image
+        cards = [printing(1)]
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            path = out / importer.image_path(cards[0])
+            path.parent.mkdir(parents=True)
+            Image.new("RGB", (488, 680), (90, 40, 200)).save(path)
+            (out / "faces").mkdir()
+            (out / "faces/page_0.png").write_bytes(b"old")
+            (out / "faces/manifest.json").write_text(json.dumps({"faces/page_0.png": {"cards": [str(path)]}}))
+            self.assertEqual(importer.pack_atlas(cards, out)["pages"], ["faces/page_0.dds.gz"])
+            self.assertFalse((out / "faces/page_0.png").exists())
+
+    def test_near_faces_are_written_once(self):
+        from PIL import Image
+        cards = [printing(1), printing(2)]
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            for n, card in enumerate(cards):
+                path = out / importer.image_path(card)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                Image.new("RGB", (488, 680), (200, n * 100, 40)).save(path)
+            entry = importer.write_near_faces(cards, out)
+            self.assertEqual(entry, {"near": "near/{set}/{number}.dds.gz", "near_size": [256, 356]})
+            near = out / "near/tst/2.dds.gz"
+            with Image.open(io.BytesIO(gzip.decompress(near.read_bytes()))) as face:
+                self.assertEqual(face.size, (256, 356))
+                self.assertAlmostEqual(face.convert("RGB").getpixel((128, 178))[1], 100, delta=8)
+            stamp = near.stat().st_mtime_ns
+            importer.write_near_faces(cards, out)
+            self.assertEqual(near.stat().st_mtime_ns, stamp)
+
+
+class BC1(unittest.TestCase):
+    def setUp(self):
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest("NumPy not installed")
+
+    def test_blocks_keep_their_colours(self):
+        import numpy as np
+        import bc1
+        pixels = np.zeros((8, 8, 3), np.uint8)
+        pixels[:4, :4] = (255, 0, 0)
+        pixels[:4, 4:] = (0, 0, 255)
+        pixels[4:, :] = np.linspace(0, 255, 8, dtype=np.uint8)[None, :, None]  # a grey ramp across the row
+        blocks = np.frombuffer(bc1.encode(pixels), np.uint8).reshape(-1, 8)
+        self.assertEqual(len(blocks), 4)
+        # A flat red block: both ends red (5:6:5 0xF800), every pixel colour 0.
+        self.assertEqual(int(blocks[0][0]) | int(blocks[0][1]) << 8, 0xF800)
+        self.assertEqual(bytes(blocks[0][4:]), bytes(4))
+        # Four-colour mode always: colour 0's value above colour 1's.
+        for block in blocks:
+            self.assertGreaterEqual(int(block[0]) | int(block[1]) << 8, int(block[2]) | int(block[3]) << 8)
+
+    def test_dds_has_every_mipmap(self):
+        from PIL import Image
+        import bc1
+        data = bc1.dds_bytes(Image.new("RGB", (256, 356), (10, 20, 30)))
+        self.assertEqual(data[:4], b"DDS ")
+        self.assertEqual(int.from_bytes(data[28:32], "little"), 9)  # 256 × 356 down to 1 × 1
+        self.assertEqual(int.from_bytes(data[20:24], "little"), 64 * 89 * 8)  # the top level's size
+        self.assertEqual(len(data), 128 + sum(max(1, (w + 3) // 4) * max(1, (h + 3) // 4) * 8 for w, h in bc1.mip_sizes(256, 356)))
 
 
 class Collection(unittest.TestCase):
@@ -231,6 +307,29 @@ class Collection(unittest.TestCase):
         self.assertEqual(trimmed["card_faces"], [{"type_line": "A", "colors": ["W"], "artist": "X", "image_uris": {"normal": "u"}}])
         self.assertEqual(importer.card_row(trimmed), importer.card_row(card))
         self.assertEqual(importer.image_url(trimmed), importer.image_url(card))
+
+
+class SetList(unittest.TestCase):
+    SETS = [
+        {"code": "ktk", "name": "Khans of Tarkir", "set_type": "expansion", "released_at": "2014-09-26", "digital": False},
+        {"code": "ust", "name": "Unstable", "set_type": "funny", "released_at": "2017-12-08", "digital": False},
+        {"code": "h17", "name": "HasCon 2017", "set_type": "funny", "released_at": "2017-09-20", "digital": False},
+        {"code": "cmr", "name": "Commander Legends", "set_type": "draft_innovation", "released_at": "2020-11-20", "digital": False},
+    ]
+
+    def listed(self, types=None):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            (out / importer.SET_LIST_PATH).write_text(json.dumps(self.SETS), encoding="utf-8")
+            return [s["code"] for s in importer.released_sets(None, out, types)]
+
+    def test_default_list_has_the_un_sets_but_no_other_funny_sets(self):
+        self.assertEqual(self.listed(), ["ktk", "ust"])
+
+    def test_chosen_types_list_only_those(self):
+        self.assertEqual(self.listed("expansion"), ["ktk"])
+        self.assertEqual(self.listed("funny"), ["h17", "ust"])
+        self.assertEqual(len(self.listed("all")), 4)
 
 
 class CardBack(unittest.TestCase):

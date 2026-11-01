@@ -72,6 +72,7 @@ const ROWS := {
 		["dropdown", "render_scale", "Render scale", ["100%", "85%", "75%", "50%"]],
 		["dropdown", "shadows", "Shadows", ["Low", "Medium", "High"]],
 		["dropdown", "anti_aliasing", "Anti-aliasing", ["Off", "FXAA", "MSAA 2×", "MSAA 4×"]],
+		["dropdown", "card_detail", "Card detail", ["High", "Low"]],
 	],
 }
 
@@ -87,6 +88,7 @@ const KEY_ROWS := [
 		["", [Controls.INTERACT]],
 		["Turn pages", [Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS]],
 		["", [Controls.UPGRADES]],
+		["", [Controls.RADIO]],
 		["", [Controls.PAUSE]],
 	]],
 ]

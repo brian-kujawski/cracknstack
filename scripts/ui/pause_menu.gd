@@ -12,6 +12,9 @@ extends CanvasLayer
 ## (SceneFlow.save_game()), Quit Without Saving never saves. Closing the
 ## window counts as Quit Without Saving. Esc steps back one question.
 
+## The debug faces button's label for each NearFaces.DebugView.
+const FACE_VIEWS := ["Near Faces", "Far Faces Only", "Show Late Faces"]
+
 ## Set by the main scene; the developer time-of-day buttons drive it.
 var day_cycle: DayCycle
 ## Each step's buttons by label, for the tests.
@@ -70,7 +73,9 @@ func _add_button(column: VBoxContainer, found: Dictionary, text: String, enabled
 
 
 ## Developer only: jump straight to noon or midnight to check the lighting,
-## or play the ending without filing every card.
+## play the ending without filing every card, or switch the floor between
+## near faces as normal, far faces only and late near faces tinted red
+## (NearFaces.DebugView), to compare them in play.
 func _add_time_buttons(column: VBoxContainer) -> void:
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -78,14 +83,22 @@ func _add_time_buttons(column: VBoxContainer) -> void:
 	row.custom_minimum_size.y = 80
 	column.add_child(row)
 	for entry in [["Set Noon", _set_hour.bind(12.0)], ["Set Midnight", _set_hour.bind(0.0)], ["Play Ending", SceneFlow.play_ending]]:
-		var button := Button.new()
-		button.text = entry[0]
-		button.focus_mode = Control.FOCUS_NONE
-		button.custom_minimum_size = Vector2(142, 40)
-		button.size_flags_vertical = Control.SIZE_SHRINK_END
-		button.add_theme_font_size_override("font_size", 18)
-		button.pressed.connect(entry[1])
-		row.add_child(button)
+		_add_debug_button(row, entry[0]).pressed.connect(entry[1])
+	var faces := _add_debug_button(row, FACE_VIEWS[NearFaces.debug_view])
+	faces.pressed.connect(func() -> void:
+		NearFaces.debug_view = (NearFaces.debug_view + 1) % FACE_VIEWS.size() as NearFaces.DebugView
+		faces.text = FACE_VIEWS[NearFaces.debug_view])
+
+
+func _add_debug_button(row: HBoxContainer, text: String) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.focus_mode = Control.FOCUS_NONE
+	button.custom_minimum_size = Vector2(142, 40)
+	button.size_flags_vertical = Control.SIZE_SHRINK_END
+	button.add_theme_font_size_override("font_size", 18)
+	row.add_child(button)
+	return button
 
 
 func _set_hour(hour: float) -> void:

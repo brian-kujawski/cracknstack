@@ -43,6 +43,13 @@ const TABLE_MARGIN := 0.01
 const SURFACE_LAYER := 8
 ## Surface grid: one height per this many height map cells (the highest).
 const SURFACE_STRIDE := 3
+## Near faces (NearFaces): which cards want one is worked out this often
+## (seconds), out to this many times the distance where a card first needs
+## one. A card with this much of the pile over its centre is taken as buried
+## and needs none.
+const NEAR_INTERVAL := 0.1
+const NEAR_PREFETCH := 1.5
+const NEAR_BURIED := 3 * CARD_THICKNESS
 
 ## HELD is anywhere a card isn't lying about: in hand, in flight, in a
 ## binder or hovering (HoveringCard).
@@ -58,6 +65,11 @@ var obstacles: Array[Rect2] = []
 var surfaces: Array[Rect2] = []
 ## Every binder in the store, in shelf order (wherever each one is now).
 var binders: Array[Binder] = []
+## Sharp faces for the cards close to the eyes, or null without real data.
+var near_faces: NearFaces
+## Eye height when crouched: while standing, the cards a crouch would bring
+## close get their near faces too, so crouching finds them ready.
+var crouch_eye_height := 0.5
 
 var _positions := PackedVector3Array()
 var _rotations := PackedFloat32Array()
@@ -86,6 +98,9 @@ var _grid_cell_of := PackedInt32Array()
 
 var _height_columns := 0
 var _heights := PackedFloat32Array()
+## No card on the floor lies higher than this (it never comes down, so it may
+## be a little high), so card_on_ray() only looks where the pile can be.
+var _top := 0.0
 
 ## Cards lying on tables: card id -> LooseCard.
 var _loose := {}
@@ -100,6 +115,7 @@ var _glowing := {}
 ## A glowing card is usually buried, so each also gets a soft light drawn
 ## over everything, where it lies: card id -> marker.
 var _glow_markers := {}
+var _near_timer := 0.0
 var _glow_material: StandardMaterial3D
 var _glow_time := 0.0
 
@@ -321,6 +337,56 @@ func top_card_at(point: Vector3) -> int:
 	return best
 
 
+## The first card on the floor that a ray from `from` to `to` (global
+## points) meets, where it meets the card's face: {"id", "position"}, or
+## empty. This is the card you see there, however high the pile under it.
+func card_on_ray(from: Vector3, to: Vector3) -> Dictionary:
+	var a := to_local(from)
+	var b := to_local(to)
+	var d := b - a
+	# The part of the ray between the floor and the top of the pile.
+	var t0 := 0.0
+	var t1 := 1.0
+	if absf(d.y) < 1e-6:
+		if a.y < 0.0 or a.y > _top:
+			return {}
+	else:
+		var at_top := (_top - a.y) / d.y
+		var at_floor := -a.y / d.y
+		t0 = maxf(t0, minf(at_top, at_floor))
+		t1 = minf(t1, maxf(at_top, at_floor))
+	if t0 > t1:
+		return {}
+	# Every card filed in a grid cell along that part could lie across it.
+	var start := Vector2(a.x + d.x * t0, a.z + d.z * t0)
+	var end := Vector2(a.x + d.x * t1, a.z + d.z * t1)
+	var steps := ceili(start.distance_to(end) / (GRID_CELL / 2)) + 1
+	var cells := {}
+	for i in steps:
+		var cell := _grid_cell(start.lerp(end, float(i) / maxi(steps - 1, 1)))
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				var x := cell.x + dx
+				var y := cell.y + dy
+				if x >= 0 and y >= 0 and x < _grid_columns and y < _grid_rows:
+					cells[y * _grid_columns + x] = true
+	var best := -1
+	var best_t := INF
+	for cell in cells:
+		for id in _grid[cell]:
+			if _states[id] != State.ON_FLOOR or absf(d.y) < 1e-6:
+				continue
+			var t := (_positions[id].y - a.y) / d.y
+			if t < 0.0 or t > 1.0 or t >= best_t:
+				continue
+			if _covers(id, Vector2(a.x + d.x * t, a.z + d.z * t)):
+				best_t = t
+				best = id
+	if best < 0:
+		return {}
+	return {"id": best, "position": to_global(a + d * best_t)}
+
+
 ## Lifts a card out of the pile or off its table. Nothing around it moves.
 func pick_up(id: int) -> void:
 	if _states[id] == State.ON_TABLE:
@@ -534,6 +600,64 @@ func _physics_process(_delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_fade_glows(delta)
+	_update_near_faces(delta)
+
+
+func _update_near_faces(delta: float) -> void:
+	if near_faces == null:
+		return
+	_near_timer -= delta
+	if _near_timer <= 0.0:
+		_near_timer = NEAR_INTERVAL
+		var camera := get_viewport().get_camera_3d()
+		if camera != null:
+			request_near_faces(to_local(camera.global_position), near_face_distance(camera))
+	near_faces.update(delta)
+	near_faces.apply_frame(_material)
+
+
+## How close a card must be to the camera before its far face is softer than
+## the screen can show: where the card stands as many pixels tall on screen
+## as its far face has.
+func near_face_distance(camera: Camera3D) -> float:
+	var viewport := get_viewport()
+	var height := viewport.get_visible_rect().size.y * viewport.scaling_3d_scale
+	var far_pixels := float(CardDatabase.face_atlas.slot_height())
+	return CARD_SIZE.y * height / (2.0 * tan(deg_to_rad(camera.fov) / 2.0) * far_pixels)
+
+
+## Asks for near faces for the face-up floor cards within NEAR_PREFETCH ×
+## `need` of the eye (in the pile's space) or of where it would be crouched,
+## nearest first; those within `need` of the eye need theirs now.
+func request_near_faces(eye: Vector3, need: float) -> void:
+	var reach := need * NEAR_PREFETCH
+	var crouched := Vector3(eye.x, minf(eye.y, crouch_eye_height), eye.z)
+	var low := _grid_cell(Vector2(eye.x - reach, eye.z - reach))
+	var high := _grid_cell(Vector2(eye.x + reach, eye.z + reach))
+	var keys := PackedInt64Array()
+	var needed := PackedInt32Array()
+	for y in range(low.y, high.y + 1):
+		for x in range(low.x, high.x + 1):
+			for id in _grid[y * _grid_columns + x]:
+				var face := int(_faces[id])
+				if face < 0 or _face_up[id] == 0 or _states[id] != State.ON_FLOOR:
+					continue
+				var p := _positions[id]
+				if p.y < height_at(Vector2(p.x, p.z)) - NEAR_BURIED:
+					continue
+				var from_eye := p.distance_to(eye)
+				var distance := minf(from_eye, p.distance_to(crouched))
+				if distance > reach:
+					continue
+				if from_eye < need:
+					needed.append(face)
+				keys.append((int(distance * 10000.0) << 20) | face)
+	keys.sort()
+	var wanted := PackedInt32Array()
+	wanted.resize(keys.size())
+	for i in keys.size():
+		wanted[i] = keys[i] & 0xFFFFF
+	near_faces.request(wanted, needed)
 
 func _fade_glows(delta: float) -> void:
 	if _glowing.is_empty():
@@ -593,6 +717,9 @@ func _allocate(count: int) -> void:
 	_chunk_rows = ceili(bounds.size.y / CHUNK_SIZE)
 	_mesh = card_mesh(false)
 	_material = _floor_material(preload("res://shaders/floor_card.gdshader"), false)
+	_make_near_faces()
+	if not CardDatabase.faces_reloaded.is_connected(_on_faces_reloaded):
+		CardDatabase.faces_reloaded.connect(_on_faces_reloaded)
 	for c in _chunk_columns * _chunk_rows:
 		_add_chunk(_material)
 	_foil_chunk = _chunks.size()
@@ -607,6 +734,7 @@ func _allocate(count: int) -> void:
 	_height_columns = ceili(bounds.size.x / HEIGHT_CELL)
 	_heights.resize(_height_columns * ceili(bounds.size.y / HEIGHT_CELL))
 	_heights.fill(0.0)
+	_top = 0.0
 
 
 func _floor_material(shader: Shader, rare: bool) -> ShaderMaterial:
@@ -618,6 +746,26 @@ func _floor_material(shader: Shader, rare: bool) -> ShaderMaterial:
 	if rare:
 		CardDatabase.apply_rare_images(material)
 	return material
+
+
+## A new pool of near faces, sized for the screen and card detail, if the
+## data has near faces.
+func _make_near_faces() -> void:
+	near_faces = null
+	if CardDatabase.face_atlas == null or CardDatabase.near_paths.is_empty():
+		return
+	var screen_height := DisplayServer.screen_get_size().y if DisplayServer.get_name() != "headless" else 1080
+	near_faces = NearFaces.new(CardDatabase.near_paths, CardDatabase.near_size,
+			NearFaces.pool_capacity(screen_height, CardDatabase.low_detail()))
+	near_faces.apply(_material)
+	_near_timer = 0.0
+
+
+## Card detail changed: the floor takes the new far faces and a new pool.
+func _on_faces_reloaded() -> void:
+	for chunk in _chunks:
+		CardDatabase.face_atlas.apply(chunk.material_override)
+	_make_near_faces()
 
 
 func _add_chunk(material: ShaderMaterial) -> void:
@@ -805,6 +953,7 @@ func _put_on_floor(id: int, p: Vector2, rotation_y: float, at_height := -1.0) ->
 	for cell in footprint:
 		_heights[cell] = maxf(_heights[cell], y)
 		_mark_surface_dirty(cell)
+	_top = maxf(_top, y)
 	_positions[id] = Vector3(p.x, y, p.y)
 	_rotations[id] = rotation_y
 	_grid_add(id)

@@ -3,7 +3,9 @@ extends Node3D
 ## door in the front wall, one wall-length binder shelf on the back wall, and
 ## four work tables in the middle for setting binders down and stacking cards.
 ## On the right-hand wall (seen from the door) stand two glass display
-## cabinets for the rare cards; the left wall is open for store dressing later.
+## cabinets for the rare cards. Opposite them, on the left-hand wall, is a
+## reading corner: an armchair, a side table with the shop's radio on it, and
+## a floor lamp.
 ##
 ## Everything is plain boxes so the layout is cheap to change. Coordinates are
 ## metres: x runs 0..WIDTH left to right as you face the back wall, z runs from
@@ -13,8 +15,11 @@ const WIDTH := 12.0
 const DEPTH := 8.0
 const CEILING_HEIGHT := 3.0
 const WALL_THICKNESS := 0.2
-## The binder shelf's x range along the back wall. Binders read left to
-## right, top shelf first, so the shelf reads the timeline like a book.
+## The most of the back wall the binder shelf may take, as an x range. The
+## shelf itself is only as long as its binders need (ShelfUnit.fitted_width),
+## centred in this range, so no shelf runs empty; new sets lengthen it.
+## Binders read left to right, top shelf first, so the shelf reads the
+## timeline like a book.
 const BACK_SHELF := Vector2(2.0, 10.0)
 const TABLE_SIZE := Vector3(1.3, 1.0, 1.3)
 const TABLE_CENTERS := [Vector2(4.6, 2.9), Vector2(7.4, 2.9), Vector2(4.6, 5.3), Vector2(7.4, 5.3)]
@@ -46,6 +51,43 @@ const FIXTURE_LIGHT := Color(1.0, 0.82, 0.6)
 ## into the room, centred at these z, back one first. They line up with the
 ## table rows.
 const CABINET_ZS := [2.9, 5.3]
+## The reading corner on the left-hand wall (x = 0), between the table rows:
+## along the wall from the back, the side table, the floor lamp tucked in
+## against the wall, and the armchair, turned out to face the room, angled a
+## little toward the back tables. Floor centres, and the chair's and radio's
+## turn (yaw) from facing the door.
+const SIDE_TABLE_AT := Vector2(0.76, 3.34)
+const FLOOR_LAMP_AT := Vector2(0.32, 3.97)
+const ARMCHAIR_AT := Vector2(0.91, 4.54)
+const ARMCHAIR_YAW := deg_to_rad(116.0)
+## The radio sits across the side table, facing out into the room.
+const RADIO_ON_TABLE := Vector2(0.0, -0.05)
+const RADIO_YAW := deg_to_rad(70.0)
+## The longcase clock stands at the shelf end of the left-hand wall,
+## balancing the low reading corner with something tall: its floor
+## centre along z.
+const CLOCK_Z := 1.0
+## The wall art (WallArt), hung in its order. Over the binder shelf, one
+## landscape frame centred over each span between pairs of legs, their
+## bottoms 22 cm above the shelf top so what's put down there doesn't hide
+## them: the height they share, and the art size, mat and moulding for a
+## SHELF_ART_SPAN-wide span. Narrower spans get smaller frames, in proportion.
+const SHELF_ART := [2.055, Vector2(0.88, 0.64), 0.09, 0.05]
+const SHELF_ART_SPAN := 1.6
+## Over the reading corner, a grid of seven around a centre piece over the
+## floor lamp (its bottom clear of the shade): the centre piece, the pair
+## stacked on its shelf side (top, bottom), the pair on its door side, then
+## a portrait frame at the shelf end and one at the door end. Each is
+## [centre along z, centre height, art size, mat, moulding].
+const CORNER_ART := [
+	[3.95, 2.26, Vector2(0.75, 0.55), 0.08, 0.045],
+	[3.095, 2.433, Vector2(0.36, 0.263), 0.06, 0.035],
+	[3.095, 1.901, Vector2(0.36, 0.263), 0.06, 0.035],
+	[4.805, 2.433, Vector2(0.36, 0.263), 0.06, 0.035],
+	[4.805, 1.901, Vector2(0.36, 0.263), 0.06, 0.035],
+	[2.495, 2.23, Vector2(0.3, 0.42), 0.06, 0.035],
+	[5.405, 2.23, Vector2(0.3, 0.42), 0.06, 0.035],
+]
 ## The store's wood (assets/store/table_wood): tables, cabinets, the binder
 ## shelf, window frames and the door. And how many metres of real wood one
 ## copy of its texture covers.
@@ -63,6 +105,11 @@ const CARPET_SIZE := 0.5
 ## many metres one copy of it covers.
 const PLASTER := "plaster"
 const PLASTER_SIZE := 2.0
+## The armchair's leather (assets/store/leather, the binders' hide), a worn
+## brown, and how many metres one copy of it covers.
+const LEATHER := "leather"
+const LEATHER_SIZE := 0.4
+const CHAIR_LEATHER := Color(0.4, 0.23, 0.14)
 ## Polished brass for the door and cabinet hardware and the curtain rods
 ## (assets/store/brass), and how many metres one copy of it covers.
 const BRASS := "brass"
@@ -90,6 +137,14 @@ var display_slots: Array[Marker3D] = []
 ## The display cabinets, back cabinet first; their slots hold the rare cards
 ## in that order.
 var cabinets: Array[DisplayCabinet] = []
+## The radio on the reading corner's side table.
+var radio: ShopRadio
+## The longcase clock; the shop gives it the DayCycle to show.
+var clock: ShopClock
+## The wall art's frames, in WallArt's order.
+var wall_frames: Array[WallFrame] = []
+## The back-wall binder shelf.
+var binder_shelf: ShelfUnit
 
 var _wall_material := _textured(PLASTER, PLASTER_SIZE)
 var _floor_material := _textured(CARPET, CARPET_SIZE)
@@ -112,6 +167,9 @@ func _ready() -> void:
 	_build_binder_shelves()
 	_build_tables()
 	_build_display_cabinets()
+	_build_reading_corner()
+	_build_wall_art()
+	_build_clock()
 	_build_windows()
 	_build_door()
 	_build_pendants()
@@ -135,10 +193,17 @@ func _build_binder_shelves() -> void:
 	## Legs: square, wider at the top than at the foot, like the tables'.
 	const LEG_TOP := 0.07
 	const LEG_FOOT := 0.05
+	var binders := CardDatabase.all_binders()
+	var most := BACK_SHELF.y - BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS
+	var inner := ShelfUnit.fitted_width(binders)
+	if inner > most:
+		push_error("StoreBuilder: the binders need %.2f m of shelf; the back wall has room for %.2f m" % [inner, most])
+		inner = most
 	var unit := ShelfUnit.new()
 	unit.name = "BinderShelf"
-	unit.build(CardDatabase.all_binders(), _table_material, BACK_SHELF.y - BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS)
+	unit.build(binders, _table_material, inner)
 	unit.position = Vector3((BACK_SHELF.x + BACK_SHELF.y) / 2, 0, ShelfUnit.DEPTH / 2)
+	binder_shelf = unit
 	var leg_mesh := _tapered_leg(LEG_TOP, LEG_FOOT, ShelfUnit.leg_height())
 	for x in unit.leg_spots():
 		for z in [-1, 1]:
@@ -283,6 +348,73 @@ func _build_display_cabinets() -> void:
 		var footprint := DisplayCabinet.footprint()
 		obstacles.append(Rect2(Vector2(WIDTH - DisplayCabinet.DEPTH / 2 - footprint.end.y, CABINET_ZS[i] + footprint.position.x),
 			Vector2(footprint.size.y, footprint.size.x)))
+
+
+## The longcase clock against the left-hand wall by the shelf end, facing
+## into the room.
+func _build_clock() -> void:
+	clock = ShopClock.new()
+	clock.name = "ShopClock"
+	clock.build(_table_material, _brass_material)
+	_place(clock, Vector2(ShopClock.DEPTH / 2, CLOCK_Z), PI / 2, Vector2(ShopClock.WIDTH, ShopClock.DEPTH))
+
+
+## Empty picture frames over the binder shelf and the reading corner (see
+## SHELF_ART and CORNER_ART), waiting for their cards (WallArt).
+func _build_wall_art() -> void:
+	var legs := binder_shelf.leg_spots()
+	for i in range(1, legs.size()):
+		var span := legs[i] - legs[i - 1]
+		var shrink := minf(1.0, span / SHELF_ART_SPAN)
+		var x := binder_shelf.position.x + (legs[i] + legs[i - 1]) / 2
+		_hang_frame(Vector3(x, SHELF_ART[0], 0), 0.0, SHELF_ART[1] * shrink, SHELF_ART[2] * shrink, SHELF_ART[3] * shrink)
+	for frame in CORNER_ART:
+		_hang_frame(Vector3(0, frame[1], frame[0]), PI / 2, frame[2], frame[3], frame[4])
+
+
+func _hang_frame(at: Vector3, yaw: float, art_size: Vector2, mat: float, moulding: float) -> void:
+	var frame := WallFrame.new()
+	frame.name = "WallFrame%02d" % (wall_frames.size() + 1)
+	frame.build(art_size, mat, moulding, _table_material)
+	frame.position = at
+	frame.rotation.y = yaw
+	add_child(frame)
+	wall_frames.append(frame)
+
+
+## The reading corner (see SIDE_TABLE_AT): solid furniture whose footprints
+## the cards keep clear of, and the radio, which opens the Radio menu.
+func _build_reading_corner() -> void:
+	var leather := _textured(LEATHER, LEATHER_SIZE)
+	leather.albedo_color = CHAIR_LEATHER
+	leather.normal_scale = 2.0
+	var chair := ReadingCorner.armchair(leather, _table_material)
+	chair.name = "Armchair"
+	_place(chair, ARMCHAIR_AT, ARMCHAIR_YAW, ReadingCorner.CHAIR_SIZE)
+	var table := ReadingCorner.side_table(_table_material, _leg_material)
+	table.name = "SideTable"
+	_place(table, SIDE_TABLE_AT, 0.0, Vector2.ONE * ReadingCorner.TABLE_TOP)
+	var lamp := ReadingCorner.floor_lamp(_brass_material, _curtain(), FIXTURE_LIGHT)
+	lamp.name = "FloorLamp"
+	_place(lamp, FLOOR_LAMP_AT, 0.0, Vector2.ONE * ReadingCorner.LAMP_BASE)
+	radio = ShopRadio.new()
+	radio.name = "ShopRadio"
+	radio.build()
+	var on := SIDE_TABLE_AT + RADIO_ON_TABLE
+	radio.position = Vector3(on.x, ReadingCorner.TABLE_HEIGHT, on.y)
+	radio.rotation.y = RADIO_YAW
+	add_child(radio)
+
+
+## Adds a piece standing on the floor at `at`, turned by `yaw`, and keeps the
+## cards off its footprint (`size` across by deep, as the box around it once turned).
+func _place(body: Node3D, at: Vector2, yaw: float, size: Vector2) -> void:
+	body.position = Vector3(at.x, 0, at.y)
+	body.rotation.y = yaw
+	add_child(body)
+	var reach := Vector2(absf(cos(yaw)) * size.x + absf(sin(yaw)) * size.y,
+		absf(sin(yaw)) * size.x + absf(cos(yaw)) * size.y)
+	obstacles.append(Rect2(at - reach / 2, reach))
 
 
 ## Each window is a framed opening with a deep sill, the sky behind it, and
@@ -433,9 +565,10 @@ func _build_pendants() -> void:
 ## A ceiling track along the shelf with spotlights angled at its face, so
 ## the labels and spines read clearly. No shadows: it's there to light faces.
 func _build_track_light() -> void:
-	var length: float = BACK_SHELF.y - BACK_SHELF.x
+	var length := ShelfUnit.outer_width(binder_shelf.width)
+	var start := binder_shelf.position.x - length / 2
 	var track_y := CEILING_HEIGHT - 0.02
-	_add_part(self, Vector3(length, 0.03, 0.035), Vector3((BACK_SHELF.x + BACK_SHELF.y) / 2, track_y, TRACK_Z), _fixture_material, false)
+	_add_part(self, Vector3(length, 0.03, 0.035), Vector3(binder_shelf.position.x, track_y, TRACK_Z), _fixture_material, false)
 	var lens_material := StandardMaterial3D.new()
 	lens_material.emission_enabled = true
 	lens_material.emission = FIXTURE_LIGHT
@@ -443,7 +576,7 @@ func _build_track_light() -> void:
 	var target_y := 0.95
 	var target_z := ShelfUnit.DEPTH
 	for i in TRACK_HEADS:
-		var x: float = BACK_SHELF.x + length * (i + 0.5) / TRACK_HEADS
+		var x: float = start + length * (i + 0.5) / TRACK_HEADS
 		_add_cylinder(Vector3(x, track_y - 0.05, TRACK_Z), 0.008, 0.008, 0.08, _fixture_material)
 		var head := Node3D.new()
 		head.position = Vector3(x, track_y - 0.1, TRACK_Z)

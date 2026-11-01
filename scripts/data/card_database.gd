@@ -12,10 +12,18 @@ const PLACEHOLDER_PATH := "res://data/placeholder/cards.json"
 ## get much bigger on screen than this.
 const RARE_FLOOR_SIZE := Vector2i(244, 340)
 
+## Emitted when the far faces are loaded again (the Card detail setting
+## changed): floor materials take the new face_atlas.
+signal faces_reloaded
+
 ## Where the loaded data came from ("" for placeholders).
 var source := ""
-## Small faces for the floor, or null to draw placeholder faces.
+## Far faces for the floor, or null to draw placeholder faces.
 var face_atlas: FaceAtlas
+## Each card's near face file by face index ("" for none), and their size,
+## for NearFaces; empty when the data has no near faces.
+var near_paths := PackedStringArray()
+var near_size := Vector2i.ZERO
 ## The real card back, or null to draw the placeholder back.
 var card_back: Texture2D
 
@@ -34,6 +42,8 @@ var _sets: Dictionary = {} # code -> SetData
 var _sets_in_shelf_order: Array[SetData] = []
 var _cards_by_set: Dictionary = {} # code -> Array[CardData], by collector number
 var _rare_set: SetData
+var _faces := {} # the loaded file's "faces", to load the atlas again
+var _low_detail_loaded := false
 
 
 func _ready() -> void:
@@ -43,6 +53,26 @@ func _ready() -> void:
 	var error := load_file(path)
 	if error != OK:
 		push_error("CardDatabase: could not load %s (%s)" % [path, error_string(error)])
+	# A quality preset can change card detail too.
+	Settings.changed.connect(func(key: String) -> void:
+		if key in ["card_detail", "quality"] and face_atlas != null and low_detail() != _low_detail_loaded:
+			reload_faces())
+
+
+## Whether the far faces are loaded at Low card detail (Settings).
+func low_detail() -> bool:
+	return Settings.value("card_detail") == Settings.CARD_DETAIL_LOW
+
+
+## Loads the far faces again at the current card detail.
+func reload_faces() -> void:
+	if face_atlas == null:
+		return
+	var atlas := FaceAtlas.load_pages(_faces, low_detail())
+	if atlas != null:
+		face_atlas = atlas
+		_low_detail_loaded = low_detail()
+		faces_reloaded.emit()
 
 
 ## Replaces all loaded data with the contents of a card data file.
@@ -52,10 +82,20 @@ func load_file(path: String) -> Error:
 		return result.error
 	_cards = result.cards
 	source = result.source
-	face_atlas = FaceAtlas.load_pages(result.faces) if not result.faces.is_empty() else null
+	_faces = result.faces
+	_low_detail_loaded = low_detail()
+	face_atlas = FaceAtlas.load_pages(result.faces, _low_detail_loaded) if not result.faces.is_empty() else null
+	near_paths = PackedStringArray()
+	near_size = Vector2i.ZERO
 	if face_atlas == null:
 		for card in _cards:
 			card.face_index = -1
+			card.image_near = ""
+	elif result.faces.has("near_size"):
+		near_size = Vector2i(result.faces["near_size"][0], result.faces["near_size"][1])
+		near_paths.resize(_cards.size())
+		for card in _cards:
+			near_paths[card.face_index] = card.image_near
 	card_back = _load_back(result.back)
 	_rare_backs.clear()
 	_rare_face_array = null

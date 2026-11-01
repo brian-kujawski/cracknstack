@@ -27,6 +27,7 @@ func _ready() -> void:
 	Settings.save_path = SETTINGS_TEST_PATH
 	Settings.reset_all()
 	Saves.save_dir = SAVES_TEST_DIR
+	Radio.load_from(RADIO_TEST_PATH)
 	_clear_test_saves()
 	await _run(_test_database_loaded)
 	await _run(_test_collector_numbers_are_contiguous)
@@ -181,14 +182,14 @@ func _test_shelf_layout() -> void:
 	for i in layout.binders.size():
 		var left := layout.lefts[i]
 		var right := left + layout.widths[i]
-		fits = fits and absf(layout.widths[i] - BinderLayout.thickness(few[i]) - ShelfLayout.SPACE_GAP) < 0.0001
+		fits = fits and layout.widths[i] >= BinderLayout.thickness(few[i]) + ShelfLayout.SPACE_GAP - 0.0001
 		fits = fits and ((left >= bays[0].x and right <= bays[0].y) or (left >= bays[1].x and right <= bays[1].y))
 		if i > 0:
 			var same_shelf := layout.shelves[i] == layout.shelves[i - 1]
 			fits = fits and layout.shelves[i] >= layout.shelves[i - 1]
 			fits = fits and (not same_shelf or left >= layout.lefts[i - 1] + layout.widths[i - 1] - 0.0001)
 		fill[layout.shelves[i]] += layout.widths[i]
-	_check(fits, "spaces are as wide as their binder, in order, never overlapping or straddling a divider")
+	_check(fits, "spaces are at least as wide as their binder, in order, never overlapping or straddling a divider")
 	_check(layout.shelves[0] == 0 and layout.shelves[-1] == 1 and absf(fill[0] - fill[1]) < 0.15,
 		"the binders split evenly over both shelves (%.2f m and %.2f m)" % fill)
 
@@ -197,8 +198,26 @@ func _test_shelf_layout() -> void:
 	var cramped := ShelfLayout.plan(eight, 1, [Vector2(0.0, 0.5)] as Array[Vector2])
 	_check(cramped.binders.size() < 8 and cramped.binders.size() > 0, "binders that don't fit are left out (with an error)")
 
-	var full := ShelfLayout.plan(binders, ShelfUnit.SHELF_HEIGHTS.size(), [Vector2(0.0, 7.9)] as Array[Vector2])
-	_check(full.binders.size() == binders.size(), "every binder fits on the back wall's shelves (%d of %d)" % [full.binders.size(), binders.size()])
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var fitted := ShelfUnit.fitted_width(binders)
+	var most: float = store_script.BACK_SHELF.y - store_script.BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS
+	_check(fitted <= most, "every binder fits on the back wall (%.2f m of %.2f m)" % [fitted, most])
+	var bay := fitted / ShelfUnit.BAYS
+	var spans: Array[Vector2] = []
+	for i in ShelfUnit.BAYS:
+		spans.append(Vector2(bay * i + ShelfUnit.DIVIDER_THICKNESS / 2, bay * (i + 1) - ShelfUnit.DIVIDER_THICKNESS / 2))
+	var full := ShelfLayout.plan(binders, ShelfUnit.SHELF_HEIGHTS.size(), spans)
+	_check(full.binders.size() == binders.size(), "on a fitted shelf every binder gets a space (%d of %d)" % [full.binders.size(), binders.size()])
+	# No bay runs empty: every bay's last space ends at its divider, and no
+	# space is stretched by much more than a binder's width.
+	var filled := true
+	for i in full.binders.size():
+		var end := full.lefts[i] + full.widths[i]
+		var last_in_bay := i == full.binders.size() - 1 or full.shelves[i + 1] != full.shelves[i] \
+			or full.lefts[i + 1] > end + ShelfUnit.DIVIDER_THICKNESS / 2
+		filled = filled and (not last_in_bay or absf(end - spans[floori(full.lefts[i] / bay)].y) < 0.001)
+		filled = filled and full.widths[i] - ShelfLayout.space_width(full.binders[i]) < 0.03
+	_check(filled, "the fitted shelf is full: every bay's spaces reach its divider, spread by under 3 cm each")
 
 
 func _test_pile() -> void:
@@ -263,6 +282,58 @@ func _test_pile() -> void:
 	var landed := pile.card_position(top)
 	_check(pile.is_on_floor(top), "tossed card lands back on the floor (after %d steps)" % steps)
 	_check(landed.x > 5.3 and landed.x < 7.5 and absf(landed.z - 5.0) < 0.05, "toss is a gentle lob forward (landed at x=%.2f)" % landed.x)
+	pile.queue_free()
+
+
+func _test_pile_aim() -> void:
+	var pile := PileWorld.new()
+	add_child(pile)
+	var no_obstacles: Array[Rect2] = []
+	pile.build(Rect2(0, 0, 28, 14), no_obstacles, 7)
+
+	# Stack 40 cards in one spot and look at the top one from low down, as
+	# when crouching in a big pile: the crosshair's ray reaches the floor well
+	# past the stack, but the card you aim at is the one it meets first.
+	var spot := Vector3(6.0, 0.0, 7.0)
+	var stack: Array[int] = []
+	for id in range(100, 140):
+		pile.pick_up(id)
+		pile.drop(id, spot, 0.0)
+		stack.append(id)
+	var top := stack[-1]
+	var face := pile.card_position(top)
+	var from := face + Vector3(0.0, 0.25, 0.7)
+	var to := from + (face - from).normalized() * 3.0
+	var aimed := pile.card_on_ray(from, to)
+	_check(not aimed.is_empty() and aimed.id == top, "the card under the crosshair is the one you see, on top of the stack")
+	_check(not aimed.is_empty() and Vector3(aimed.position).distance_to(face) < 0.001, "and the aim point is on its face")
+	var floor_point := from + (to - from) * (from.y / (from.y - to.y))
+	_check(pile.top_card_at(floor_point) != top, "not the card over where the ray reaches the floor")
+
+	# Anywhere in the pile, the card hit is the first card face along the ray.
+	var right := true
+	var hits := 0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	for i in 20:
+		var at := pile.card_position(rng.randi_range(0, pile._positions.size() - 1))
+		var eye := Vector3(at.x + rng.randf_range(-1.0, 1.0), rng.randf_range(0.4, 1.6), at.z + rng.randf_range(-1.0, 1.0))
+		var end := eye + (at - eye).normalized() * 3.0
+		var expected := -1
+		var nearest := INF
+		for id in pile._positions.size():
+			if not pile.is_on_floor(id):
+				continue
+			var y := pile.card_position(id).y
+			var t := (y - eye.y) / (end.y - eye.y)
+			if t >= 0.0 and t <= 1.0 and t < nearest and pile._covers(id, Vector2(lerpf(eye.x, end.x, t), lerpf(eye.z, end.z, t))):
+				nearest = t
+				expected = id
+		var got := pile.card_on_ray(eye, end)
+		right = right and (got.id if not got.is_empty() else -1) == expected
+		hits += 1 if expected >= 0 else 0
+	_check(right and hits > 0, "the aimed card is always the first card face the ray meets (%d rays hit cards)" % hits)
+	_check(pile.card_on_ray(Vector3(6.0, 1.0, 7.0), Vector3(6.0, 1.0, 9.0)).is_empty(), "a ray above the pile meets no card")
 	pile.queue_free()
 
 
@@ -530,8 +601,8 @@ func _test_shelving() -> void:
 	var spots := unit.leg_spots()
 	var spaced := spots.size() >= 2
 	for i in range(1, spots.size()):
-		spaced = spaced and spots[i] > spots[i - 1] and spots[i] - spots[i - 1] <= ShelfUnit.LEG_SPACING + ShelfUnit.BAY_WIDTH / 2
-	_check(spaced and spots[0] < -1.1 and spots[-1] > 1.1, "leg pairs stand under both ends and along the span")
+		spaced = spaced and spots[i] > spots[i - 1] and absf((spots[i] - spots[i - 1]) - (spots[1] - spots[0])) < 0.05
+	_check(spaced and spots[0] < -1.1 and spots[-1] > 1.1, "leg pairs stand under both ends and evenly along the span")
 	var top := unit.top_rect()
 	_check(is_equal_approx(top.position.y, -ShelfUnit.DEPTH / 2) and top.end.y > ShelfUnit.DEPTH / 2 and top.size.x > 2.4,
 		"the top covers the whole unit, back to the wall")
@@ -593,9 +664,10 @@ func _test_loose_card() -> void:
 
 
 const FIXTURE_DIR := "user://test_real_data"
-## A tiny atlas: 4 × 2 slots of 16 × 22 px on 64 px pages, so 10 cards need two pages.
+## A tiny atlas: 4 × 2 slots of 16 × 22 px on 64 px pages, so 10 cards need two pages,
+## and 32 × 44 px near faces.
 const FIXTURE_FACES := {"pages": ["faces/page_0.png", "faces/page_1.png"], "page_size": 64,
-	"slot_size": [16, 22], "columns": 4, "rows": 2}
+	"slot_size": [16, 22], "columns": 4, "rows": 2, "near": "near/{set}/{number}.dds", "near_size": [32, 44]}
 const FIXTURE_CARDS := 10
 
 
@@ -605,11 +677,17 @@ const FIXTURE_CARDS := 10
 func _write_fixture(with_pages := true) -> String:
 	DirAccess.make_dir_recursive_absolute(FIXTURE_DIR + "/faces")
 	DirAccess.make_dir_recursive_absolute(FIXTURE_DIR + "/images/tst")
+	DirAccess.make_dir_recursive_absolute(FIXTURE_DIR + "/near/tst")
 	var rows := []
 	for id in FIXTURE_CARDS:
 		var face := Image.create(48, 66, false, Image.FORMAT_RGB8)
 		face.fill(Color8((id + 1) * 20, 100, 50))
 		face.save_png("%s/images/tst/%d.png" % [FIXTURE_DIR, id + 1])
+		var near := Image.create(32, 44, false, Image.FORMAT_RGB8)
+		near.fill(Color8((id + 1) * 20, 100, 50))
+		near.generate_mipmaps()
+		near.compress(Image.COMPRESS_S3TC)
+		near.save_dds("%s/near/tst/%d.dds" % [FIXTURE_DIR, id + 1])
 		rows.append(["TST", id + 1, "Test Card %d" % (id + 1), "rare", ["G"], "Creature — Bear", "images/tst/%d.png" % (id + 1)])
 	for p in 2:
 		var page := Image.create(64, 64, false, Image.FORMAT_RGB8)
@@ -686,6 +764,19 @@ func _test_real_data_format() -> void:
 	_check(material.get_shader_parameter("has_face") == true, "single-card materials switch to the real face")
 	_check(CardDatabase.card_back != null and CardDatabase.card_back.get_size() == Vector2(48, 66), "the card back loads")
 	_check(material.get_shader_parameter("has_back") == true, "single-card materials get the real card back")
+	_check(card.image_near == FIXTURE_DIR + "/near/tst/10.dds", "cards know their near face")
+	_check(CardDatabase.near_paths.size() == FIXTURE_CARDS and CardDatabase.near_paths[9] == card.image_near
+		and CardDatabase.near_size == Vector2i(32, 44), "the database lists near faces by face index")
+	var binder_material := ShaderMaterial.new()
+	binder_material.shader = preload("res://shaders/binder_card.gdshader")
+	CardView.apply(binder_material, 9)
+	var pocket_face: Texture2D = binder_material.get_shader_parameter("face_texture")
+	_check(pocket_face != null and pocket_face.get_size() == Vector2(32, 44), "binder and table cards show the near face")
+	var held_face: Texture2D = material.get_shader_parameter("face_texture")
+	_check(held_face.get_size() == Vector2(48, 66), "the held card keeps the large image")
+	var low := FaceAtlas.load_pages(CardDatabase._faces, true)
+	_check(low.texture.get_width() == 32 and low.slot_height() == 11 and atlas.slot_height() == 22,
+		"low card detail loads the far faces at half size")
 
 	# One set, one binder: one labelled shelf space, the rest blank.
 	var layout := ShelfLayout.plan(CardDatabase.all_binders(), 2, [Vector2(0.0, 7.9)] as Array[Vector2])
@@ -703,6 +794,8 @@ func _test_real_data_format() -> void:
 		faces_ok = faces_ok and pile._faces[id] == id
 	_check(faces_ok, "floor cards carry their face atlas slot")
 	_check(pile._material.get_shader_parameter("has_back") == true, "face-down floor cards show the real card back")
+	_check(pile.near_faces != null and pile._material.get_shader_parameter("near_on") == true, "the floor gets a pool of near faces")
+	_test_near_request(pile)
 	pile.free()
 
 	# A missing page falls back to placeholder faces rather than failing.
@@ -710,6 +803,64 @@ func _test_real_data_format() -> void:
 	_check(CardDatabase.load_file(path) == OK and CardDatabase.face_atlas == null, "missing atlas pages fall back to placeholder faces")
 	_check(CardDatabase.get_card(0).face_index == -1, "and cards stop pointing into the atlas")
 	_write_fixture()
+
+
+## Which floor cards PileWorld asks near faces for: face up, not buried, the
+## nearest first.
+func _test_near_request(pile: PileWorld) -> void:
+	var near := NearFaces.new(CardDatabase.near_paths, CardDatabase.near_size, 4)
+	pile.near_faces = near
+	var target := 3
+	var top := pile._positions[target]
+	pile._face_up[target] = 1
+	pile.request_near_faces(top + Vector3(0, 0.3, 0), 0.5)
+	_check(near._wanted.has(target) == (top.y >= pile.height_at(Vector2(top.x, top.z)) - PileWorld.NEAR_BURIED),
+		"a card right under the eye wants its near face unless it's buried")
+	pile.request_near_faces(top + Vector3(0, 0.3, 0), 0.001)
+	_check(near._wanted.is_empty(), "nothing wants a near face when every card is far enough away")
+	pile._face_up[target] = 0
+	pile._heights.fill(0.0) # nothing counts as buried
+	pile.request_near_faces(top + Vector3(0, 0.3, 0), 10.0)
+	_check(not near._wanted.has(target) and near._wanted.size() == 4, "face-down cards want none; the rest fill the pool")
+
+
+func _test_near_faces() -> void:
+	_write_fixture()
+	CardDatabase.load_file(FIXTURE_DIR + "/cards.json")
+	var near := NearFaces.new(CardDatabase.near_paths, CardDatabase.near_size, 2)
+	_check(near.pool.get_layers() == 2 and near.pool.get_width() == 32 and near.pool.get_height() == 44, "the pool holds its capacity of near faces")
+	near.request(PackedInt32Array([4, 7, 1]), PackedInt32Array([7]))
+	_check(near._wanted.size() == 2 and near._wanted.has(4) and near._wanted.has(7), "only as many cards as the pool holds are wanted, nearest first")
+	_wait_for_near(near, 2)
+	_check(near.has_face(4) and near.has_face(7) and not near.has_face(1), "wanted near faces load")
+	var lookup := near._lookup_image.get_pixel(7, 0)
+	_check(lookup.r >= 0.0 and lookup.b == 1.0 and near._lookup_image.get_pixel(4, 0).b == 0.0,
+		"the lookup gives each face its layer, and marks the one that arrived late")
+	_check(near._lookup_image.get_pixel(1, 0).r == -1.0, "cards without a near face read -1")
+	_check(near.late_count == 1 and near.arrived_count == 2, "late arrivals are counted")
+	near.request(PackedInt32Array([1, 4]), PackedInt32Array())
+	_wait_for_near(near, 3)
+	_check(near.has_face(1) and near.has_face(4) and not near.has_face(7), "a card no longer wanted gives its layer up")
+	_check(near._lookup_image.get_pixel(7, 0).r == -1.0, "and goes back to its far face")
+	var gone := NearFaces.new(PackedStringArray(["user://no_such_face.dds"]), Vector2i(32, 44), 1)
+	gone.request(PackedInt32Array([0]), PackedInt32Array())
+	for i in 200:
+		if gone.loading_count() == 0:
+			break
+		gone.update(0.01)
+		OS.delay_msec(5)
+	_check(not gone.has_face(0), "a missing near face just leaves the far face")
+	_check(NearFaces.pool_capacity(1080, false) == 1024 and NearFaces.pool_capacity(2160, false) == 2048
+		and NearFaces.pool_capacity(2160, true) == 256, "the pool is sized for the screen and card detail")
+
+
+## Updates `near` until it has shown `count` faces in all (or gives up).
+func _wait_for_near(near: NearFaces, count: int) -> void:
+	for i in 200:
+		if near.arrived_count >= count and near.loading_count() == 0:
+			return
+		near.update(0.01)
+		OS.delay_msec(5)
 
 
 func _test_credits() -> void:
@@ -754,6 +905,97 @@ func _test_inspect_tilt() -> void:
 		_check(tilted_corner > near, "a tilted card up close should clear the near plane at fov %s: %s" % [fov, tilted_corner])
 
 
+## R turns the card up close over and T sideways; lowering it undoes both.
+func _test_turn_over() -> void:
+	var face_up := Hands.held_basis(Vector3.ZERO, 0.0)
+	var back := Hands.held_basis(Vector3.ZERO, 1.0)
+	_check(face_up.z.is_equal_approx(Vector3.BACK) and back.z.is_equal_approx(Vector3.FORWARD), "turned over, the face points away: %s" % back.z)
+	_check(back.y.is_equal_approx(Vector3.UP), "turning over keeps the card upright: %s" % back.y)
+	var tipped := Vector3(0.2, 0.0, 0.0)
+	_check(signf(Hands.held_basis(tipped, 1.0).y.z) == signf(Hands.held_basis(tipped, 0.0).y.z), "the mouse tips the top the same way on either side")
+	# Sideways, the card's top edge points right: a clockwise quarter turn,
+	# on either side.
+	_check(Hands.held_basis(Vector3.ZERO, 0.0, 1.0).y.is_equal_approx(Vector3.RIGHT), "T turns the card clockwise")
+	_check(Hands.held_basis(Vector3.ZERO, 1.0, 1.0).y.is_equal_approx(Vector3.RIGHT), "T turns the back clockwise too")
+
+	Saves.begin_new_game()
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var pile: PileWorld = main.get_node("Pile")
+	var hands: Hands = main.get_node("Player/Hands")
+	var id := _first_binder_cards()[0]
+	pile.pick_up(id)
+	hands.restore_hand([id] as Array[int])
+	hands._set_zoomed(true)
+	await get_tree().create_timer(hands.zoom_seconds + 0.1).timeout
+	hands.turn_over(true)
+	hands.turn_sideways(true)
+	await get_tree().create_timer(hands.turn_over_seconds + 0.1).timeout
+	_check(hands._sideways and is_equal_approx(hands._sideways_amount, 1.0), "T turns the card up close sideways")
+	_check(hands._held_view.basis.y.x > 0.9, "its top edge points right: %s" % hands._held_view.basis.y)
+	_check(hands._turned_over and is_equal_approx(hands._turn_amount, 1.0), "R turns the card up close over")
+	_check(hands._held_view.basis.z.z < -0.9, "its back faces you: %s" % hands._held_view.basis.z)
+	hands._set_zoomed(false)
+	await get_tree().create_timer(hands.zoom_seconds + 0.1).timeout
+	_check(not hands._turned_over and is_zero_approx(hands._turn_amount), "lowering the card turns it face up again")
+	_check(not hands._sideways and is_zero_approx(hands._sideways_amount), "lowering the card turns it upright again")
+	_check(hands._held_view.basis.z.z > 0.5, "the lowered card faces you: %s" % hands._held_view.basis.z)
+	hands._set_zoomed(true)
+	hands.turn_over(true, 0.0)
+	hands.turn_sideways(true, 0.0)
+	hands._release_top()
+	_check(not hands._turned_over and is_zero_approx(hands._turn_amount) and not hands._sideways and is_zero_approx(hands._sideways_amount),
+		"a card leaving the hand clears both turns")
+
+	# Empty-handed, F on a card in an open binder brings it up close; F again
+	# sends it home. It never leaves its pocket.
+	var binder := pile.binders[0]
+	binder.place(pile, Transform3D(Basis(), Vector3(2.0, 0.2, 2.0)), 0)
+	var pocketed := _first_binder_cards()[1]
+	pile.pick_up(pocketed)
+	binder.insert(1, pocketed)
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._aim_pocket = 0
+	_check(not hands.view_aimed(), "an empty pocket has nothing to look at")
+	hands._aim_pocket = 1
+	_check(hands.view_aimed() and hands._viewed_id == pocketed and hands.shown_card_id() == pocketed, "F brings a pocketed card up close")
+	_check(not binder._pocket_view(1).visible, "its pocket shows empty meanwhile")
+	await _finish_glide(hands)
+	_check(hands._held_view.basis.z.z > 0.9 and hands._held_view.position.is_equal_approx(Vector3(0, 0, -Hands.zoomed_distance(hands._camera.fov, PileWorld.CARD_SIZE.y))),
+		"it's up close, square to you: %s" % hands._held_view.position)
+	hands.turn_over(true, 0.0)
+	hands.turn_sideways(true, 0.0)
+	_check(hands._held_view.basis.z.z < -0.9, "R works on it too")
+	hands._end_viewing()
+	await _finish_glide(hands)
+	_check(hands._viewed_id < 0 and not hands._held_view.visible and binder._pocket_view(1).visible, "F again puts it back in its pocket: %s %s %s" % [hands._viewed_id, hands._held_view.visible, binder._pocket_view(1).visible])
+	_check(binder.contents.card_at(1) == pocketed and binder.contents.is_locked(1), "still locked in")
+	_check(is_zero_approx(hands._turn_amount) and is_zero_approx(hands._sideways_amount), "face up and upright again")
+
+	# The same for a rare card in its shadow box, aimed at through the glass.
+	var cabinet: DisplayCabinet = main.get_node("Store").cabinets[0]
+	var rare := CardDatabase.rare_cards()[0]
+	pile.pick_up(rare.id)
+	cabinet.display(rare.id, false)
+	var box := cabinet.slot_pose(0)
+	_check(cabinet.slot_on_ray(box.origin + box.basis.z * 1.0, box.origin - box.basis.z * 0.1) == 0, "a ray into a shadow box finds it")
+	_check(cabinet.slot_on_ray(box.origin + box.basis.z * 1.0 + box.basis.x * 0.5, box.origin - box.basis.z * 0.1 + box.basis.x * 0.5) != 0, "and not from beside it")
+	hands._aim = Hands.Aim.CABINET
+	hands._aim_cabinet = cabinet
+	hands._aim_slot = 1
+	_check(not hands.view_aimed(), "an empty shadow box has nothing to look at")
+	hands._aim_slot = 0
+	_check(hands.view_aimed() and hands._viewed_id == rare.id and not cabinet._views[0].visible, "F brings a displayed rare card up close")
+	await _finish_glide(hands)
+	hands._end_viewing()
+	await _finish_glide(hands)
+	_check(hands._viewed_id < 0 and cabinet._views[0].visible and cabinet.displayed[0] == rare.id, "and back into its box")
+	main.free()
+
+
 func _test_glide() -> void:
 	var up := Glide.flat_card(Vector3.ZERO, Basis.IDENTITY)
 	_check(up.basis.z.is_equal_approx(Vector3.UP), "a face-up card's face should point up: %s" % up.basis.z)
@@ -772,6 +1014,8 @@ func _test_controls() -> void:
 	for entry in Controls.ACTIONS:
 		_check(not Controls.events(entry[0]).is_empty(), "%s has a default binding" % entry[0])
 	_check(Controls.label(Controls.INTERACT) == "E", "interact shows as E, got " + Controls.label(Controls.INTERACT))
+	_check(Controls.label(Controls.FLIP_CARD) == "R", "turning a card over shows as R, got " + Controls.label(Controls.FLIP_CARD))
+	_check(Controls.label(Controls.TURN_SIDEWAYS) == "T", "turning a card sideways shows as T, got " + Controls.label(Controls.TURN_SIDEWAYS))
 	_check(Controls.label(Controls.USE_HAND) == "click", "use hand shows as click")
 	_check(Controls.pair_label(Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS) == "scroll", "page turning shows as scroll")
 
@@ -816,10 +1060,36 @@ func _test_settings() -> void:
 	Settings.change("effects_volume", 0.0)
 	_check(AudioServer.is_bus_mute(effects), "0% mutes the bus")
 	_check(FeedbackSounds.stream(FeedbackSounds.Kind.CARD_LOCKED) != null, "feedback sounds still build")
+	_check(AudioServer.get_bus_effect_count(effects) == 1 and AudioServer.get_bus_effect(effects, 0) is AudioEffectHardLimiter,
+		"the Effects bus ends in a limiter, so a burst of sounds can't clip")
+	FeedbackSounds.reset()
+	var card := FeedbackSounds.Kind.CARD_LOCKED
+	var burst: Array = []
+	for i in 12:
+		burst.append(FeedbackSounds.schedule(100.0, card))
+	_check(burst.all(func(slot: Array) -> bool: return slot[0] >= 0.0), "no chime is scheduled in the past")
+	var spaced := true
+	var climbing := true
+	for i in range(1, burst.size()):
+		spaced = spaced and is_equal_approx(burst[i][0] - burst[i - 1][0], FeedbackSounds.SPACING)
+		climbing = climbing and burst[i][1] >= burst[i - 1][1]
+	_check(spaced, "chimes asked for on the same frame start one SPACING apart, not all at once")
+	_check(climbing and burst[1][1] > burst[0][1], "a run of card chimes climbs the scale")
+	_check(is_equal_approx(burst[0][1], pow(2.0, FeedbackSounds.RUN_SCALE[0] / 12.0))
+		and is_equal_approx(burst[11][1], pow(2.0, FeedbackSounds.RUN_SCALE[-1] / 12.0)),
+		"the run starts at the bottom of the scale and stays on its top step")
+	var big: Array = FeedbackSounds.schedule(100.0, FeedbackSounds.Kind.PAGE_COMPLETE)
+	_check(big[1] == 1.0 and big[0] > burst[11][0], "a page chime waits its turn at its own pitch")
+	var later: float = 100.0 + big[0] + FeedbackSounds.RUN_RESET + 0.5
+	var fresh: Array = FeedbackSounds.schedule(later, card)
+	_check(fresh[0] == 0.0 and is_equal_approx(fresh[1], burst[0][1]), "after a pause the next chime plays at once, back at the bottom")
+	var next: Array = FeedbackSounds.schedule(later + 0.5, card)
+	_check(next[0] == 0.0 and next[1] > fresh[1], "unhurried filing keeps climbing within the run")
+	FeedbackSounds.reset()
 
 	Settings.change("quality", 0)
-	_check(Settings.value("render_scale") == 2 and Settings.value("shadows") == 0 and Settings.value("anti_aliasing") == 0,
-		"Low sets the three quality rows")
+	_check(Settings.value("render_scale") == 2 and Settings.value("shadows") == 0 and Settings.value("anti_aliasing") == 0
+		and Settings.value("card_detail") == Settings.CARD_DETAIL_LOW, "Low sets the four quality rows")
 	_check(is_equal_approx(get_tree().root.scaling_3d_scale, 0.75), "render scale applies to the window")
 	Settings.change("anti_aliasing", 3)
 	_check(Settings.value("quality") == Settings.CUSTOM_QUALITY and get_tree().root.msaa_3d == Viewport.MSAA_4X,
@@ -1179,8 +1449,8 @@ func _test_achievements() -> void:
 	for colour in Progression.COLOURS.size():
 		for step in Progression.COLOURS[colour].steps:
 			nodes[step[0]] = colour
-	_check(Achievements.count() == nodes.size() + RareCards.count() + 1,
-		"one achievement per card the upgrade tree is named after, per rare card, and one for all rare cards: %d" % Achievements.count())
+	_check(Achievements.count() == nodes.size() + RareCards.count() + 1 + WallArt.count(),
+		"one achievement per card the upgrade tree is named after, per rare card, one for all rare cards, and one per wall art frame: %d" % Achievements.count())
 	var matches := true
 	for index in nodes.size():
 		matches = matches and nodes.get(Achievements.card_name(index), -1) == Achievements.colour(index)
@@ -1344,6 +1614,79 @@ func _test_progression() -> void:
 	Progression.reset()
 	Progression.allow_debt = OS.is_debug_build()
 	unit.free() # The shelved binder goes with it.
+
+
+func _test_radio() -> void:
+	_check(Radio.title_from("07_rainy_tuesday.ogg") == "Rainy Tuesday" and Radio.title_from("lofi_night.mp3") == "Lofi Night",
+		"a song's title comes from its file name, without its number")
+	_check(Radio.unlocked_at(0.0, 10) == 3 and Radio.unlocked_at(1.0, 10) == 10 and Radio.unlocked_at(0.5, 10) == 7,
+		"three songs from the start, the rest spread evenly over the game")
+	_check(Radio.unlocked_at(0.99, 2) == 2 and Radio.unlocked_at(0.0, 0) == 0, "fewer songs than the free ones are all there")
+	var empty := "user://test_radio_songs"
+	DirAccess.make_dir_recursive_absolute(empty)
+	_check(Radio.find_songs(empty).size() == Radio.PLACEHOLDERS.size() and Radio.find_songs(empty)[0].path == "",
+		"with no songs in the folder, the placeholder tunes stand in")
+	FileAccess.open(empty.path_join("02_second.ogg.import"), FileAccess.WRITE).store_string("")
+	FileAccess.open(empty.path_join("01_first_song.ogg"), FileAccess.WRITE).store_string("")
+	FileAccess.open(empty.path_join("notes.txt"), FileAccess.WRITE).store_string("")
+	var found := Radio.find_songs(empty)
+	_check(found.size() == 2 and found[0].title == "First Song" and found[1].path.ends_with("02_second.ogg"),
+		"real songs replace the placeholders, in number order, also as an exported game lists them")
+	for file in DirAccess.get_files_at(empty):
+		DirAccess.remove_absolute(empty.path_join(file))
+	DirAccess.remove_absolute(empty)
+
+	var unlocked: Array[int] = []
+	Radio.song_unlocked.connect(func(index: int) -> void: unlocked.append(index))
+	Radio.playing = false
+	Radio.enter_shop(0.5)
+	_check(Radio.unlocked_count == 4 and unlocked.is_empty(), "a loaded game has the songs its progress earned, without announcing them")
+	Radio.set_progress(0.9)
+	_check(Radio.unlocked_count == 5 and unlocked == [4], "a song unlocking during play is announced")
+	Radio.enter_shop(0.0)
+	_check(Radio.unlocked_count == 3 and Radio.current == -1, "a new game starts with the free songs")
+	Radio.play_song(4)
+	_check(Radio.current == -1, "a locked song can't be played")
+	Radio.play_song(0)
+	_check(Radio.current == 0 and Radio.playing, "an unlocked song plays")
+	Radio.next()
+	Radio.next()
+	Radio.next()
+	_check(Radio.current == 0, "Next goes round the unlocked songs")
+	Radio.previous()
+	_check(Radio.current == 2, "Previous at the start of a song goes back one, round the list")
+	Radio.toggle_playing()
+	_check(not Radio.playing, "Pause stops the radio")
+	Radio.toggle_playing()
+	_check(Radio.playing and Radio.current == 2, "Play carries on with the same song")
+	Radio.set_volume(0.4)
+	Radio.set_repeat(true)
+	Radio.volume = 1.0
+	Radio.repeat = false
+	Radio.load_from(RADIO_TEST_PATH)
+	_check(is_equal_approx(Radio.volume, 0.4) and Radio.repeat and Radio.playing, "volume, repeat and playing are remembered")
+
+	var menu := RadioMenu.new()
+	add_child(menu)
+	_check(menu.song_buttons.size() == Radio.songs.size(), "the menu lists every song")
+	_check(menu.song_buttons[3].disabled and menu.song_buttons[3].text.ends_with("???")
+		and menu.song_buttons[2].text.contains(Radio.songs[2].title), "locked songs show as ???, unlocked ones by title")
+	_check(menu.title_label.text == Radio.songs[2].title and menu.play_button.text == "Pause" and menu.repeat_button.text == "Repeat: On",
+		"the menu shows what's playing, Pause and repeat")
+	menu.song_buttons[1].pressed.emit()
+	_check(Radio.current == 1 and menu.title_label.text == Radio.songs[1].title, "clicking a song plays it")
+	_check(Controls.label(Controls.RADIO) == "Q", "the radio is on Q")
+	var q := InputEventAction.new()
+	q.action = Controls.RADIO
+	q.pressed = true
+	menu._unhandled_input(q)
+	_check(menu.is_open() and get_tree().paused, "Q opens the radio and stops the game")
+	menu._unhandled_input(q)
+	_check(not menu.is_open() and not get_tree().paused, "Q closes it again")
+	menu.free()
+	Radio.leave_shop()
+	Radio.set_repeat(false)
+	_check(RadioMenu.clock(83.4) == "1:23", "song times show as minutes and seconds")
 
 
 func _test_upgrade_menu() -> void:
@@ -2075,6 +2418,67 @@ func _land_tossed(pile: PileWorld) -> void:
 			while not child.is_queued_for_deletion() and steps < 600:
 				child._physics_process(1.0 / 60.0)
 				steps += 1
+func _test_reading_corner() -> void:
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var store: Node3D = store_script.new()
+	add_child(store)
+	var pieces: Array[Rect2] = []
+	for name in ["Armchair", "SideTable", "FloorLamp"]:
+		var piece: Node3D = store.get_node(name)
+		_check(piece.is_in_group(ReadingCorner.FURNITURE), "the %s is furniture" % name)
+		var at := Vector2(piece.position.x, piece.position.z)
+		var footprint: Rect2 = store.obstacles.filter(func(r: Rect2) -> bool: return r.has_point(at)).front()
+		pieces.append(footprint)
+	var tables: Array[Rect2] = []
+	for center in store_script.TABLE_CENTERS:
+		var size := Vector2(store_script.TABLE_SIZE.x, store_script.TABLE_SIZE.z)
+		tables.append(Rect2(center - size / 2, size))
+	var room: Rect2 = store.floor_bounds()
+	var clear := pieces.all(func(r: Rect2) -> bool:
+		return room.encloses(r) and r.position.x < 0.5 and not tables.any(func(t: Rect2) -> bool: return t.intersects(r)))
+	_check(clear, "the reading corner stands against the left-hand wall, clear of the walls and work tables")
+	_check(not pieces[1].intersects(pieces[2]) and not pieces[0].intersects(pieces[1]), "the chair, table and lamp don't overlap")
+	var chair: Node3D = store.get_node("Armchair")
+	_check(chair.global_basis.z.x > 0.5 and chair.global_basis.z.z < 0.0, "the chair faces the room, angled toward the back tables")
+	var radio: ShopRadio = store.radio
+	_check(is_equal_approx(radio.global_position.y, ReadingCorner.TABLE_HEIGHT) and pieces[1].has_point(Vector2(radio.global_position.x, radio.global_position.z)),
+		"the radio sits on the side table")
+	_check(radio.global_basis.z.x > 0.5, "facing out into the room")
+	var mesh := ReadingCorner.rounded_box(Vector3(0.4, 0.2, 0.3), 0.05)
+	var bounds := mesh.get_aabb()
+	var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var corner := vertices.size() > 0
+	for v in vertices:
+		if Vector3(absf(v.x), absf(v.y), absf(v.z)).distance_to(Vector3(0.15, 0.05, 0.1)) > 0.0501 and absf(v.x) > 0.15 and absf(v.y) > 0.05 and absf(v.z) > 0.1:
+			corner = false
+	_check(bounds.size.is_equal_approx(Vector3(0.4, 0.2, 0.3)) and corner, "a rounded box keeps its size and rounds its corners")
+	store.free()
+
+	# In the shop, clicking the radio opens the Radio menu; the rest of the corner does nothing.
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var hands: Hands = main.get_node("Player/Hands")
+	var camera: Camera3D = main.get_node("Player/Camera3D")
+	var shop_radio: ShopRadio = main.get_node("Store").radio
+	var target := shop_radio.global_position + Vector3.UP * ShopRadio.SIZE.y / 2
+	camera.global_transform = Transform3D(Basis(), target + shop_radio.global_basis.z * 1.2 + Vector3.UP * 0.4).looking_at(target)
+	hands._update_aim()
+	_check(hands._aim == Hands.Aim.RADIO, "aiming at the radio")
+	var menu: RadioMenu = main.find_children("*", "RadioMenu", false, false).front()
+	hands._use_hand()
+	_check(menu.is_open() and get_tree().paused, "clicking it opens the Radio menu")
+	menu.close()
+	_check(not get_tree().paused, "and it closes again")
+	var seat: Node3D = main.get_node("Store/Armchair")
+	var cushion := seat.global_position + Vector3.UP * ReadingCorner.SEAT_HEIGHT
+	camera.global_transform = Transform3D(Basis(), cushion + seat.global_basis.z * 1.2 + Vector3.UP * 0.8).looking_at(cushion)
+	hands._update_aim()
+	_check(hands._aim == Hands.Aim.NONE, "the armchair's seat isn't somewhere to put things down")
+	main.free()
+
+
 func _test_display_cabinets() -> void:
 	var store_script := preload("res://scripts/store/store_builder.gd")
 	var store: Node3D = store_script.new()
@@ -2581,3 +2985,128 @@ func _finish_glide(hands: Hands) -> void:
 		await get_tree().process_frame
 		frames += 1
 	await get_tree().process_frame
+
+
+func _test_wall_art() -> void:
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var store: Node3D = store_script.new()
+	add_child(store)
+	var frames: Array[WallFrame] = store.wall_frames
+	_check(frames.size() == WallArt.count() and frames.size() == 12, "twelve wall art frames, one per WallArt entry (%d)" % frames.size())
+	var shelf_top := ShelfUnit.HEIGHT + ShelfUnit.CAP_THICKNESS
+	var lamp_top := ReadingCorner.LAMP_HEIGHT
+	var ok := true
+	var rects: Array[Rect2] = []
+	for index in frames.size():
+		var frame := frames[index]
+		var outer := WallFrame.outer_size(frame.opening, frame.mat, frame.moulding)
+		var at := frame.global_position
+		var bottom := at.y - outer.y / 2
+		if index < 5:
+			# Over the shelf: on the back wall, facing the door, above the shelf top.
+			ok = ok and is_zero_approx(at.z) and frame.global_basis.z.is_equal_approx(Vector3.BACK) and bottom > shelf_top + 0.15
+			ok = ok and at.x - outer.x / 2 > store_script.BACK_SHELF.x and at.x + outer.x / 2 < store_script.BACK_SHELF.y
+		else:
+			# Over the reading corner: on the left wall, facing into the room.
+			ok = ok and is_zero_approx(at.x) and frame.global_basis.z.is_equal_approx(Vector3.RIGHT)
+			var across := Vector2(at.z - outer.x / 2, at.z + outer.x / 2)
+			var shade := Vector2(store_script.FLOOR_LAMP_AT.y - ReadingCorner.SHADE_RADII.y, store_script.FLOOR_LAMP_AT.y + ReadingCorner.SHADE_RADII.y)
+			if across.x < shade.y and across.y > shade.x:
+				ok = ok and bottom > lamp_top + 0.05
+			rects.append(Rect2(at.z - outer.x / 2, bottom, outer.x, outer.y))
+		ok = ok and at.y + outer.y / 2 < store_script.CEILING_HEIGHT - 0.3
+	_check(ok, "the frames hang over the shelf and the reading corner, clear of the shelf top, the lamp and the ceiling")
+	var apart := true
+	for i in rects.size():
+		for j in range(i + 1, rects.size()):
+			apart = apart and not rects[i].intersects(rects[j])
+	_check(apart, "the reading corner's frames don't overlap")
+	_check(frames[10].opening.y > frames[10].opening.x and frames[0].opening.x > frames[0].opening.y, "the end frames are portrait, the rest landscape")
+	# A frame is empty until filled, then shows its art cropped to fill.
+	var frame := frames[0]
+	var art: MeshInstance3D = frame.get_node("Art")
+	_check(not frame.filled and not art.visible, "a frame starts empty")
+	var image := Image.create(400, 100, false, Image.FORMAT_RGB8)
+	frame.fill(ImageTexture.create_from_image(image))
+	_check(frame.filled and art.visible, "filling it shows the art")
+	var crop := WallFrame.cover_crop(Rect2(0, 0, 1, 1), Vector2(400, 100), Vector2(1.375, 1))
+	_check(is_equal_approx(crop.size.y, 1.0) and is_equal_approx(crop.size.x, 1.375 / 4.0) and is_equal_approx(crop.get_center().x, 0.5),
+		"art wider than its window loses its sides, keeping the middle")
+	crop = WallFrame.cover_crop(Rect2(0.1, 0.1, 0.8, 0.4), Vector2(100, 100), Vector2(1, 2))
+	_check(is_equal_approx(crop.size.x, 0.4) and is_equal_approx(crop.size.y, 0.4) and is_equal_approx(crop.get_center().x, 0.5),
+		"and a region of a scan is cropped within itself")
+	store.free()
+	# Which card fills a frame: by set code and collector number.
+	var card := CardData.new()
+	card.set_code = WallArt.LIST[2][2]
+	card.collector_number = WallArt.LIST[2][3]
+	_check(WallArt.index_of(card) == 2, "a frame's card is found by set and number")
+	card.collector_number += 1
+	_check(WallArt.index_of(card) == -1, "and no other printing")
+	var range_data := CardDatabase.all_binders()[0]
+	var ids := _first_binder_cards()
+	var binder := Binder.new()
+	binder.setup(range_data, Color.RED, null)
+	var binders: Array[Binder] = [binder]
+	var number := CardDatabase.get_card(ids[4]).collector_number
+	_check(not WallArt.is_card_filed(range_data.set_code, number, binders), "a card not in its pocket isn't filed")
+	binder.contents.insert(4, ids[5])
+	_check(not WallArt.is_card_filed(range_data.set_code, number, binders), "nor is a card in the wrong pocket")
+	binder.contents.take(4)
+	binder.contents.insert(4, ids[4])
+	_check(WallArt.is_card_filed(range_data.set_code, number, binders), "a card locked into its pocket is")
+	binder.free()
+	# Its achievement.
+	var path := "user://test_achievements.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Achievements.load_from(path)
+	var index := Achievements.wall_art_index(0)
+	_check(Achievements.is_wall_art(index) and not Achievements.is_rare(index) and Achievements.is_rare(Achievements.all_rare_index())
+		and Achievements.key(index) == "art:01", "the wall art's achievements follow the rare cards'")
+	Achievements.wall_art_hung(0)
+	_check(Achievements.is_unlocked(index) and Achievements.title(index) == WallArt.LIST[0][0] and Achievements.description(index) == WallArt.LIST[0][1],
+		"hanging a frame's art unlocks its achievement")
+	var screen := AchievementsScreen.make()
+	add_child(screen)
+	_check(screen.find_child("WallArt", true, false).get_child_count() == WallArt.count(), "the Achievements page has a row of wall art tiles")
+	screen.free()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Achievements.load_from(Achievements.SAVE_PATH)
+
+
+func _test_shop_clock() -> void:
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var store: Node3D = store_script.new()
+	add_child(store)
+	var clock: ShopClock = store.clock
+	_check(clock != null and clock.global_basis.z.is_equal_approx(Vector3.RIGHT) and clock.global_position.x < ShopClock.DEPTH,
+		"the clock stands against the left-hand wall, facing into the room")
+	var foot := Vector2(clock.global_position.x, clock.global_position.z)
+	_check(store.obstacles.any(func(r: Rect2) -> bool: return r.has_point(foot)), "cards keep clear of it")
+	var shelf_end := Rect2(store_script.BACK_SHELF.x, 0, 0.1, ShelfUnit.DEPTH)
+	_check(not store.obstacles.any(func(r: Rect2) -> bool: return r.has_point(foot) and r.intersects(shelf_end)), "clear of the shelf")
+	_check(clock.is_in_group(ReadingCorner.FURNITURE), "it's furniture, not a surface")
+	var default_length: float = Settings.DAY_LENGTHS[Settings.DEFAULTS["day_length"]]
+	_check(is_equal_approx(ShopClock.pace(default_length), 1.0) and ShopClock.pace(default_length / 2) > 1.0
+		and ShopClock.pace(default_length * 2) < 1.0 and ShopClock.pace(0.0) == 0.0,
+		"the pendulum beats seconds at the default day, faster for shorter days, and stops with the clock")
+	var day := DayCycle.new()
+	day.running = false
+	add_child(day)
+	clock.day = day
+	var length_before: int = Settings.value("day_length")
+	Settings.change("day_length", Settings.DAY_LENGTHS.find(0.0))
+	day.set_hour(15.5)
+	clock.phase = 1.0
+	clock._process(0.5)
+	var pendulum: Node3D = clock.get_node("Pendulum")
+	_check(is_equal_approx(clock.phase, 1.0) and is_equal_approx(pendulum.rotation.z, ShopClock.SWING * sin(1.0)), "stopped, the pendulum holds still")
+	var hands := clock.get_children().filter(func(n: Node) -> bool: return n.get_class() == "Node3D" and n.name != "Pendulum")
+	_check(hands.size() == 2 and is_equal_approx(hands[0].rotation.z, -3.5 / 12.0 * TAU) and is_equal_approx(hands[1].rotation.z, -0.5 * TAU),
+		"the hands show half past three")
+	Settings.change("day_length", Settings.DEFAULTS["day_length"])
+	clock._process(0.5)
+	_check(is_equal_approx(clock.phase, 1.0 + PI / 2), "at the default day, half a second is a quarter of a swing there and back")
+	Settings.change("day_length", length_before)
+	day.free()
+	store.free()

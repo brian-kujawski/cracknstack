@@ -8,17 +8,28 @@ files from every set imported so far:
   data/real/images/<set>/N.jpg   large faces for the inspect view
   data/real/cards.json           the same card data format as the placeholder
                                  file, plus face atlas, image paths and credits
-  data/real/faces/page_N.png     small faces packed into atlas pages
+  data/real/faces/page_N.dds.gz  far faces: every card small, packed into
+                                 atlas pages (BC1-compressed, with mipmaps)
+  data/real/near/<set>/N.dds.gz  near faces: each card at twice the old floor
+                                 size, streamed in by the game for cards close
+                                 to the player (BC1-compressed, with mipmaps)
   data/real/back.jpg             the card back, one image for every card
+  data/real/.gdignore            keeps the Godot editor from importing all of
+                                 this: the game reads the files directly
 
 Only the base version of each card is kept: one printing per collector
 number, plain whole numbers from 1 to the set's printed size, no promos,
 variants, showcase or borderless frames (plan §3.3). A set whose kept cards
 don't run 1..N with no gaps is reported and left out.
 
+--list and --all cover the core and expansion sets and the five Un- sets
+(Unglued, Unhinged, Unstable, Unsanctioned, Unfinity); any other set can be added
+by its code. Unstable's and Unfinity's lettered variants (3a-3f) keep only
+their first version, like any other lettered card.
+
 Usage, from the project root:
 
-  python3 -m pip install pillow                  # once, for packing the atlas
+  python3 -m pip install pillow numpy            # once, for packing the faces
   python3 tools/import_scryfall.py --list        # sets not yet added, their size and estimated download
   python3 tools/import_scryfall.py --listadded   # sets already in the game
   python3 tools/import_scryfall.py --listall     # both
@@ -38,6 +49,7 @@ line intact), and no paywall.
 """
 
 import argparse
+import concurrent.futures
 import gzip
 import importlib.util
 import io
@@ -61,12 +73,20 @@ FORMAT_VERSION = 1
 # folder the importer is run from.
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "data" / "real"
 
-# Atlas layout: 2048 px square pages of 128 × 179 px slots (a card's 63:88
-# shape), 16 across and 11 down.
+# Far-face atlas layout: 2048 px square pages of 64 × 88 px slots (a card's
+# 63:88 shape, 88 so compression's 4 × 4 blocks never straddle two cards),
+# 32 across and 23 down.
 PAGE_SIZE = 2048
-SLOT_SIZE = (128, 179)
+SLOT_SIZE = (64, 88)
 COLUMNS = PAGE_SIZE // SLOT_SIZE[0]
 ROWS = PAGE_SIZE // SLOT_SIZE[1]
+# Bumped when the pages' layout or file format changes, so every page is
+# packed again.
+ATLAS_VERSION = 2
+# Near faces: one file per card, sharp enough for the closest card when
+# crouched, even at 4K. {set} is the lower-case set code.
+NEAR_SIZE = (256, 356)
+NEAR_PATH = "near/{set}/{number}.dds.gz"
 
 # The standard Magic card back (Scryfall's card_back_id for every normal
 # card), at the same "normal" size as the faces.
@@ -78,6 +98,10 @@ BACK_PATH = "back.jpg"
 DEFAULT_IMAGE_BYTES = 150_000
 # Set types shown by --list unless --types says otherwise.
 DEFAULT_LIST_TYPES = ("core", "expansion")
+# Sets of other types that --list shows too: the Un- sets (Scryfall calls
+# them "funny", along with playtest cards and convention giveaways we don't
+# want).
+DEFAULT_LIST_EXTRAS = ("ugl", "unh", "ust", "und", "unf")
 SET_LIST_PATH = "scryfall-sets.json"
 SET_LIST_MAX_AGE = 7 * 24 * 3600  # seconds before --list fetches the set list again
 
@@ -114,9 +138,10 @@ def main(argv=None):
     listing.add_argument("--listall", dest="listing", action="store_const", const="all",
                          help="list every set, added or not, then stop")
     parser.add_argument("--all", action="store_true",
-                        help="add every set --list shows (core and expansion unless --types says otherwise)")
-    parser.add_argument("--types", default=",".join(DEFAULT_LIST_TYPES),
-                        help="set types for the lists, comma separated, or 'all' (default: core,expansion)")
+                        help="add every set --list shows (core, expansion and the Un- sets unless --types says otherwise)")
+    parser.add_argument("--types",
+                        help="set types for the lists, comma separated, or 'all' (default: core,expansion"
+                             " and the Un- sets)")
     parser.add_argument("--dry-run", action="store_true", help="fetch card data only and say what the images would cost")
     parser.add_argument("--yes", action="store_true", help="download without asking first")
     parser.add_argument("--refetch", action="store_true", help="fetch card data again even if it is cached")
@@ -139,10 +164,10 @@ def main(argv=None):
         print(usage_line(client, started))
         return 0
 
-    # Every run that isn't a dry run ends by packing the atlas; stop before
+    # Every run that isn't a dry run ends by packing the faces; stop before
     # downloading anything rather than leave cards.json from the last run.
-    if not args.no_images and not args.dry_run and importlib.util.find_spec("PIL") is None:
-        sys.exit("Packing the atlas needs Pillow: python3 -m pip install pillow")
+    if not args.no_images and not args.dry_run:
+        check_packing_modules()
 
     failed = []
     bulk = load_bulk(args.bulk, codes) if args.bulk and codes else None
@@ -498,7 +523,9 @@ def rebuild(client, out, no_images=False):
     data = build_card_file(sets, cards)
     out.mkdir(parents=True, exist_ok=True)
     if not no_images:
+        (out / ".gdignore").touch()
         data["faces"] = pack_atlas(cards, out)
+        data["faces"].update(write_near_faces(cards, out))
         data["back"] = download_back(client, out)
         for row, card in zip(data["cards"], cards):
             row.append(image_path(card))
@@ -577,46 +604,106 @@ def average_image_bytes(out):
     return sum(sizes) // len(sizes) if sizes else DEFAULT_IMAGE_BYTES
 
 
+def check_packing_modules():
+    missing = [name for name in ("PIL", "numpy") if importlib.util.find_spec(name) is None]
+    if missing:
+        sys.exit("Packing the card faces needs Pillow and NumPy: python3 -m pip install pillow numpy")
+
+
+def in_parallel(work, jobs):
+    """work(job) for every job, on every CPU core when there's enough to do,
+    yielding each result as it's done (in any order)."""
+    if len(jobs) < 8:
+        yield from map(work, jobs)
+        return
+    with concurrent.futures.ProcessPoolExecutor() as pool:
+        yield from pool.map(work, jobs, chunksize=max(1, min(64, len(jobs) // (4 * (os.cpu_count() or 1)))))
+
+
 def pack_atlas(cards, out):
-    """Packs every card's face, shrunk to one slot, into atlas pages in card
-    order: card i is page i // (COLUMNS × ROWS), slot i % (COLUMNS × ROWS),
-    slots running left to right, top to bottom. A page whose cards haven't
-    changed since the last run is left as it is, as long as the file is still
-    the one this packed (same size and modified time); anything else on disk
-    under that name is packed again."""
-    try:
-        from PIL import Image
-    except ImportError:
-        sys.exit("Packing the atlas needs Pillow: python3 -m pip install pillow")
+    """Packs every card's face, shrunk to one slot, into far-face atlas pages
+    in card order: card i is page i // (COLUMNS × ROWS), slot i % (COLUMNS ×
+    ROWS), slots running left to right, top to bottom. A page whose cards
+    haven't changed since the last run is left as it is, as long as the file
+    is still the one this packed (same size and modified time); anything else
+    on disk under that name is packed again."""
+    check_packing_modules()
     per_page = COLUMNS * ROWS
     pages = []
     (out / "faces").mkdir(exist_ok=True)
     manifest_path = out / "faces" / "manifest.json"
     old = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
-    manifest = {}
+    if old.get("version") != ATLAS_VERSION:
+        old = {}
+    manifest = {"version": ATLAS_VERSION}
+    jobs = []
     for first in range(0, len(cards), per_page):
-        name = f"faces/page_{len(pages)}.png"
+        name = f"faces/page_{len(pages)}.dds.gz"
         contents = [image_path(card) for card in cards[first:first + per_page]]
         pages.append(name)
         previous = old.get(name)
         if isinstance(previous, dict) and previous.get("cards") == contents \
                 and has_file(out / name) and previous.get("file") == file_stamp(out / name):
             manifest[name] = previous
-            continue
-        page = Image.new("RGB", (PAGE_SIZE, PAGE_SIZE), (0, 0, 0))
-        for slot, path in enumerate(contents):
-            with Image.open(out / path) as face:
-                small = face.convert("RGB").resize(SLOT_SIZE, Image.LANCZOS)
-            page.paste(small, ((slot % COLUMNS) * SLOT_SIZE[0], (slot // COLUMNS) * SLOT_SIZE[1]))
-        encoded = io.BytesIO()
-        page.save(encoded, "PNG", optimize=True)
-        write_whole(out / name, encoded.getvalue())
+        else:
+            jobs.append((out, name, contents))
+    for done, (name, contents) in enumerate(in_parallel(pack_page, jobs)):
         manifest[name] = {"cards": contents, "file": file_stamp(out / name)}
-    for stale in (out / "faces").glob("page_*.png"):
+        print(f"\rfar faces: {done + 1}/{len(jobs)} pages packed", end="", flush=True)
+    if jobs:
+        print()
+    for stale in (out / "faces").glob("page_*.*"):
         if f"faces/{stale.name}" not in manifest:
             stale.unlink()
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     return {"pages": pages, "page_size": PAGE_SIZE, "slot_size": list(SLOT_SIZE), "columns": COLUMNS, "rows": ROWS}
+
+
+def pack_page(job):
+    """Packs one atlas page; returns (its name, its cards)."""
+    from PIL import Image
+    import bc1
+
+    out, name, contents = job
+    page = Image.new("RGB", (PAGE_SIZE, PAGE_SIZE), (0, 0, 0))
+    for slot, path in enumerate(contents):
+        with Image.open(out / path) as face:
+            small = face.convert("RGB").resize(SLOT_SIZE, Image.LANCZOS)
+        page.paste(small, ((slot % COLUMNS) * SLOT_SIZE[0], (slot // COLUMNS) * SLOT_SIZE[1]))
+    write_whole(out / name, bc1.dds_gz_bytes(page))
+    return name, contents
+
+
+def near_path(card):
+    return NEAR_PATH.format(set=card["set"], number=card_number(card)[0])
+
+
+def write_near_faces(cards, out):
+    """Writes each card's near face, skipping any already newer than its
+    large image. Returns the near-face entries for the card file."""
+    check_packing_modules()
+    jobs = []
+    for card in cards:
+        source, target = out / image_path(card), out / near_path(card)
+        if not has_file(target) or target.stat().st_mtime_ns < source.stat().st_mtime_ns:
+            jobs.append((source, target))
+    for done, _ in enumerate(in_parallel(write_near_face, jobs)):
+        if done % 100 == 99 or done == len(jobs) - 1:
+            print(f"\rnear faces: {done + 1}/{len(jobs)} written", end="", flush=True)
+    if jobs:
+        print()
+    return {"near": NEAR_PATH, "near_size": list(NEAR_SIZE)}
+
+
+def write_near_face(job):
+    from PIL import Image
+    import bc1
+
+    source, target = job
+    with Image.open(source) as face:
+        small = face.convert("RGB").resize(NEAR_SIZE, Image.LANCZOS)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_whole(target, bc1.dds_gz_bytes(small))
 
 
 # --- Listing sets ---
@@ -650,13 +737,15 @@ def set_status(out, code):
     return f"{absent} images to go" if absent else "in game"
 
 
-def released_sets(client, out, types, refetch=False):
+def released_sets(client, out, types=None, refetch=False):
     """The paper sets of the given types (comma separated, or 'all') released
-    so far, oldest first."""
-    wanted = None if types == "all" else {t.strip() for t in types.split(",")}
+    so far, oldest first. With no types: core and expansion sets and the
+    DEFAULT_LIST_EXTRAS."""
+    wanted = None if types == "all" else {t.strip() for t in (types or ",".join(DEFAULT_LIST_TYPES)).split(",")}
+    extras = () if types else DEFAULT_LIST_EXTRAS
     today = time.strftime("%Y-%m-%d")
     sets = [s for s in fetch_set_list(client, out, refetch)
-            if not s["digital"] and (wanted is None or s["set_type"] in wanted)
+            if not s["digital"] and (wanted is None or s["set_type"] in wanted or s["code"] in extras)
             and (s["released_at"] or "9999") <= today]
     sets.sort(key=lambda s: (s["released_at"], s["code"]))
     return sets

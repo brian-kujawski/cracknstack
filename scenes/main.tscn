@@ -83,6 +83,7 @@ offset_right = 700.0
 offset_bottom = -12.0
 grow_vertical = 0
 vertical_alignment = 2
+autowrap_mode = 3
 
 [node name="Hint" type="Label" parent="HUD"]
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
@@ -101,6 +102,7 @@ grow_horizontal = 0
 grow_vertical = 0
 horizontal_alignment = 2
 vertical_alignment = 2
+autowrap_mode = 3
 mouse_filter = 2
 
 [node name="Achievement" type="Label" parent="HUD"]
