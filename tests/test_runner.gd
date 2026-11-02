@@ -6,13 +6,14 @@ extends Node
 
 const SETTINGS_TEST_PATH := "user://test_settings.cfg"
 const SAVES_TEST_DIR := "user://test_saves"
+const RADIO_TEST_PATH := "user://test_radio.cfg"
 ## The groups run with `-- --smoke`, the quick batch CI runs on pull requests:
 ## the data layer, saves, one shop boot and the asset checks. Everything else
 ## waits for main, a PR labelled full-tests, or a run without the flag.
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs"]
 
 var _failures := 0
 var _checks := 0
@@ -38,6 +39,7 @@ func _ready() -> void:
 	await _run(_test_shelf_layout)
 	await _run(_test_pile)
 	await _run(_test_pile_clearing)
+	await _run(_test_pile_aim)
 	await _run(_test_pile_stacking)
 	await _run(_test_pile_grid)
 	await _run(_test_binder_spreads)
@@ -49,6 +51,7 @@ func _ready() -> void:
 	await _run(_test_loose_card)
 	await _run(_test_card_corners)
 	await _run(_test_real_data_format)
+	await _run(_test_near_faces)
 	await _run(_test_credits)
 	await _run(_test_inspect_tilt)
 	await _run(_test_glide)
@@ -62,6 +65,7 @@ func _ready() -> void:
 	await _run(_test_credits_roll)
 	await _run(_test_progression)
 	await _run(_test_upgrade_menu)
+	await _run(_test_radio)
 	await _run(_test_sorcery_recharge)
 	await _run(_test_step_one_upgrades)
 	await _run(_test_demonic_tutor)
@@ -71,16 +75,22 @@ func _ready() -> void:
 	await _run(_test_steps_five_to_seven)
 	await _run(_test_day_cycle)
 	await _run(_test_display_cabinets)
+	await _run(_test_reading_corner)
 	await _run(_test_crouch)
 	await _run(_test_lean_over_table)
 	await _run(_test_table_cards)
 	await _run(_test_binder_toss)
 	await _run(_test_save_files)
 	await _run(_test_shop_save)
+	await _run(_test_turn_over)
 	await _run(_test_rare_cards)
+	await _run(_test_wall_art)
+	await _run(_test_shop_clock)
+	await _run(_test_booster_packs)
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
 	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
+	DirAccess.remove_absolute(RADIO_TEST_PATH)
 	print("%d checks, %d failed%s" % [_checks, _failures, " (smoke batch)" if _smoke else ""])
 	get_tree().quit(1 if _failures > 0 else 0)
 
@@ -3110,3 +3120,104 @@ func _test_shop_clock() -> void:
 	Settings.change("day_length", length_before)
 	day.free()
 	store.free()
+
+
+func _test_booster_packs() -> void:
+	_check(Controls.label(Controls.RIP) == "Space", "ripping a pack is on Space, got " + Controls.label(Controls.RIP))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var code: String = CardDatabase.sets_in_shelf_order()[0].code
+	var pools: Array[Array] = [[], [], [], []]
+	for card in CardDatabase.cards_in_set(code):
+		pools[card.rarity].append(card.id)
+	var pack := PackContents.draw_from(pools, true, rng)
+	var rarities := pack.map(func(id: int) -> int: return CardDatabase.get_card(id).rarity)
+	_check(pack.size() == PackContents.SIZE, "a pack holds %d cards, got %d" % [PackContents.SIZE, pack.size()])
+	_check(rarities.count(CardData.Rarity.COMMON) == PackContents.SIZE - 1 - PackContents.UNCOMMONS
+		and rarities.count(CardData.Rarity.UNCOMMON) == PackContents.UNCOMMONS, "ten commons and three uncommons: %s" % [rarities])
+	_check(rarities[-1] >= CardData.Rarity.RARE, "the rare slot comes last")
+	var sorted := rarities.duplicate()
+	sorted.sort()
+	_check(rarities == sorted, "a pack is handed over commons first, rarest last")
+	var unique := {}
+	for id in pack:
+		unique[id] = true
+	_check(unique.size() == pack.size(), "no card twice in one pack")
+	var full_pools := func() -> Array[Array]:
+		return [range(100, 120), range(200, 210), [300, 301], [400, 401]] as Array[Array]
+	var mythics := 0
+	for i in 400:
+		if PackContents.draw_from(full_pools.call(), true, rng)[-1] >= 400:
+			mythics += 1
+	_check(mythics > 20 and mythics < 90, "about one rare slot in %d is a mythic, got %d in 400" % [PackContents.MYTHIC_CHANCE, mythics])
+	var always_rare := true
+	for i in 50:
+		var last: int = PackContents.draw_from(full_pools.call(), false, rng)[-1]
+		always_rare = always_rare and last >= 300 and last < 400
+	_check(always_rare, "no mythics in a set without them")
+	var no_mythics_left: Array[Array] = [range(100, 120), range(200, 210), [300], []]
+	_check(PackContents.draw_from(no_mythics_left, true, rng)[-1] == 300, "a mythic slot with no mythics left takes a rare")
+	var short: Array[Array] = [[1, 2], [], [], []]
+	_check(PackContents.draw_from(short, true, rng).size() == 2, "a set with fewer cards left than a pack gives a smaller pack")
+	var no_rares: Array[Array] = [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], [], [], []]
+	_check(PackContents.draw_from(no_rares, true, rng).size() == PackContents.SIZE, "slots of a rarity that's run out take another")
+	_check(Hands.rip_tear(0.0) == 0.0 and Hands.rip_tear(0.5) < 0.5 * Hands.RIP_TEAR_AT_BURST
+		and is_equal_approx(Hands.rip_tear(1.0), Hands.RIP_TEAR_AT_BURST), "the tear starts slowly and the burst finishes it")
+	_check(preload("res://scripts/main.gd").pack_details(code) == "%s\nBooster Pack" % CardDatabase.get_set(code).name, "a pack in hand shows its set")
+
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 3)
+	var picked := PackContents.pick_set(pile, rng)
+	_check(PackContents.lying_count(pile, picked) >= PackContents.SIZE, "packs are of sets with a pack's worth lying about")
+	var stand := PackDisplay.new()
+	stand.build(StandardMaterial3D.new(), 2)
+	pile.add_child(stand)
+	stand.stock_from(pile)
+	_check(stand.pack_count() == PackDisplay.COLUMNS * PackDisplay.PER_COLUMN, "the stand is stocked full")
+	_check(stand.columns.all(func(column: Array) -> bool:
+		return column.all(func(p: BoosterPack) -> bool: return p.set_code == column[0].set_code)), "one set to a column")
+
+	var hands := Hands.new()
+	var camera := Camera3D.new()
+	var holder := Node3D.new()
+	holder.add_child(camera)
+	holder.add_child(hands)
+	camera.name = "Camera3D"
+	add_child(holder)
+	hands.pile = pile
+	hands.pack_stand = stand
+	hands._aim = Hands.Aim.PACKS
+	hands._aim_point = stand.to_global(Vector3(PackDisplay.COLUMN_STEP, 1.0, 0))
+	var front: BoosterPack = stand.columns[2][0]
+	hands._use_hand()
+	_check(hands.held_pack == front and stand.pack_count() == PackDisplay.COLUMNS * PackDisplay.PER_COLUMN - 1,
+		"clicking the stand takes the front pack of the column aimed at")
+	_check(not hands.has_room() and not hands._hands_empty(), "a pack fills your hands")
+	hands._glide.custom_step(10.0)
+	hands._use_hand()
+	_check(hands.held_pack == null and stand.columns[2][0] == front, "clicking the stand again puts the pack back")
+	hands._glide.custom_step(10.0)
+	hands._use_hand()
+	hands._glide.custom_step(10.0)
+	front.set_tear(0.2)
+	hands._use_hand()
+	_check(hands.held_pack == front, "a pack that's started to tear can't go back")
+	var ids := hands.rip_pack()
+	_check(ids.size() == PackContents.SIZE and hands.hand_count() == ids.size(), "ripping puts the pack's cards in your hand")
+	_check(ids.all(func(id: int) -> bool: return not pile.is_lying(id) and CardDatabase.get_card(id).set_code == front.set_code),
+		"they come out of the pile, all of the pack's set")
+	_check(hands.held_card_id == ids[0] and hands.behind.back() == ids[-1], "commons on top, the rare slot at the back")
+	_check(hands.held_pack == null and hands._zoomed and hands.revealing == ids.size() - 1, "the cards are up close, to be revealed")
+	hands.reveal_next()
+	_check(hands.held_card_id == ids[1] and hands.behind.back() == ids[0] and hands.revealing == ids.size() - 2,
+		"Space puts the top card at the back and shows the next")
+	_check(hands._zoomed, "the hand stays up close while revealing")
+	for i in ids.size() - 2:
+		hands.reveal_next()
+	_check(hands.held_card_id == ids[-1] and hands.revealing == 0, "the last card shown is the rare slot")
+	hands._set_zoomed(false)
+	hands._process(0.0)
+	_check(hands.revealing == 0, "lowering the hand ends the reveal")
+	holder.free()
+	pile.free()

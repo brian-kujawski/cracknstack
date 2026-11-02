@@ -59,6 +59,8 @@ func _ready() -> void:
 		_pile.spawn_binders(PILE_SEED)
 	else:
 		_falling = ShopSave.restore(saved, _pile, _hands, $Player, _shelves(), _store.floor_bounds(), _store.obstacles, PILE_SEED)
+	_hands.pack_stand = _store.pack_stand
+	_store.pack_stand.stock_from(_pile)
 	print("Pile %s: %d cards in %d ms" % ["built" if saved.is_empty() else "loaded", CardDatabase.card_count(),
 		Time.get_ticks_msec() - started])
 	_day = DayCycle.new()
@@ -77,6 +79,7 @@ func _ready() -> void:
 	if _finished and not ENDING_RETURN_MESSAGE.is_empty():
 		_show_return_message()
 	_hands.shown_card_changed.connect(_on_shown_card_changed)
+	_hands.held_pack_changed.connect(func(_code: String) -> void: _on_shown_card_changed(null, false))
 	_hands.hint_changed.connect(func(text: String) -> void: _hint.text = text)
 	_hands.rare_card_found.connect(func() -> void: add_child(RareCardNote.new()))
 	_on_shown_card_changed(null, false)
@@ -291,10 +294,17 @@ func _show_notice(text: String) -> void:
 
 
 func _on_shown_card_changed(card: CardData, set_only: bool) -> void:
-	if card == null:
+	if _hands.held_pack != null:
+		_held.text = pack_details(_hands.held_pack.set_code)
+	elif card == null:
 		_held.text = ""
 	else:
 		_held.text = set_details(card) if set_only else card_details(card)
+
+
+## A booster pack in hand: its set's name, then what it is.
+static func pack_details(code: String) -> String:
+	return "%s\nBooster Pack" % CardDatabase.get_set(code).name
 
 
 ## All you know of a card from its set (Enlightened Tutor): the set's name,

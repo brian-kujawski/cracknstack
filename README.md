@@ -13,6 +13,8 @@ Pickup is free and always will be.
 1. Install [Godot 4.7](https://godotengine.org/download) (standard build, not .NET).
 2. Open `project.godot` in Godot and press **Play** (F5). The game opens on the title screen: press any key for the main menu, then **New Game** shows the intro (the Fan Content disclaimer, on black) and fades into the shop. Credits unlocks on the menu once you have started a game. (While developing, `godot --path . -- --skip-title` goes straight into the shop, and the pause menu's **Play Ending** button plays the ending without filing every card.) Filing every card and shelving every binder fades out into the credits. You start just inside the door of the store's one cramped room: a two-shelf binder shelf along the back wall, raised on legs, whose top works like a table (the timeline runs left to right, top shelf first) and four work tables in the middle.
 
+**Booster packs (prototype):** a stand of sealed packs by the door, three sets at a time. Click it with empty hands to take the front pack of a column (click again to put it back, until it starts to tear). F brings it up close and R turns it over, like a card. Hold Space to rip it open: it trembles, tears across the top and the room goes dark, then it bursts with a flash and its 15 cards are in your hand up close, commons first and the rare slot last. Press Space to show each next card; a rare or mythic glows as it comes up. For now a pack's cards come out of the pile (no duplicates yet), and the stand restocks itself when it's empty. Wrapper art goes in `assets/packs/` (see the README there).
+
 Controls:
 
 | Input | Does |
@@ -29,6 +31,7 @@ Controls:
 | T | Turn the card up close a quarter turn clockwise, to read split cards printed sideways (T again turns it upright; lowering it with F always does) |
 | Esc | Pause menu: Resume (or Esc again), Save/Load, Achievements, Settings, Exit Game (to the main menu or the desktop, saving first or not) |
 | Tab | Upgrade menu: spend Mana on upgrades (Tab or Esc to go back in) |
+| Space | Hold with a booster pack in hand to rip it open. With several cards in hand, show the next one (the top card goes to the back) |
 | 1 | Cast Tithe, once learned: holding or looking at a binder, some of its missing cards light up wherever they lie in the pile |
 | 2 | Cast Teleport, once learned: the top card in hand flies to its own binder, wherever it is, and files itself |
 | 3 | Cast Demonic Tutor, once learned: aimed at an empty pocket of an open binder, its card flies up out of the pile into your hand. It then recharges (shown under your Mana); filing cards by hand speeds that up |
