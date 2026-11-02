@@ -104,6 +104,47 @@ func burst(seconds: float) -> void:
 	tween.tween_property(_cap_pivot, "rotation:x", -1.2, seconds)
 
 
+## Lying about (out of a booster box, or put down): it gets a body to be
+## aimed at and picked up by (on the binder collision layer, like a card on
+## a table), lying face up with its top toward local -z.
+func lie(parent: Node, at: Vector3, yaw: float) -> void:
+	if get_parent() != null:
+		get_parent().remove_child(self)
+	parent.add_child(self)
+	global_transform = lying_pose(at, yaw)
+	if get_node_or_null("Grab") == null:
+		var body := StaticBody3D.new()
+		body.name = "Grab"
+		body.collision_layer = Binder.PHYSICS_LAYER
+		body.collision_mask = 0
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(SIZE.x, SIZE.y, THICKNESS + 0.004)
+		shape.shape = box
+		body.add_child(shape)
+		add_child(body)
+
+
+## Whether it's lying about (lie) rather than on the stand or in hand.
+func is_lying() -> bool:
+	return get_node_or_null("Grab") != null
+
+
+## Picked up: no longer something to aim at.
+func stop_lying() -> void:
+	var body := get_node_or_null("Grab")
+	if body != null:
+		remove_child(body)
+		body.queue_free()
+
+
+## A pack lying flat with its underside at `at` (global), turned to `yaw`:
+## face up, its top toward -z turned by yaw.
+static func lying_pose(at: Vector3, yaw: float) -> Transform3D:
+	var basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -PI / 2)
+	return Transform3D(basis, at + Vector3.UP * THICKNESS / 2)
+
+
 func cap_visible() -> bool:
 	return _cap.visible
 

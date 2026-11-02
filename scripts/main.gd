@@ -132,25 +132,37 @@ static func shelve_binders(pile: PileWorld, shelves: Array) -> void:
 		pile.scatter_binders(unplaced, PILE_SEED)
 
 
-## Developer only (pause menu): fills the pack stand with a booster box,
-## PackContents.BOX_PACKS packs of one set.
+## Developer only (pause menu), until buying exists: a booster box of a
+## random set on the floor in front of you.
 func debug_booster_box() -> void:
-	_store.pack_stand.stock_box(PackContents.pick_set(_debug_rng))
+	_debug_box(ProductBox.Kind.BOOSTER)
 
 
-## Developer only (pause menu): tips a bulk box of one set out on the floor
-## in front of you.
+## Developer only (pause menu): a bulk box of a random set in front of you.
 func debug_bulk_box() -> void:
+	_debug_box(ProductBox.Kind.BULK)
+
+
+func _debug_box(kind: ProductBox.Kind) -> void:
 	var code := PackContents.pick_set(_debug_rng)
 	if code.is_empty():
 		return
 	var player: Node3D = $Player
-	var spot := player.global_position - player.global_basis.z * 1.2
-	var at := _pile.to_local(spot)
-	var copies := Collection.add_all(PackContents.bulk_box(code, _debug_rng))
-	Progression.unlock_set(code)
-	_pile.scatter(copies, _debug_rng.randi(), [Vector2(at.x, at.z)] as Array[Vector2])
-	_show_notice("Bulk box: %d cards of %s" % [copies.size(), CardDatabase.get_set(code).name])
+	var ahead := player.global_position - player.global_basis.z * 0.8
+	place_box(_pile, kind, code, Vector3(ahead.x, 0.0, ahead.z), player.global_rotation.y)
+
+
+## A new box of product standing on the pile at floor point `at` (global),
+## turned to `yaw`. Returns it.
+static func place_box(pile: PileWorld, kind: ProductBox.Kind, code: String, at: Vector3, yaw: float) -> ProductBox:
+	var box := ProductBox.new()
+	box.setup(kind, code)
+	var local := pile.to_local(at)
+	var p := pile.clear_point(Vector2(local.x, local.z), box.half_footprint(), yaw)
+	var y := pile.height_under(p, box.half_footprint(), yaw) if local.y < 0.05 else local.y
+	pile.add_child(box)
+	box.global_transform = pile.global_transform * Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, y, p.y))
+	return box
 
 
 ## Cards a save left in the air land once the shop's physics is running,
@@ -333,7 +345,9 @@ func _show_notice(text: String) -> void:
 
 
 func _on_shown_card_changed(card: CardData, set_only: bool) -> void:
-	if _hands.held_pack != null:
+	if _hands.held_box != null:
+		_held.text = _hands.held_box.details()
+	elif _hands.held_pack != null:
 		_held.text = pack_details(_hands.held_pack.set_code)
 	elif card == null:
 		_held.text = ""

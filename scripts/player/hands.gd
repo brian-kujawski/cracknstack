@@ -91,7 +91,7 @@ signal radio_used
 ## A booster pack came to hand (its set's code), or left it ("").
 signal held_pack_changed(set_code: String)
 
-enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACKS }
+enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACKS, BOX, LOOSE_PACK }
 
 ## How far from the eye the player can reach, and with Spider Climb.
 @export var reach := 2.6
@@ -177,6 +177,8 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACK
 const HELD_POSITION := Vector3(0.075, -0.05, -0.2)
 ## A pack is held a little lower, being taller than a card.
 const PACK_HELD_POSITION := Vector3(0.075, -0.07, -0.21)
+## A box in hand tips its top this far toward you (radians).
+const BOX_HELD_TILT := 0.35
 ## How far the pack shakes while being ripped, at the very end (metres and
 ## radians); it starts at a sliver of that and grows.
 const RIP_SHAKE := 0.0025
@@ -233,6 +235,8 @@ var _incoming := 0
 var carried_binder: Binder
 ## The booster pack in hand (a prototype), or null.
 var held_pack: BoosterPack
+## A box of product in hand (ProductBox), or null.
+var held_box: ProductBox
 ## The pack stand (the shop sets it).
 var pack_stand: PackDisplay
 ## Cards of the pack just ripped still to be shown (after the one on top).
@@ -306,6 +310,8 @@ var _aim_space := -1
 var _aim_cabinet: DisplayCabinet
 ## The shadow box the crosshair is on, in _aim_cabinet, or -1.
 var _aim_slot := -1
+var _aim_box: ProductBox
+var _aim_pack: BoosterPack
 var _hovered_binder: Binder
 var _hint := ""
 var _shown_card: CardData
@@ -456,7 +462,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _hands_empty() -> bool:
-	return held_card_id < 0 and carried_binder == null and held_pack == null
+	return held_card_id < 0 and carried_binder == null and held_pack == null and held_box == null
 
 
 ## How many cards you can hold, with Harmonize.
@@ -470,7 +476,7 @@ func hand_count() -> int:
 
 ## Whether another card can come into your hand.
 func has_room() -> bool:
-	return carried_binder == null and held_pack == null and hand_count() < hand_size()
+	return carried_binder == null and held_pack == null and held_box == null and hand_count() < hand_size()
 
 
 func _gliding() -> bool:
@@ -487,8 +493,20 @@ func _use_hand() -> void:
 		elif _hands_empty():
 			_take_pack()
 		return
+	if held_box != null:
+		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
+			put_down_box()
+		return
 	if held_pack != null:
-		return # A pack only goes back on the stand (or gets ripped).
+		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD, Aim.LOOSE_PACK]:
+			put_down_pack()
+		return # Otherwise a pack goes back on the stand or gets ripped.
+	if _hands_empty() and _aim == Aim.BOX:
+		take_box(_aim_box)
+		return
+	if _hands_empty() and _aim == Aim.LOOSE_PACK:
+		_take_pack_node(_aim_pack)
+		return
 	if carried_binder != null:
 		if _aim == Aim.SHELF:
 			_shelve_carried_binder()
@@ -1150,6 +1168,8 @@ func _update_aim() -> void:
 	_aim_space = -1
 	_aim_cabinet = null
 	_aim_slot = -1
+	_aim_box = null
+	_aim_pack = null
 	var from := _camera.global_position
 	var to := from - _camera.global_transform.basis.z * current_reach()
 	var query := PhysicsRayQueryParameters3D.create(from, to)
@@ -1177,6 +1197,14 @@ func _update_aim() -> void:
 			collider = collider.shelved[at]
 	if collider is Binder and collider.state == Binder.State.SHELVED and not Progression.is_set_unlocked(collider.binder.set_code):
 		return # A locked set's binder stays on the shelf, untouchable.
+	if collider is ProductBox:
+		_aim = Aim.BOX
+		_aim_box = collider
+		return
+	if collider is StaticBody3D and (collider as Node).get_parent() is BoosterPack:
+		_aim = Aim.LOOSE_PACK
+		_aim_pack = (collider as Node).get_parent()
+		return
 	if collider is Binder:
 		_aim = Aim.BINDER
 		_aim_binder = collider
@@ -1511,6 +1539,12 @@ func _take_pack() -> void:
 	var pack := pack_stand.take(_aim_point)
 	if pack == null:
 		return
+	_take_pack_node(pack)
+
+
+## Takes a pack into your hand, from the stand or from where it lies.
+func _take_pack_node(pack: BoosterPack) -> void:
+	pack.stop_lying()
 	var from := pack.global_transform
 	_hold(-1)
 	pack.get_parent().remove_child(pack)
@@ -1546,13 +1580,140 @@ func _return_pack() -> void:
 ## all been shown, lower the stack into your hand; otherwise show the next
 ## card.
 func press_rip() -> void:
-	if held_pack != null:
+	if held_box != null:
+		open_box(held_box)
+	elif _hands_empty() and _aim == Aim.BOX:
+		open_box(_aim_box)
+	elif held_pack != null:
 		_start_ripping()
 	elif _revealed_all and _zoomed:
 		_revealed_all = false
 		_set_zoomed(false)
 	else:
 		reveal_next()
+
+
+## Picks a box of product up off the floor or a table.
+func take_box(box: ProductBox) -> void:
+	var from := box.global_transform
+	_hold(-1)
+	box.get_parent().remove_child(box)
+	_camera.add_child(box)
+	box.collision_layer = 0 # Not in the way of your aim (or you).
+	held_box = box
+	var held := Transform3D(Basis(Vector3.RIGHT, BOX_HELD_TILT), box_held_position(box))
+	box.global_transform = from
+	_glide = Glide.start(box, from, func() -> Transform3D: return _camera.global_transform * held,
+		glide_seconds(binder_glide_seconds))
+	held_pack_changed.emit(box.set_code)
+
+
+## Where a box is held, below and in front of the eyes, further for a big one.
+static func box_held_position(box: ProductBox) -> Vector3:
+	var size := box.box_size()
+	return Vector3(0.0, -0.12 - size.y, -0.25 - size.z)
+
+
+## Where a box put down where you're aiming would stand (global): on the
+## pile, or on the table or card you're aiming at, its front toward you.
+func box_drop_pose(box: ProductBox) -> Transform3D:
+	var yaw := _camera.global_rotation.y
+	var half := box.half_footprint()
+	var local := pile.to_local(_aim_point)
+	var p := Vector2(local.x, local.z)
+	var y := local.y
+	if _aim == Aim.FLOOR or local.y < 0.05:
+		p = pile.clear_point(p, half, yaw)
+		y = pile.height_under(p, half, yaw)
+	else:
+		p = pile.onto_surface(p, yaw, half)
+	return pile.global_transform * Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, y, p.y))
+
+
+## Puts the box in hand down where you're aiming.
+func put_down_box() -> void:
+	var box := held_box
+	var to := box_drop_pose(box)
+	var from := box.global_transform
+	held_box = null
+	box.get_parent().remove_child(box)
+	pile.add_child(box)
+	box.global_transform = from
+	_glide = Glide.start(box, from, func() -> Transform3D: return to, glide_seconds(binder_glide_seconds))
+	_glide.tween_callback(func() -> void: box.collision_layer = Binder.PHYSICS_LAYER)
+	held_pack_changed.emit("")
+
+
+## Puts the pack in hand down, lying where you're aiming, unless it's
+## started to tear.
+func put_down_pack() -> void:
+	var pack := held_pack
+	if pack.tear > 0.0:
+		return
+	var local := pile.to_local(_aim_point)
+	var p := Vector2(local.x, local.z)
+	var y := local.y if _aim != Aim.FLOOR else pile.height_at(p)
+	var from := pack.global_transform
+	held_pack = null
+	_hold(-1)
+	pack.lie(pile, pile.to_global(Vector3(p.x, y, p.y)), _camera.global_rotation.y)
+	var to := pack.global_transform
+	pack.global_transform = from
+	_glide = Glide.start(pack, from, func() -> Transform3D: return to, glide_seconds(card_glide_seconds))
+	held_pack_changed.emit("")
+
+
+## Opens a box of product, in hand or lying about. A booster box tips its
+## packs out in a heap where it stands (or where you're aiming, or at your
+## feet, from your hand); a bulk box tips its cards out there, onto the
+## table or the floor. Opening a set's product unlocks the set (for now).
+## Returns the packs tipped out, or the copies made.
+func open_box(box: ProductBox) -> Array:
+	var at := box.global_position
+	if box == held_box:
+		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
+			at = box_drop_pose(box).origin
+		else:
+			var ahead := _camera.global_position - _camera.global_basis.z.slide(Vector3.UP).normalized() * 0.6
+			var local := pile.to_local(ahead)
+			at = pile.to_global(Vector3(local.x, 0.0, local.z))
+		held_box = null
+		held_pack_changed.emit("")
+	box.get_parent().remove_child(box)
+	box.queue_free()
+	Progression.unlock_set(box.set_code) # For now: until levels unlock sets.
+	FeedbackSounds.play(pile, at, FeedbackSounds.Kind.PACK_RIP)
+	if box.kind == ProductBox.Kind.BULK:
+		var copies := Collection.add_all(PackContents.bulk_box(box.set_code, _pack_rng))
+		pile.tip_out(copies, at, _pack_rng.randi())
+		return Array(copies)
+	return tip_out_packs(box.set_code, PackContents.BOX_PACKS, at)
+
+
+## A booster box's packs tumble out in a loose heap around `at` (global,
+## where the box stood): on the table there, or the floor. Returns them.
+func tip_out_packs(code: String, count: int, at: Vector3) -> Array:
+	var local := pile.to_local(at)
+	var on_floor := local.y < 0.05
+	var packs := []
+	var placed: Array[Vector3] = []
+	for i in count:
+		var p := Vector2(local.x, local.z) + Vector2(_pack_rng.randfn(0.0, 0.07), _pack_rng.randfn(0.0, 0.07))
+		var yaw := _pack_rng.randf() * TAU
+		if on_floor:
+			p = pile.clear_point(p, BoosterPack.SIZE / 2, yaw)
+		else:
+			p = pile.onto_surface(p, yaw, BoosterPack.SIZE / 2)
+		var y := pile.height_at(p) if on_floor else local.y
+		for other in placed:
+			if Vector2(other.x, other.z).distance_to(p) < BoosterPack.SIZE.x:
+				y = maxf(y, other.y + BoosterPack.THICKNESS)
+		placed.append(Vector3(p.x, y, p.y))
+		var pack := BoosterPack.new()
+		pack.setup(code)
+		pack.lie(pile, pile.to_global(Vector3(p.x, y, p.y)), yaw)
+		packs.append(pack)
+	return packs
 
 
 ## Space on a pack in hand: start ripping, bringing it up close if it isn't.

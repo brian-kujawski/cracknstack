@@ -41,6 +41,13 @@ const FLIP_RADIUS := 0.15
 const FLIP_HEIGHT := 0.1
 ## Cards landing on a table (or the shelf top) stay this far in from its edge.
 const TABLE_MARGIN := 0.01
+## A box tipped out on a table (tip_out): at most this many cards stay on
+## it (each is a node of its own, LooseCard), heaped around the box with
+## this standard deviation (m), stacked by cells this size; the rest spill
+## onto the floor.
+const TABLE_HEAP_MAX := 200
+const TABLE_HEAP_SPREAD := 0.09
+const TABLE_HEAP_CELL := 0.03
 ## Collision layer of the pile's surface: a coarse height field that only
 ## binders collide with, so they can rest on the cards.
 const SURFACE_LAYER := 8
@@ -515,6 +522,50 @@ func drop(id: int, point: Vector3, rotation_y: float, face_up := true) -> void:
 	_face_up[id] = 1 if face_up else 0
 	_put_on_floor(id, p, rotation_y)
 	_rebuild_chunk(_chunk_of[id])
+
+
+## Tips held copies out of a box at `point` (global, the box's underside):
+## on a table (any of `surfaces`), a heap on the table top, up to
+## TABLE_HEAP_MAX of them, the rest spilling onto the floor around it; on
+## the floor, a heap there (scatter). Each lands face up or down at random.
+func tip_out(copies: PackedInt32Array, point: Vector3, random_seed: int) -> void:
+	_sync()
+	var local := to_local(point)
+	var p := Vector2(local.x, local.z)
+	var table := Rect2()
+	for top in surfaces:
+		if top.has_point(p):
+			table = top
+	var to_floor := PackedInt32Array()
+	if local.y < 0.05 or table.size == Vector2.ZERO:
+		to_floor = copies
+	else:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = random_seed
+		var inner := table.grow(-TABLE_MARGIN - CARD_SIZE.y / 2)
+		var heights := {}
+		var on_table := 0
+		for copy in copies:
+			if _states[copy] != State.HELD:
+				continue
+			var at := p + Vector2(rng.randfn(0.0, TABLE_HEAP_SPREAD), rng.randfn(0.0, TABLE_HEAP_SPREAD))
+			if on_table >= TABLE_HEAP_MAX or not inner.has_point(at):
+				to_floor.append(copy)
+				continue
+			# A rough heap: each card lies on the cards already landed in the
+			# cells it covers.
+			var cell := Vector2i((at / TABLE_HEAP_CELL).floor())
+			var stack := 0
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					stack = maxi(stack, heights.get(cell + Vector2i(dx, dy), 0))
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					heights[cell + Vector2i(dx, dy)] = stack + 1
+			on_table += 1
+			lay_loose(copy, to_global(Vector3(at.x, local.y + stack * CARD_THICKNESS, at.y)), rng.randf() * TAU, rng.randf() < 0.7)
+	if not to_floor.is_empty():
+		scatter(to_floor, random_seed, [p] as Array[Vector2])
 
 
 ## Lays a held card on a table at `point` (global, its underside), turned to

@@ -3367,8 +3367,66 @@ func _test_booster_packs() -> void:
 	hands._set_zoomed(true)
 	hands.press_rip()
 	_check(hands.held_card_id == ids[0], "after that, Space just shows the next card")
-	stand.stock_box(picked)
-	_check(stand.pack_count() == PackContents.BOX_PACKS and stand.columns.all(func(column: Array) -> bool:
-		return column.all(func(p: BoosterPack) -> bool: return p.set_code == picked)), "a booster box fills the stand with one set")
+	hands._set_zoomed(false)
+	hands.restore_hand([] as Array[int])
+
+	# A booster box: picked up, opened in hand, its packs tip out in a heap;
+	# one is picked up and put down again.
+	var main_script := preload("res://scripts/main.gd")
+	var box: ProductBox = main_script.place_box(pile, ProductBox.Kind.BOOSTER, picked, Vector3(3, 0, 3), 0.0)
+	var box_size := box.box_size()
+	_check(is_equal_approx(box_size.x, 0.152) and is_equal_approx(box_size.y, 0.102) and is_equal_approx(box_size.z, 0.127),
+		"a booster box is about 6 by 5 inches and 4 tall")
+	_check(box.get_parent() == pile and box.details() == "%s\nBooster Box" % CardDatabase.get_set(picked).name, "it stands on the floor")
+	hands._aim = Hands.Aim.BOX
+	hands._aim_box = box
+	hands._use_hand()
+	_check(hands.held_box == box and not hands.has_room() and not hands._hands_empty(), "clicking a box picks it up")
+	hands._glide.custom_step(10.0)
+	var lying_packs := func() -> Array:
+		return pile.get_children().filter(func(n: Node) -> bool:
+			return n is BoosterPack and n.is_lying() and not n.is_queued_for_deletion())
+	var before_packs: int = lying_packs.call().size()
+	var tipped_packs := hands.open_box(box)
+	_check(hands.held_box == null and box.is_queued_for_deletion(), "Space opens the box in hand")
+	_check(tipped_packs.size() == PackContents.BOX_PACKS and lying_packs.call().size() == before_packs + PackContents.BOX_PACKS
+		and tipped_packs.all(func(p: BoosterPack) -> bool: return p.set_code == picked), "its %d packs tip out, lying about" % PackContents.BOX_PACKS)
+	_check(Progression._unlocked_sets.has(picked), "opening a set's product unlocks the set")
+	var loose_pack: BoosterPack = tipped_packs[0]
+	hands._aim = Hands.Aim.LOOSE_PACK
+	hands._aim_pack = loose_pack
+	hands._use_hand()
+	_check(hands.held_pack == loose_pack and not loose_pack.is_lying(), "a pack lying about can be picked up")
+	hands._glide.custom_step(10.0)
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_point = Vector3(5, 0, 5)
+	hands._use_hand()
+	_check(hands.held_pack == null and loose_pack.is_lying(), "and put down again")
+	hands._glide.custom_step(10.0)
+
+	# A bulk box, opened where it stands: its cards tip out on the floor.
+	var bulk_box: ProductBox = main_script.place_box(pile, ProductBox.Kind.BULK, picked, Vector3(8, 0, 4), 0.0)
+	_check(is_equal_approx(bulk_box.box_size().x, 0.305) and bulk_box.details().ends_with("Bulk Box"), "a bulk box is about a foot wide")
+	hands._aim = Hands.Aim.BOX
+	hands._aim_box = bulk_box
+	var copies_before := Collection.count()
+	var tipped_cards := hands.open_box(bulk_box)
+	_check(tipped_cards.size() == PackContents.BULK_SIZE and Collection.count() == copies_before + PackContents.BULK_SIZE
+		and tipped_cards.all(pile.is_on_floor), "a bulk box tips %d new cards out on the floor" % PackContents.BULK_SIZE)
+
+	# Product lying about is saved and put back.
+	var still_box: ProductBox = main_script.place_box(pile, ProductBox.Kind.BULK, picked, Vector3(10, 0, 2), 0.0)
+	var products := ShopSave.snapshot_products(pile, hands, holder)
+	_check(products.size() == PackContents.BOX_PACKS + 1 and products.any(func(e: Array) -> bool: return e[0] == "bulk_box"),
+		"a save lists the packs and boxes lying about")
+	var other_pile := PileWorld.new()
+	add_child(other_pile)
+	other_pile.setup(Rect2(0, 0, 12, 8), [] as Array[Rect2])
+	ShopSave.restore_products(products, other_pile)
+	var back_boxes := other_pile.get_children().filter(func(n: Node) -> bool: return n is ProductBox)
+	_check(back_boxes.size() == 1 and back_boxes[0].global_position.is_equal_approx(still_box.global_position)
+		and other_pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.is_lying()).size() == PackContents.BOX_PACKS,
+		"and they load back where they lay")
+	other_pile.free()
 	holder.free()
 	pile.free()

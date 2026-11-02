@@ -89,26 +89,6 @@ func stock() -> void:
 		_line_up(c)
 
 
-## Fills the stand with a booster box of `code` instead (a stand-in until
-## deliveries): PackContents.BOX_PACKS packs, shared between the columns.
-func stock_box(code: String) -> void:
-	if code.is_empty():
-		return
-	for column in columns:
-		for pack: BoosterPack in column:
-			pack.queue_free()
-	columns.clear()
-	for c in COLUMNS:
-		columns.append([])
-	for i in PackContents.BOX_PACKS:
-		var pack := BoosterPack.new()
-		pack.setup(code)
-		add_child(pack)
-		columns[i % COLUMNS].append(pack)
-	for c in COLUMNS:
-		_line_up(c)
-
-
 func pack_count() -> int:
 	var count := 0
 	for column in columns:

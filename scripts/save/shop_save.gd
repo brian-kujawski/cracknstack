@@ -123,9 +123,11 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 			in_air.append([child.get_meta("card_id"), to[0], to[1], true])
 
 	var hand := PackedInt32Array([hands.held_card_id] if hands.held_card_id >= 0 else [])
+	var products := snapshot_products(pile, hands, player)
 	hand.append_array(PackedInt32Array(hands.behind))
 	return {
 		"copies": [Collection.card_ids(), Collection.all_flags()],
+		"products": products,
 		"cards": pile.snapshot_cards(),
 		"falling": in_air,
 		"binders": binders,
@@ -198,6 +200,7 @@ static func finish(taken: Dictionary) -> Dictionary:
 		seen.append(to_index.call(id))
 	return {
 		"copies": copy_table(card_ids, taken.copies[1]),
+		"products": taken.get("products", []),
 		"cards": {"where": where, "positions": positions, "rotations": rotations, "face_up": face_up},
 		"falling": falling,
 		"binders": binders,
@@ -287,6 +290,7 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 			hands.seen_cards[id] = true
 
 	player.restore_state(saved.get("player", {}))
+	restore_products(saved.get("products", []), pile)
 	var falling := []
 	for entry in saved.get("falling", []):
 		var id := ids[entry[0]] if entry[0] >= 0 and entry[0] < ids.size() else -1
@@ -302,6 +306,54 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 	for id in strays:
 		falling.append([id, near + Vector3(randf_range(-0.3, 0.3), 0.5, randf_range(-0.3, 0.3)), randf() * TAU, true])
 	return falling
+
+
+## Unopened product lying about, as [kind, set code, global pose]: boxes
+## ("booster_box", "bulk_box") and loose packs ("pack"). A box or an untorn
+## pack in hand is saved lying at your feet; a pack you've started to tear
+## is lost with the rest of its rip, as on the stand.
+static func snapshot_products(pile: PileWorld, hands: Hands, player_node: Node) -> Array:
+	var player := player_node as Node3D
+	var products := []
+	for child in pile.get_children():
+		if child.is_queued_for_deletion():
+			continue
+		if child is ProductBox:
+			products.append([_box_kind(child), child.set_code, child.global_transform])
+		elif child is BoosterPack and child.is_lying():
+			products.append(["pack", child.set_code, child.global_transform])
+	var feet := player.global_position - player.global_basis.z * 0.5
+	feet.y = 0.0
+	if hands.held_box != null:
+		products.append([_box_kind(hands.held_box), hands.held_box.set_code, Transform3D(player.global_basis, feet)])
+	if hands.held_pack != null and hands.held_pack.tear <= 0.0:
+		products.append(["pack", hands.held_pack.set_code, BoosterPack.lying_pose(feet, player.global_rotation.y)])
+	return products
+
+
+static func _box_kind(box: ProductBox) -> String:
+	return "booster_box" if box.kind == ProductBox.Kind.BOOSTER else "bulk_box"
+
+
+## Puts saved product (snapshot_products) back where it lay. Product of a
+## set no longer in the data is dropped.
+static func restore_products(saved: Array, pile: PileWorld) -> void:
+	for entry in saved:
+		var code: String = entry[1]
+		if CardDatabase.get_set(code) == null or code == RareCards.SET_CODE:
+			continue
+		var at: Transform3D = entry[2]
+		match entry[0]:
+			"pack":
+				var pack := BoosterPack.new()
+				pack.setup(code)
+				pack.lie(pile, at.origin - Vector3.UP * BoosterPack.THICKNESS / 2, 0.0)
+				pack.global_transform = at
+			"booster_box", "bulk_box":
+				var box := ProductBox.new()
+				box.setup(ProductBox.Kind.BOOSTER if entry[0] == "booster_box" else ProductBox.Kind.BULK, code)
+				pile.add_child(box)
+				box.global_transform = at
 
 
 ## Sets the clock to the saved hour, unless it's stopped (then the setting
