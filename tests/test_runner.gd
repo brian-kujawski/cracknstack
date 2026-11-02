@@ -3373,22 +3373,22 @@ func _test_booster_packs() -> void:
 	# A booster box: picked up, opened in hand, its packs tip out in a heap;
 	# one is picked up and put down again.
 	var main_script := preload("res://scripts/main.gd")
-	var box: ProductBox = main_script.place_box(pile, ProductBox.Kind.BOOSTER, picked, Vector3(3, 0, 3), 0.0)
-	var box_size := box.box_size()
+	var booster: ProductBox = main_script.place_box(pile, ProductBox.Kind.BOOSTER, picked, Vector3(3, 0, 3), 0.0)
+	var box_size := booster.box_size()
 	_check(is_equal_approx(box_size.x, 0.152) and is_equal_approx(box_size.y, 0.102) and is_equal_approx(box_size.z, 0.127),
 		"a booster box is about 6 by 5 inches and 4 tall")
-	_check(box.get_parent() == pile and box.details() == "%s\nBooster Box" % CardDatabase.get_set(picked).name, "it stands on the floor")
+	_check(booster.get_parent() == pile and booster.details() == "%s\nBooster Box" % CardDatabase.get_set(picked).name, "it stands on the floor")
 	hands._aim = Hands.Aim.BOX
-	hands._aim_box = box
+	hands._aim_box = booster
 	hands._use_hand()
-	_check(hands.held_box == box and not hands.has_room() and not hands._hands_empty(), "clicking a box picks it up")
+	_check(hands.held_box == booster and not hands.has_room() and not hands._hands_empty(), "clicking a box picks it up")
 	hands._glide.custom_step(10.0)
 	var lying_packs := func() -> Array:
 		return pile.get_children().filter(func(n: Node) -> bool:
 			return n is BoosterPack and n.is_lying() and not n.is_queued_for_deletion())
 	var before_packs: int = lying_packs.call().size()
-	var tipped_packs := hands.open_box(box)
-	_check(hands.held_box == null and box.is_queued_for_deletion(), "Space opens the box in hand")
+	var tipped_packs := hands.open_box(booster)
+	_check(hands.held_box == null and booster.is_queued_for_deletion(), "Space opens the box in hand")
 	_check(tipped_packs.size() == PackContents.BOX_PACKS and lying_packs.call().size() == before_packs + PackContents.BOX_PACKS
 		and tipped_packs.all(func(p: BoosterPack) -> bool: return p.set_code == picked), "its %d packs tip out, lying about" % PackContents.BOX_PACKS)
 	_check(Progression._unlocked_sets.has(picked), "opening a set's product unlocks the set")

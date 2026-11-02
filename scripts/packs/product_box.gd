@@ -94,9 +94,9 @@ func details() -> String:
 
 
 ## Printed lettering on a face: centred at `at` (box space), facing out
-## along the face's +z, fitted to `width` metres; `scale` sizes it against
+## along the face's +z, fitted to `width` metres; `share` sizes it against
 ## the box.
-func _print(text: String, at: Vector3, face: Basis, width: float, scale: float, colour := Color(0.97, 0.85, 0.5)) -> void:
+func _print(text: String, at: Vector3, face: Basis, width: float, share: float, colour := Color(0.97, 0.85, 0.5)) -> void:
 	var label := Label3D.new()
 	label.text = text
 	label.font = BinderLettering.FONT
@@ -107,7 +107,7 @@ func _print(text: String, at: Vector3, face: Basis, width: float, scale: float, 
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.width = 64 * 12
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.pixel_size = width / label.width * scale
+	label.pixel_size = width / label.width * share
 	label.basis = face
 	label.position = at + face.z * 0.0015
 	add_child(label)

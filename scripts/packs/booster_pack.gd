@@ -141,8 +141,8 @@ func stop_lying() -> void:
 ## A pack lying flat with its underside at `at` (global), turned to `yaw`:
 ## face up, its top toward -z turned by yaw.
 static func lying_pose(at: Vector3, yaw: float) -> Transform3D:
-	var basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -PI / 2)
-	return Transform3D(basis, at + Vector3.UP * THICKNESS / 2)
+	var turn := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -PI / 2)
+	return Transform3D(turn, at + Vector3.UP * THICKNESS / 2)
 
 
 func cap_visible() -> bool:
