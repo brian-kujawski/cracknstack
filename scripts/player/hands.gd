@@ -68,10 +68,12 @@ extends Node
 ## R turns it over. Hold Space (Controls.RIP) to rip it open: the pack
 ## trembles, the foil tears slowly across the top, the room behind it goes
 ## dark, and with a flash it bursts open and its cards are in your hand, up
-## close, commons on top and the rare slot at the back. Each press of Space
-## then shows the next card, the one on top going to the back; a rare or a
-## mythic comes up with a glow, and once the last card is shown the room
-## comes back. Let go of Space before the end and the tear stays where it
+## close, commons on top and the rare slot at the back. They come out the
+## size they were in the pack, a little further off, and come up to full
+## size quickly. Each press of Space then shows the next card, the one on
+## top going to the back; a rare or a mythic comes up with a glow, and once
+## the last card is shown the room comes back. Space once more lowers the
+## stack back into your hand. Let go of Space before the end and the tear stays where it
 ## got to, but the room comes back and the pack stops shaking. The cards
 ## come out of the pile (see PackContents): no duplicates yet.
 
@@ -165,6 +167,10 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACK
 @export var rip_seconds := 1.6
 @export var pack_burst_seconds := 0.45
 @export var reveal_seconds := 0.22
+## How long the cards out of a pack take to come up from the pack's size to
+## full size up close, and how long they wait first.
+@export var emerge_seconds := 0.3
+@export var emerge_delay := 0.06
 
 ## Where the held card sits relative to the camera: low and to the right,
 ## or close up and square to your face (see zoomed_distance).
@@ -235,6 +241,15 @@ var revealing := 0
 ## the rare's glow plays out in the dark.
 const REVEAL_LINGER := 1.6
 var _linger := 0.0
+## Every card of the pack just ripped has been shown, and the next Space
+## lowers the stack.
+var _revealed_all := false
+## How far back toward the pack's size the card up close is (1 just out of
+## the pack, 0 full size); see emerge_seconds.
+var _emerge := 0.0
+## Out of the pack, the cards start this much further off than the pack was
+## up close, so they look as if they fitted inside it.
+const EMERGE_DEPTH := 1.08
 ## The display cabinets (the shop sets them), whose shadow boxes hold the
 ## rare cards.
 var cabinets: Array[DisplayCabinet] = []
@@ -403,10 +418,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pick_on_release = false
 	elif _placing >= 0.0:
 		return # One thing at a time while putting something down.
-	elif event.is_action_pressed(Controls.RIP) and held_pack != null:
-		_start_ripping()
 	elif event.is_action_pressed(Controls.RIP):
-		reveal_next()
+		press_rip()
 	elif event.is_action_pressed(Controls.USE_HAND):
 		_use_hand()
 	elif event.is_action_pressed(Controls.TOSS) and held_card_id >= 0:
@@ -1455,7 +1468,8 @@ func _pose_held_card() -> void:
 		return
 	if _gliding() and (held_card_id >= 0 or _viewed_id >= 0):
 		return # Still on its way to the hand (or back home).
-	var zoomed_position := Vector3(0.0, 0.0, -zoomed_distance(_camera.fov, PileWorld.CARD_SIZE.y))
+	var zoomed_position := Vector3(0.0, 0.0, -lerpf(zoomed_distance(_camera.fov, PileWorld.CARD_SIZE.y),
+		zoomed_distance(_camera.fov, BoosterPack.SIZE.y) * EMERGE_DEPTH, _emerge))
 	# Edge on, halfway over, a side of the card comes this much nearer; it
 	# backs off by that much so it stays clear of the near plane.
 	zoomed_position.z -= sin(PI * _turn_amount) * PileWorld.CARD_SIZE.x / 2.0
@@ -1512,6 +1526,19 @@ func _return_pack() -> void:
 	held_pack_changed.emit("")
 
 
+## Space: with a pack in hand, start ripping it; once a pack's cards have
+## all been shown, lower the stack into your hand; otherwise show the next
+## card.
+func press_rip() -> void:
+	if held_pack != null:
+		_start_ripping()
+	elif _revealed_all and _zoomed:
+		_revealed_all = false
+		_set_zoomed(false)
+	else:
+		reveal_next()
+
+
 ## Space on a pack in hand: start ripping, bringing it up close if it isn't.
 func _start_ripping() -> void:
 	_ripping = true
@@ -1550,6 +1577,7 @@ func _process(delta: float) -> void:
 	if not _zoomed:
 		revealing = 0
 		_linger = 0.0
+		_revealed_all = false
 	_linger = maxf(_linger - delta, 0.0)
 	var veil := 0.0
 	if _ripping:
@@ -1587,10 +1615,20 @@ func rip_pack() -> Array[int]:
 	for id in ids:
 		seen_cards[id] = true
 	_zoomed = true
+	_emerge = 1.0
 	_set_zoom_amount(1.0)
+	var emerge := create_tween()
+	emerge.tween_method(_set_emerge, 1.0, 0.0, emerge_seconds).set_delay(emerge_delay) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	revealing = ids.size() - 1
+	_revealed_all = revealing == 0
 	_reveal_flourish(ids[0])
 	return ids
+
+
+func _set_emerge(amount: float) -> void:
+	_emerge = amount
+	_pose_held_card()
 
 
 ## Space with cards in hand: the one on top slides off to the back and the
@@ -1619,6 +1657,7 @@ func reveal_next() -> void:
 		_reveal_flourish(held_card_id)
 		if revealing == 0:
 			_linger = REVEAL_LINGER
+			_revealed_all = true
 
 
 ## A rare or mythic just revealed glows (gold or orange-red) and chimes.

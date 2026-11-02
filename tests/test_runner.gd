@@ -3209,6 +3209,9 @@ func _test_booster_packs() -> void:
 		"they come out of the pile, all of the pack's set")
 	_check(hands.held_card_id == ids[0] and hands.behind.back() == ids[-1], "commons on top, the rare slot at the back")
 	_check(hands.held_pack == null and hands._zoomed and hands.revealing == ids.size() - 1, "the cards are up close, to be revealed")
+	var full_size := Hands.zoomed_distance(camera.fov, PileWorld.CARD_SIZE.y)
+	_check(hands._emerge == 1.0 and -hands._held_view.position.z > full_size,
+		"fresh out of the pack, the cards start further off, the size they were in it")
 	hands.reveal_next()
 	_check(hands.held_card_id == ids[1] and hands.behind.back() == ids[0] and hands.revealing == ids.size() - 2,
 		"Space puts the top card at the back and shows the next")
@@ -3216,8 +3219,11 @@ func _test_booster_packs() -> void:
 	for i in ids.size() - 2:
 		hands.reveal_next()
 	_check(hands.held_card_id == ids[-1] and hands.revealing == 0, "the last card shown is the rare slot")
-	hands._set_zoomed(false)
-	hands._process(0.0)
-	_check(hands.revealing == 0, "lowering the hand ends the reveal")
+	_check(hands._zoomed, "the rare stays up close")
+	hands.press_rip()
+	_check(not hands._zoomed and hands.held_card_id == ids[-1], "Space once more lowers the stack into your hand, rare on top")
+	hands._set_zoomed(true)
+	hands.press_rip()
+	_check(hands.held_card_id == ids[0], "after that, Space just shows the next card")
 	holder.free()
 	pile.free()
