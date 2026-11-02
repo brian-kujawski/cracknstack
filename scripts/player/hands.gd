@@ -1171,6 +1171,12 @@ func _update_aim() -> void:
 		return
 	_aim_point = hit.position
 	var collider: Object = hit.collider
+	if collider is ShelfUnit:
+		var at: int = collider.space_at(hit.position)
+		if at >= 0 and collider.shelved[at] != null:
+			collider = collider.shelved[at]
+	if collider is Binder and collider.state == Binder.State.SHELVED and not Progression.is_set_unlocked(collider.binder.set_code):
+		return # A locked set's binder stays on the shelf, untouchable.
 	if collider is Binder:
 		_aim = Aim.BINDER
 		_aim_binder = collider
@@ -1606,6 +1612,7 @@ func rip_pack() -> Array[int]:
 		return []
 	var ids: Array[int] = []
 	ids.assign(Collection.add_all(PackContents.draw(pack.set_code, _pack_rng)))
+	Progression.unlock_set(pack.set_code) # For now: until levels unlock sets.
 	held_pack = null
 	_ripping = false
 	_rip = 0.0

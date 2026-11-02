@@ -148,6 +148,7 @@ func debug_bulk_box() -> void:
 	var spot := player.global_position - player.global_basis.z * 1.2
 	var at := _pile.to_local(spot)
 	var copies := Collection.add_all(PackContents.bulk_box(code, _debug_rng))
+	Progression.unlock_set(code)
 	_pile.scatter(copies, _debug_rng.randi(), [Vector2(at.x, at.z)] as Array[Vector2])
 	_show_notice("Bulk box: %d cards of %s" % [copies.size(), CardDatabase.get_set(code).name])
 

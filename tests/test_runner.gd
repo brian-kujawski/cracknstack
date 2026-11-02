@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks"]
 
 var _failures := 0
 var _checks := 0
@@ -29,9 +29,13 @@ func _ready() -> void:
 	Settings.reset_all()
 	Saves.save_dir = SAVES_TEST_DIR
 	Radio.load_from(RADIO_TEST_PATH)
+	# Most checks were written before sets locked (_test_set_locks turns it
+	# back on).
+	Progression.locks_sets = false
 	_clear_test_saves()
 	await _run(_test_database_loaded)
 	await _run(_test_card_copies)
+	await _run(_test_set_locks)
 	await _run(_test_collector_numbers_are_contiguous)
 	await _run(_test_shelf_order)
 	await _run(_test_binders_per_set)
@@ -194,6 +198,23 @@ func _test_card_copies() -> void:
 	table.sets = PackedStringArray(["ZZZ"])
 	_check(ShopSave.make_copies(table) == PackedInt32Array([-1, -1, -1]) and Collection.count() == 0,
 		"copies of cards gone from the data are dropped")
+
+
+## Sets lock: a locked set's binder stays on the shelf, out of reach, until
+## the set is unlocked (for now, by opening product of it).
+func _test_set_locks() -> void:
+	Progression.reset()
+	Progression.locks_sets = true
+	var code: String = CardDatabase.sets_in_shelf_order()[0].code
+	_check(not Progression.is_set_unlocked(code), "a new game's sets are locked")
+	_check(Progression.unlock_set(code) and Progression.is_set_unlocked(code) and not Progression.unlock_set(code), "a set unlocks once")
+	var kept := Progression.save_state()
+	Progression.reset()
+	_check(not Progression.is_set_unlocked(code), "a new game locks it again")
+	Progression.restore_state(kept)
+	_check(Progression.is_set_unlocked(code), "a save keeps what's unlocked")
+	Progression.reset()
+	Progression.locks_sets = false
 
 
 func _test_collector_numbers_are_contiguous() -> void:
