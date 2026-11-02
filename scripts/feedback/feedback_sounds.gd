@@ -10,6 +10,10 @@ extends RefCounted
 ## a quick run of notes rather than one loud wall of sound, and only
 ## MAX_VOICES ring at once. Card chimes in a run climb a scale, a step each,
 ## and a pause of RUN_RESET starts the next run from the bottom again.
+##
+## Ripping a booster pack open has a placeholder too: a short burst of
+## noise for the tear (PACK_RIP), and a chime as a rare or mythic is
+## revealed.
 
 enum Kind {
 	CARD_LOCKED, ## A card locks into its pocket.
@@ -17,6 +21,9 @@ enum Kind {
 	BINDER_COMPLETE, ## The last pocket in the binder locks in.
 	BINDER_SHELVED, ## A binder stands in its own shelf space.
 	SECTION_COMPLETE, ## A whole shelf is in order and complete.
+	PACK_RIP, ## A booster pack tears open (noise, not a chime).
+	RARE_REVEALED, ## A rare comes up while revealing a pack.
+	MYTHIC_REVEALED, ## A mythic comes up while revealing a pack.
 }
 
 const MIX_RATE := 22050
@@ -28,7 +35,11 @@ const NOTES := {
 	Kind.BINDER_COMPLETE: [[[523.3, 0.0, 0.35], [659.3, 0.1, 0.35], [784.0, 0.2, 0.35], [1046.5, 0.3, 0.45]], 0.9],
 	Kind.BINDER_SHELVED: [[[392.0, 0.0, 0.5], [587.3, 0.0, 0.3]], 0.35],
 	Kind.SECTION_COMPLETE: [[[392.0, 0.0, 0.3], [493.9, 0.12, 0.3], [587.3, 0.24, 0.3], [784.0, 0.36, 0.4]], 1.0],
+	Kind.RARE_REVEALED: [[[784.0, 0.0, 0.35], [1174.7, 0.06, 0.35], [1568.0, 0.12, 0.4]], 0.6],
+	Kind.MYTHIC_REVEALED: [[[587.3, 0.0, 0.35], [880.0, 0.06, 0.35], [1174.7, 0.12, 0.35], [1760.0, 0.18, 0.45]], 0.9],
 }
+## The tear: this long, a burst of noise shaped to crackle.
+const RIP_SECONDS := 0.32
 
 ## The shortest gap between two chimes starting, in seconds.
 const SPACING := 0.07
@@ -117,8 +128,30 @@ static func reset() -> void:
 
 static func stream(kind: Kind) -> AudioStreamWAV:
 	if not _streams.has(kind):
-		_streams[kind] = _synthesise(NOTES[kind][0], NOTES[kind][1])
+		_streams[kind] = _synthesise_tear() if kind == Kind.PACK_RIP else _synthesise(NOTES[kind][0], NOTES[kind][1])
 	return _streams[kind]
+
+
+## Foil tearing: white noise, gated into a crackle of little bursts and
+## swelling then dying away.
+static func _synthesise_tear() -> AudioStreamWAV:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var frames := int(RIP_SECONDS * MIX_RATE)
+	var samples := PackedFloat32Array()
+	samples.resize(frames)
+	var gate := 1.0
+	var last := 0.0
+	for i in frames:
+		var t := float(i) / frames
+		if i % 180 == 0:
+			gate = rng.randf_range(0.2, 1.0)
+		var white := rng.randf_range(-1.0, 1.0)
+		# A little high-pass, so it hisses rather than rumbles.
+		var hiss := white - last * 0.6
+		last = white
+		samples[i] = hiss * gate * sin(PI * pow(t, 0.6)) * 0.5
+	return _wav(samples)
 
 
 static func _synthesise(notes: Array, decay: float) -> AudioStreamWAV:
@@ -134,6 +167,11 @@ static func _synthesise(notes: Array, decay: float) -> AudioStreamWAV:
 			var t := float(i - start) / MIX_RATE
 			var envelope := minf(1.0, t / 0.004) * exp(-t / decay)
 			samples[i] += note[2] * envelope * sin(TAU * note[0] * t)
+	return _wav(samples)
+
+
+static func _wav(samples: PackedFloat32Array) -> AudioStreamWAV:
+	var frames := samples.size()
 	var data := PackedByteArray()
 	data.resize(frames * 2)
 	for i in frames:

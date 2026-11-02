@@ -91,6 +91,22 @@ static func masks(set_data: SetData, thickness: float) -> Array[ImageTexture]:
 	return [_texture(cover), _texture(spine)]
 
 
+## A mask of lettering for any flat panel `size` metres across (a booster
+## pack's wrapper, say), at `density` pixels per metre. Each block is
+## {text, center, box, cap, lines}: the text fitted (fit()) into a box
+## (metres) round its centre (metres from the panel's top left), with a
+## cap height range and at most that many lines.
+static func panel_mask(size: Vector2, blocks: Array, density := DENSITY) -> ImageTexture:
+	# Everything is laid out in metres at the usual DENSITY, so scale the
+	# panel up to draw it finer.
+	var scale := density / DENSITY
+	var image := _blank(size * scale)
+	for block: Dictionary in blocks:
+		var fitted := fit(block.text, block.box * scale, block.cap * scale, block.get("lines", MAX_LINES))
+		_draw_block(image, fitted.lines, fitted.cap, block.center * scale * DENSITY)
+	return _texture(image)
+
+
 ## The set's name as it's lettered: in capitals, or as laid out by hand.
 static func title_text(set_data: SetData) -> String:
 	return TITLE_OVERRIDES.get(set_data.code, set_data.name).to_upper()

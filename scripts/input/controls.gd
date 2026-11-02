@@ -28,6 +28,9 @@ const FLIP_PREVIOUS := &"flip_previous"
 const PAUSE := &"pause"
 const UPGRADES := &"upgrades"
 const RADIO := &"radio"
+## Hold to rip open the booster pack in hand; with cards in hand, show the
+## next one.
+const RIP := &"rip"
 ## Sorceries, one key each, in Magic's colour order (white, blue, black,
 ## red, green): 1-5. Each is added as it's built.
 const CAST_TITHE := &"cast_tithe"
@@ -54,6 +57,7 @@ const ACTIONS := [
 	[PAUSE, "Pause"],
 	[UPGRADES, "Upgrades"],
 	[RADIO, "Radio"],
+	[RIP, "Rip open a pack (hold), or show the next card"],
 	[CAST_TITHE, "Cast Tithe"],
 	[CAST_TELEPORT, "Cast Teleport"],
 	[CAST_DEMONIC_TUTOR, "Cast Demonic Tutor"],
@@ -76,6 +80,7 @@ const DEFAULT_KEYS := {
 	PAUSE: [KEY_ESCAPE],
 	UPGRADES: [KEY_TAB],
 	RADIO: [KEY_Q],
+	RIP: [KEY_SPACE],
 	CAST_TITHE: [KEY_1],
 	CAST_TELEPORT: [KEY_2],
 	CAST_DEMONIC_TUTOR: [KEY_3],

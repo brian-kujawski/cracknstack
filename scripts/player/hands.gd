@@ -61,6 +61,21 @@ extends Node
 ##
 ## While a card is up close, the view holds still and the mouse tilts the card
 ## instead, directly and within a narrow range, like turning it in your hand.
+##
+## Booster packs (a prototype): click the pack stand by the door with empty
+## hands to take the front pack of the column you're aiming at (click it
+## again to put the pack back). F brings the pack up close like a card, and
+## R turns it over. Hold Space (Controls.RIP) to rip it open: the pack
+## trembles, the foil tears slowly across the top, the room behind it goes
+## dark, and with a flash it bursts open and its cards are in your hand, up
+## close, commons on top and the rare slot at the back. They come out the
+## size they were in the pack, a little further off, and come up to full
+## size quickly. Each press of Space then shows the next card, the one on
+## top going to the back; a rare or a mythic comes up with a glow, and once
+## the last card is shown the room comes back. Space once more lowers the
+## stack back into your hand. Let go of Space before the end and the tear stays where it
+## got to, but the room comes back and the pack stops shaking. The cards
+## come out of the pile (see PackContents): no duplicates yet.
 
 signal held_changed(card: CardData, binder: BinderRange)
 ## The card whose details to show: the one in hand, or else a card you're
@@ -73,8 +88,10 @@ signal hint_changed(text: String)
 signal rare_card_found
 ## The shop's radio was clicked (the shop opens the Radio menu).
 signal radio_used
+## A booster pack came to hand (its set's code), or left it ("").
+signal held_pack_changed(set_code: String)
 
-enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO }
+enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACKS }
 
 ## How far from the eye the player can reach, and with Spider Climb.
 @export var reach := 2.6
@@ -144,10 +161,30 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO }
 @export var turn_over_seconds := 0.3
 ## How long turning a card up close sideways (or back upright) takes.
 @export var turn_sideways_seconds := 0.2
+## Booster packs: how long Space is held to rip one open, how long the torn
+## strip takes to fly off, and how long the card on top takes to go to the
+## back when the next one's shown.
+@export var rip_seconds := 1.6
+@export var pack_burst_seconds := 0.45
+@export var reveal_seconds := 0.22
+## How long the cards out of a pack take to come up from the pack's size to
+## full size up close, and how long they wait first.
+@export var emerge_seconds := 0.3
+@export var emerge_delay := 0.06
 
 ## Where the held card sits relative to the camera: low and to the right,
 ## or close up and square to your face (see zoomed_distance).
 const HELD_POSITION := Vector3(0.075, -0.05, -0.2)
+## A pack is held a little lower, being taller than a card.
+const PACK_HELD_POSITION := Vector3(0.075, -0.07, -0.21)
+## How far the pack shakes while being ripped, at the very end (metres and
+## radians); it starts at a sliver of that and grows.
+const RIP_SHAKE := 0.0025
+const RIP_SHAKE_TURN := 0.035
+## How far the tear has run when the pack bursts (the burst does the rest),
+## and how it runs: slowly at first.
+const RIP_TEAR_AT_BURST := 0.85
+const RIP_TEAR_CURVE := 2.2
 const HELD_ROTATION := Vector3(0.12, -0.25, 0.04)
 const ZOOMED_ROTATION := Vector3.ZERO
 ## How much of the screen's height a card up close fills, at any field of view.
@@ -194,6 +231,25 @@ var behind: Array[int] = []
 ## `behind`; the fan shows once they've all arrived.
 var _incoming := 0
 var carried_binder: Binder
+## The booster pack in hand (a prototype), or null.
+var held_pack: BoosterPack
+## The pack stand (the shop sets it).
+var pack_stand: PackDisplay
+## Cards of the pack just ripped still to be shown (after the one on top).
+var revealing := 0
+## Seconds the room stays dim after the last card of a pack is shown, so
+## the rare's glow plays out in the dark.
+const REVEAL_LINGER := 1.6
+var _linger := 0.0
+## Every card of the pack just ripped has been shown, and the next Space
+## lowers the stack.
+var _revealed_all := false
+## How far back toward the pack's size the card up close is (1 just out of
+## the pack, 0 full size); see emerge_seconds.
+var _emerge := 0.0
+## Out of the pack, the cards start this much further off than the pack was
+## up close, so they look as if they fitted inside it.
+const EMERGE_DEPTH := 1.08
 ## The display cabinets (the shop sets them), whose shadow boxes hold the
 ## rare cards.
 var cabinets: Array[DisplayCabinet] = []
@@ -258,6 +314,13 @@ var _shown_set_only := false
 ## refreshes them.
 var _blessed: Binder
 var _blessing_refresh := 0.0
+## Ripping: how far along (0 to 1), and whether Space is being held for it.
+var _rip := 0.0
+var _ripping := false
+## The shake added to the pack's pose while it's ripped.
+var _shake := Transform3D.IDENTITY
+var _pack_effects: PackEffects
+var _pack_rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
@@ -301,6 +364,11 @@ func _ready() -> void:
 		ghost.top_level = true
 		ghost.visible = false
 		add_child(ghost)
+	_pack_effects = PackEffects.new()
+	_pack_effects.name = "PackEffects"
+	add_child(_pack_effects)
+	_pack_effects.setup(_camera)
+	_pack_rng.randomize()
 
 
 func _physics_process(delta: float) -> void:
@@ -317,6 +385,8 @@ func _physics_process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if pile == null or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
+	if event.is_action_released(Controls.RIP):
+		_ripping = false
 	if event is InputEventMouseMotion:
 		if _zoomed:
 			# Hands sees input before the player, so marking it handled keeps
@@ -348,6 +418,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pick_on_release = false
 	elif _placing >= 0.0:
 		return # One thing at a time while putting something down.
+	elif event.is_action_pressed(Controls.RIP):
+		press_rip()
 	elif event.is_action_pressed(Controls.USE_HAND):
 		_use_hand()
 	elif event.is_action_pressed(Controls.TOSS) and held_card_id >= 0:
@@ -359,7 +431,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		flip_pile()
 	elif event.is_action_pressed(Controls.INTERACT):
 		_toggle_binder()
-	elif event.is_action_pressed(Controls.INSPECT) and held_card_id >= 0:
+	elif event.is_action_pressed(Controls.INSPECT) and (held_card_id >= 0 or held_pack != null):
 		_set_zoomed(not _zoomed)
 	elif event.is_action_pressed(Controls.INSPECT) and _hands_empty():
 		view_aimed()
@@ -384,7 +456,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _hands_empty() -> bool:
-	return held_card_id < 0 and carried_binder == null
+	return held_card_id < 0 and carried_binder == null and held_pack == null
 
 
 ## How many cards you can hold, with Harmonize.
@@ -398,7 +470,7 @@ func hand_count() -> int:
 
 ## Whether another card can come into your hand.
 func has_room() -> bool:
-	return carried_binder == null and hand_count() < hand_size()
+	return carried_binder == null and held_pack == null and hand_count() < hand_size()
 
 
 func _gliding() -> bool:
@@ -409,6 +481,14 @@ func _use_hand() -> void:
 	if _aim == Aim.RADIO:
 		radio_used.emit()
 		return
+	if _aim == Aim.PACKS and pack_stand != null:
+		if held_pack != null:
+			_return_pack()
+		elif _hands_empty():
+			_take_pack()
+		return
+	if held_pack != null:
+		return # A pack only goes back on the stand (or gets ripped).
 	if carried_binder != null:
 		if _aim == Aim.SHELF:
 			_shelve_carried_binder()
@@ -1094,6 +1174,8 @@ func _update_aim() -> void:
 		_aim_slot = _aim_cabinet.slot_on_ray(from, to)
 	elif collider is ShopRadio:
 		_aim = Aim.RADIO
+	elif collider is PackDisplay:
+		_aim = Aim.PACKS
 	elif collider is Node and (collider as Node).is_in_group(ReadingCorner.FURNITURE):
 		return # Nothing to do with the armchair, the side table or the lamp.
 	elif collider is ShelfUnit:
@@ -1381,15 +1463,212 @@ func _set_zoom_amount(amount: float) -> void:
 ## quarter turn sideways, so the tilt follows the mouse the same way
 ## whichever side is showing and the quarter turn is always clockwise.
 func _pose_held_card() -> void:
+	if held_pack != null:
+		_pose_pack()
+		return
 	if _gliding() and (held_card_id >= 0 or _viewed_id >= 0):
 		return # Still on its way to the hand (or back home).
-	var zoomed_position := Vector3(0.0, 0.0, -zoomed_distance(_camera.fov, PileWorld.CARD_SIZE.y))
+	var zoomed_position := Vector3(0.0, 0.0, -lerpf(zoomed_distance(_camera.fov, PileWorld.CARD_SIZE.y),
+		zoomed_distance(_camera.fov, BoosterPack.SIZE.y) * EMERGE_DEPTH, _emerge))
 	# Edge on, halfway over, a side of the card comes this much nearer; it
 	# backs off by that much so it stays clear of the near plane.
 	zoomed_position.z -= sin(PI * _turn_amount) * PileWorld.CARD_SIZE.x / 2.0
 	_held_view.position = HELD_POSITION.lerp(zoomed_position, _zoom_amount)
 	_held_view.basis = held_basis(HELD_ROTATION.lerp(ZOOMED_ROTATION, _zoom_amount) \
 			+ Vector3(_tilt.x, _tilt.y, 0.0) * _zoom_amount, _turn_amount, _sideways_amount)
+
+
+## The pack in hand, posed as a held card is (low, or up close and tilted,
+## turned over) and shaken while it's being ripped.
+func _pose_pack() -> void:
+	if _gliding():
+		return # Still on its way to the hand.
+	var zoomed_position := Vector3(0.0, 0.0, -zoomed_distance(_camera.fov, BoosterPack.SIZE.y))
+	zoomed_position.z -= sin(PI * _turn_amount) * BoosterPack.SIZE.x / 2.0
+	held_pack.transform = Transform3D(held_basis(HELD_ROTATION.lerp(ZOOMED_ROTATION, _zoom_amount) \
+			+ Vector3(_tilt.x, _tilt.y, 0.0) * _zoom_amount, _turn_amount, _sideways_amount),
+		PACK_HELD_POSITION.lerp(zoomed_position, _zoom_amount)) * _shake
+
+
+## Takes the front pack of the column you're aiming at off the stand.
+func _take_pack() -> void:
+	var pack := pack_stand.take(_aim_point)
+	if pack == null:
+		return
+	var from := pack.global_transform
+	_hold(-1)
+	pack.get_parent().remove_child(pack)
+	_camera.add_child(pack)
+	held_pack = pack
+	_rip = 0.0
+	_ripping = false
+	_shake = Transform3D.IDENTITY
+	_pose_held_card()
+	var held := pack.transform
+	pack.global_transform = from
+	_glide = Glide.start(pack, from, func() -> Transform3D: return _camera.global_transform * held,
+		glide_seconds(card_glide_seconds))
+	held_pack_changed.emit(pack.set_code)
+
+
+## Puts the pack in hand back on the stand, unless it's started to tear.
+func _return_pack() -> void:
+	var pack := held_pack
+	if pack.tear > 0.0:
+		return
+	var from := pack.global_transform
+	held_pack = null
+	_hold(-1)
+	pack_stand.give_back(pack, _aim_point)
+	var slot := pack.global_transform
+	pack.global_transform = from
+	_glide = Glide.start(pack, from, func() -> Transform3D: return slot, glide_seconds(card_glide_seconds))
+	held_pack_changed.emit("")
+
+
+## Space: with a pack in hand, start ripping it; once a pack's cards have
+## all been shown, lower the stack into your hand; otherwise show the next
+## card.
+func press_rip() -> void:
+	if held_pack != null:
+		_start_ripping()
+	elif _revealed_all and _zoomed:
+		_revealed_all = false
+		_set_zoomed(false)
+	else:
+		reveal_next()
+
+
+## Space on a pack in hand: start ripping, bringing it up close if it isn't.
+func _start_ripping() -> void:
+	_ripping = true
+	if not _zoomed:
+		_set_zoomed(true)
+
+
+## How far the tear has run when ripping's `amount` of the way along:
+## slowly at first, and not all the way (the burst finishes it).
+static func rip_tear(amount: float) -> float:
+	return pow(clampf(amount, 0.0, 1.0), RIP_TEAR_CURVE) * RIP_TEAR_AT_BURST
+
+
+func _process(delta: float) -> void:
+	if _pack_effects == null:
+		return
+	if _ripping and (held_pack == null or not Input.is_action_pressed(Controls.RIP)):
+		_ripping = false
+	if _ripping and not _gliding():
+		_rip = minf(1.0, _rip + delta / rip_seconds)
+		held_pack.set_tear(rip_tear(_rip))
+		# It shakes harder the further it's torn, quick and uneven.
+		var strength := lerpf(0.08, 1.0, _rip * _rip)
+		var t := Time.get_ticks_msec() / 1000.0
+		_shake = Transform3D(
+			Basis.from_euler(Vector3(sin(t * 61.0), sin(t * 47.0 + 1.3), sin(t * 53.0 + 2.1)) * RIP_SHAKE_TURN * strength),
+			Vector3(sin(t * 71.0), sin(t * 67.0 + 0.7), 0.0) * RIP_SHAKE * strength)
+		_pose_held_card()
+		if _rip >= 1.0:
+			rip_pack()
+	elif _shake != Transform3D.IDENTITY:
+		_shake = Transform3D.IDENTITY
+		_pose_held_card()
+	# The room dims as the pack tears, stays dim while its cards are shown,
+	# and comes back once they all have been (or the hand's lowered).
+	if not _zoomed:
+		revealing = 0
+		_linger = 0.0
+		_revealed_all = false
+	_linger = maxf(_linger - delta, 0.0)
+	var veil := 0.0
+	if _ripping:
+		veil = smoothstep(0.0, 1.0, _rip)
+	elif revealing > 0 or _linger > 0.0:
+		veil = 1.0
+	_pack_effects.set_veil(veil)
+
+
+## Tears the pack in hand open with a flash: its cards come out of the pile
+## into your hand, up close, in the order they're revealed. Returns them.
+func rip_pack() -> Array[int]:
+	var pack := held_pack
+	if pack == null:
+		return []
+	var ids := PackContents.draw(pile, pack.set_code, _pack_rng)
+	for id in ids:
+		pile.pick_up(id)
+	held_pack = null
+	_ripping = false
+	_rip = 0.0
+	_shake = Transform3D.IDENTITY
+	# The pack's gone in the flash, but for the torn strip flying off.
+	pack.get_node("Body").visible = false
+	pack.burst(pack_burst_seconds)
+	pack.create_tween().tween_callback(pack.queue_free).set_delay(pack_burst_seconds)
+	_pack_effects.flash()
+	FeedbackSounds.play(pile, _camera.global_position, FeedbackSounds.Kind.PACK_RIP)
+	held_pack_changed.emit("")
+	_hold(-1)
+	if ids.is_empty():
+		return ids
+	behind.assign(ids.slice(1))
+	_hold(ids[0])
+	for id in ids:
+		seen_cards[id] = true
+	_zoomed = true
+	_emerge = 1.0
+	_set_zoom_amount(1.0)
+	var emerge := create_tween()
+	emerge.tween_method(_set_emerge, 1.0, 0.0, emerge_seconds).set_delay(emerge_delay) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	revealing = ids.size() - 1
+	_revealed_all = revealing == 0
+	_reveal_flourish(ids[0])
+	return ids
+
+
+func _set_emerge(amount: float) -> void:
+	_emerge = amount
+	_pose_held_card()
+
+
+## Space with cards in hand: the one on top slides off to the back and the
+## next comes up. While a pack's being revealed, a rare or a mythic comes
+## up with a glow.
+func reveal_next() -> void:
+	if behind.is_empty() or held_card_id < 0:
+		return
+	var outgoing := _card_copy(held_card_id)
+	outgoing.reparent(_camera, false)
+	var start := _held_view.transform.translated_local(Vector3(0, 0, 0.001))
+	var end := start.translated_local(Vector3(0.09, -0.05, -0.03)).rotated_local(Vector3.BACK, -0.5).scaled_local(Vector3.ONE * 0.7)
+	outgoing.transform = start
+	var tween := outgoing.create_tween()
+	tween.tween_method(func(t: float) -> void: outgoing.transform = start.interpolate_with(end, t), 0.0, 1.0,
+		glide_seconds(reveal_seconds)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tween.tween_callback(outgoing.queue_free)
+	var zoomed := _zoomed
+	cycle_hand(1)
+	if zoomed:
+		_zoomed = true
+		_set_zoom_amount(1.0)
+	_pack_effects.end_glow()
+	if revealing > 0:
+		revealing -= 1
+		_reveal_flourish(held_card_id)
+		if revealing == 0:
+			_linger = REVEAL_LINGER
+			_revealed_all = true
+
+
+## A rare or mythic just revealed glows (gold or orange-red) and chimes.
+func _reveal_flourish(id: int) -> void:
+	match CardDatabase.get_card(id).rarity:
+		CardData.Rarity.MYTHIC:
+			_pack_effects.glow(PackEffects.MYTHIC_GLOW, _held_view.position)
+			FeedbackSounds.play(pile, _camera.global_position, FeedbackSounds.Kind.MYTHIC_REVEALED)
+		CardData.Rarity.RARE:
+			_pack_effects.glow(PackEffects.RARE_GLOW, _held_view.position)
+			FeedbackSounds.play(pile, _camera.global_position, FeedbackSounds.Kind.RARE_REVEALED)
 
 
 ## The held card's orientation: `euler` (as Node3D.rotation) with the card
