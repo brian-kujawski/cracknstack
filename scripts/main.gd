@@ -20,6 +20,10 @@ const SAVING_ICON := "res://assets/ui/saving_icon.png"
 const SAVING_ICON_SIZE := Vector2(36, 50)
 const SAVING_SHOWN := 1.0
 const SAVING_TURN := 0.6
+## Where Card Shop orders turn up for now (until deliveries come in the
+## morning): floor spots just inside the door, on its left, filled in turn.
+const DELIVERY_SPOTS := [Vector2(5.25, 7.15), Vector2(4.85, 7.15), Vector2(5.25, 6.75), Vector2(4.85, 6.75),
+	Vector2(4.45, 7.15), Vector2(4.45, 6.75)]
 const SORCERIES := [
 	["Tithe", Controls.CAST_TITHE],
 	["Teleport", Controls.CAST_TELEPORT],
@@ -48,6 +52,10 @@ var _falling := []
 var _saving_icon: TextureRect
 var _saving_tween: Tween
 var _debug_rng := RandomNumberGenerator.new()
+## The laptop in the room, and its screen (the Card Shop and the rest).
+var laptop: Laptop
+var laptop_screen: LaptopScreen
+var _deliveries := 0
 
 
 func _ready() -> void:
@@ -64,6 +72,7 @@ func _ready() -> void:
 		shelve_binders(_pile, _shelves())
 	else:
 		_falling = ShopSave.restore(saved, _pile, _hands, $Player, _shelves(), _store.floor_bounds(), _store.obstacles, PILE_SEED)
+	laptop = place_laptop(_pile, saved.get("laptop"))
 	_hands.pack_stand = _store.pack_stand
 	_store.pack_stand.stock()
 	print("Shop %s: %d cards in %d ms" % ["built" if saved.is_empty() else "loaded", Collection.count(),
@@ -102,6 +111,15 @@ func _ready() -> void:
 		_show_notice("New on the radio: %s" % Radio.songs[index].title))
 	Settings.changed.connect(_apply_brightness.unbind(1))
 	_apply_brightness()
+	laptop_screen = LaptopScreen.new()
+	laptop_screen.name = "LaptopScreen"
+	add_child(laptop_screen)
+	laptop_screen.day = _day
+	laptop_screen.stats = laptop_stats
+	laptop_screen.ordered.connect(deliver)
+	_hands.laptop_used.connect(laptop_screen.open.bind(false))
+	if SceneFlow.take_opening_request():
+		laptop_screen.open(true)
 
 
 func _exit_tree() -> void:
@@ -130,6 +148,50 @@ static func shelve_binders(pile: PileWorld, shelves: Array) -> void:
 	var unplaced := ShelfUnit.shelve_all(pile.binders, shelves)
 	if not unplaced.is_empty():
 		pile.scatter_binders(unplaced, PILE_SEED)
+
+
+## The laptop where a save left it (a global pose), or else on its table.
+## Returns it.
+static func place_laptop(pile: PileWorld, saved_pose = null) -> Laptop:
+	var new_laptop := Laptop.new()
+	new_laptop.build()
+	pile.add_child(new_laptop)
+	if saved_pose is Transform3D:
+		new_laptop.global_transform = saved_pose
+	else:
+		var spot: Array = Laptop.start_spot()
+		var at: Vector2 = spot[0]
+		new_laptop.global_transform = pile.global_transform * Transform3D(Basis(Vector3.UP, spot[1]),
+			Vector3(at.x, preload("res://scripts/store/store_builder.gd").TABLE_SIZE.y, at.y))
+	return new_laptop
+
+
+## What the laptop's My Collection shows (LaptopScreen.stats).
+func laptop_stats() -> Dictionary:
+	var binders := []
+	for binder in _pile.binders:
+		var code := binder.binder.set_code
+		if Progression.is_set_unlocked(code):
+			binders.append([code, binder.contents.locked_count, binder.contents.capacity()])
+	return {"organized": cards_organized(_pile.binders, _store.cabinets), "pockets": pockets(_pile.binders),
+		"mana": Progression.mana, "binders": binders}
+
+
+## A Card Shop order (LaptopScreen.ordered) turns up inside the door at
+## once, for now: kind "pack", "booster_box" or "bulk_box", of set `code`.
+## Returns what arrived.
+func deliver(kind: String, code: String) -> Node3D:
+	var spot: Vector2 = DELIVERY_SPOTS[_deliveries % DELIVERY_SPOTS.size()]
+	_deliveries += 1
+	# Turned toward where you stand as you come in, to the right.
+	var yaw := PI / 2 + _debug_rng.randf_range(-0.3, 0.3)
+	if kind == "pack":
+		var pack := BoosterPack.new()
+		pack.setup(code)
+		pack.lie(_pile, Vector3(spot.x, _pile.height_at(spot), spot.y), yaw)
+		return pack
+	var box_kind := ProductBox.Kind.BOOSTER if kind == "booster_box" else ProductBox.Kind.BULK
+	return place_box(_pile, box_kind, code, Vector3(spot.x, 0.0, spot.y), yaw)
 
 
 ## Developer only (pause menu), until buying exists: a booster box of a

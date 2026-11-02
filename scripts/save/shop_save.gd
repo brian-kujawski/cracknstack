@@ -128,6 +128,7 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 	return {
 		"copies": [Collection.card_ids(), Collection.all_flags()],
 		"products": products,
+		"laptop": snapshot_laptop(pile, hands, player),
 		"cards": pile.snapshot_cards(),
 		"falling": in_air,
 		"binders": binders,
@@ -201,6 +202,7 @@ static func finish(taken: Dictionary) -> Dictionary:
 	return {
 		"copies": copy_table(card_ids, taken.copies[1]),
 		"products": taken.get("products", []),
+		"laptop": taken.get("laptop"),
 		"cards": {"where": where, "positions": positions, "rotations": rotations, "face_up": face_up},
 		"falling": falling,
 		"binders": binders,
@@ -318,17 +320,33 @@ static func snapshot_products(pile: PileWorld, hands: Hands, player_node: Node) 
 	for child in pile.get_children():
 		if child.is_queued_for_deletion():
 			continue
+		if child is Laptop:
+			continue
 		if child is ProductBox:
 			products.append([_box_kind(child), child.set_code, child.global_transform])
 		elif child is BoosterPack and child.is_lying():
 			products.append(["pack", child.set_code, child.global_transform])
 	var feet := player.global_position - player.global_basis.z * 0.5
 	feet.y = 0.0
-	if hands.held_box != null:
+	if hands.held_box != null and not hands.held_box is Laptop:
 		products.append([_box_kind(hands.held_box), hands.held_box.set_code, Transform3D(player.global_basis, feet)])
 	if hands.held_pack != null and hands.held_pack.tear <= 0.0:
 		products.append(["pack", hands.held_pack.set_code, BoosterPack.lying_pose(feet, player.global_rotation.y)])
 	return products
+
+
+## Where the laptop is (a global pose), or null if it's nowhere (then a load
+## puts it back on its table). In hand, it's saved at your feet, like a box.
+static func snapshot_laptop(pile: PileWorld, hands: Hands, player_node: Node):
+	var player := player_node as Node3D
+	if hands.held_box is Laptop:
+		var feet := player.global_position - player.global_basis.z * 0.5
+		feet.y = 0.0
+		return Transform3D(player.global_basis, feet)
+	for child in pile.get_children():
+		if child is Laptop and not child.is_queued_for_deletion():
+			return child.global_transform
+	return null
 
 
 static func _box_kind(box: ProductBox) -> String:

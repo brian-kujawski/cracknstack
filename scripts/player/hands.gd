@@ -90,6 +90,8 @@ signal rare_card_found
 signal radio_used
 ## A booster pack came to hand (its set's code), or left it ("").
 signal held_pack_changed(set_code: String)
+## E aimed at the laptop, or with it in hand: open the laptop screen.
+signal laptop_used
 
 enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACKS, BOX, LOOSE_PACK }
 
@@ -435,6 +437,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		toss_binder()
 	elif event.is_action_pressed(Controls.TOSS):
 		flip_pile()
+	elif event.is_action_pressed(Controls.INTERACT) and _laptop_at_hand() != null:
+		laptop_used.emit()
 	elif event.is_action_pressed(Controls.INTERACT):
 		_toggle_binder()
 	elif event.is_action_pressed(Controls.INSPECT) and (held_card_id >= 0 or held_pack != null):
@@ -459,6 +463,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		cast_demonic_tutor()
 	elif event.is_action_pressed(Controls.CAST_CHAIN_LIGHTNING):
 		Progression.arm("Chain Lightning")
+
+
+## The laptop, if it's in hand or you're aiming at it; else null.
+func _laptop_at_hand() -> Laptop:
+	if held_box is Laptop:
+		return held_box
+	if _aim == Aim.BOX and _aim_box is Laptop:
+		return _aim_box
+	return null
 
 
 func _hands_empty() -> bool:
@@ -1256,6 +1269,8 @@ func _update_hint() -> void:
 			text = _cabinet_hint()
 		Aim.RADIO:
 			text = _radio_hint()
+	if _laptop_at_hand() != null:
+		text = "%s: Use Laptop" % _key(Controls.INTERACT)
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
@@ -1580,9 +1595,11 @@ func _return_pack() -> void:
 ## all been shown, lower the stack into your hand; otherwise show the next
 ## card.
 func press_rip() -> void:
+	if held_box is Laptop:
+		return
 	if held_box != null:
 		open_box(held_box)
-	elif _hands_empty() and _aim == Aim.BOX:
+	elif _hands_empty() and _aim == Aim.BOX and not _aim_box is Laptop:
 		open_box(_aim_box)
 	elif held_pack != null:
 		_start_ripping()
@@ -1669,6 +1686,8 @@ func put_down_pack() -> void:
 ## table or the floor. Opening a set's product unlocks the set (for now).
 ## Returns the packs tipped out, or the copies made.
 func open_box(box: ProductBox) -> Array:
+	if box is Laptop:
+		return [] # The laptop isn't product; E uses it.
 	var at := box.global_position
 	if box == held_box:
 		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:

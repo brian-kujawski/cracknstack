@@ -1,7 +1,9 @@
 extends CanvasLayer
 ## Moving between the title screen and the shop (autoload: SceneFlow). Owns a
 ## black screen above everything else that survives scene changes, and does
-## the fades: New Game fades to black, loads the shop behind it and fades in;
+## the fades: New Game fades to black, shows the Fan Content disclaimer,
+## loads the shop behind it and fades in on the laptop screen, whose welcome
+## message starts the game (LaptopScreen);
 ## loading a save (Continue, Load) does the same without the intro.
 ## Quit to Menu fades back to the title scene, which then opens straight on
 ## the menu; finishing the game does too, with the credits rolling over it.
@@ -22,7 +24,8 @@ const ENDING_FADE := 2.5
 ## How far into the fade-in the player can look and move.
 const CONTROL_AT := 0.5
 ## The prologue: pages of text shown on the black screen before the
-## disclaimer, one after another. Empty until the intro text is written.
+## disclaimer, one after another. Empty: the story now opens on the laptop
+## (LaptopText), and this is only kept for a page that must come first.
 const PROLOGUE: Array[String] = []
 ## Each intro page fades in, stays at least INTRO_MIN seconds (then any key
 ## or click moves on) and at most INTRO_HOLD, and fades out.
@@ -51,6 +54,8 @@ var _started := false
 var _menu_requested := false
 ## Set after the ending, so the title rolls the credits over its menu.
 var _credits_requested := false
+## Set by New Game, so the shop opens on the laptop's welcome.
+var _opening_requested := false
 
 
 func _ready() -> void:
@@ -127,7 +132,8 @@ func new_game() -> void:
 		await _show_page(page)
 	Progression.reset()
 	Saves.begin_new_game()
-	await _enter_shop(true)
+	_opening_requested = true
+	await _enter_shop(true, true)
 
 
 ## Loads a save (Continue, Load Game, or Load from the pause menu): fade to
@@ -142,8 +148,9 @@ func load_game(slot: String) -> void:
 
 ## Behind the black screen: loads the shop (which takes a waiting save, if
 ## there is one), then fades in. A new game writes its first autosave once
-## the shop is built.
-func _enter_shop(autosave: bool) -> void:
+## the shop is built. With `opening`, the shop has opened on the laptop
+## screen: the game stays stopped, with the mouse free, until it's closed.
+func _enter_shop(autosave: bool, opening := false) -> void:
 	get_tree().paused = false
 	get_tree().change_scene_to_file(SHOP_SCENE)
 	# The shop builds its store and pile in _ready, so the screen stays black
@@ -156,8 +163,11 @@ func _enter_shop(autosave: bool) -> void:
 		await get_tree().process_frame
 	_fade_to(0.0, FADE_IN)
 	await get_tree().create_timer(FADE_IN * CONTROL_AT, true, false, true).timeout
-	get_tree().paused = false
 	_busy = false
+	if opening:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		return
+	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -198,6 +208,13 @@ func play_ending() -> void:
 func take_credits_request() -> bool:
 	var requested := _credits_requested
 	_credits_requested = false
+	return requested
+
+
+## True once after New Game: the shop opens on the laptop's welcome.
+func take_opening_request() -> bool:
+	var requested := _opening_requested
+	_opening_requested = false
 	return requested
 
 
