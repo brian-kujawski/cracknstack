@@ -75,7 +75,7 @@ extends Node
 ## the last card is shown the room comes back. Space once more lowers the
 ## stack back into your hand. Let go of Space before the end and the tear stays where it
 ## got to, but the room comes back and the pack stops shaking. The cards
-## come out of the pile (see PackContents): no duplicates yet.
+## are new copies (see PackContents), so they can be cards you already have.
 
 signal held_changed(card: CardData, binder: BinderRange)
 ## The card whose details to show: the one in hand, or else a card you're
@@ -253,7 +253,7 @@ const EMERGE_DEPTH := 1.08
 ## The display cabinets (the shop sets them), whose shadow boxes hold the
 ## rare cards.
 var cabinets: Array[DisplayCabinet] = []
-## Every card you've held at least once, by id. With Remember the Fallen
+## Every copy you've held at least once, by copy id. With Remember the Fallen
 ## you know one of these wherever you see it again.
 var seen_cards := {}
 
@@ -576,9 +576,9 @@ func _try_file_held_card() -> bool:
 ## sends it to its own shadow box, wherever that is. Returns false if
 ## that's not what the click does.
 func _try_display_held_card() -> bool:
-	if _aim != Aim.CABINET or not CardDatabase.is_rare(held_card_id):
+	if _aim != Aim.CABINET or not Collection.is_rare(held_card_id):
 		return false
-	var number := CardDatabase.get_card(held_card_id).collector_number
+	var number := Collection.card(held_card_id).collector_number
 	for cabinet in cabinets:
 		var slot := cabinet.slot_for(number)
 		if slot < 0 or cabinet.displayed[slot] >= 0:
@@ -600,8 +600,8 @@ func _display(cabinet: DisplayCabinet, id: int) -> void:
 	Progression.earn(Progression.CARD_LOCKED)
 	Progression.card_filed_by_hand()
 	var all := cabinets.all(func(c: DisplayCabinet) -> bool: return c.is_complete())
-	Achievements.rare_card_displayed(CardDatabase.get_card(id).collector_number, all)
-	var slot := cabinet.slot_for(CardDatabase.get_card(id).collector_number)
+	Achievements.rare_card_displayed(Collection.card(id).collector_number, all)
+	var slot := cabinet.slot_for(Collection.card(id).collector_number)
 	FeedbackSounds.play(pile, cabinet.slot_pose(slot).origin,
 		FeedbackSounds.Kind.BINDER_COMPLETE if all else FeedbackSounds.Kind.CARD_LOCKED)
 
@@ -615,7 +615,7 @@ func shunt_pocket(binder: Binder) -> int:
 	var rank := Progression.rank("Shunt")
 	if rank == 0 or held_card_id < 0 or (rank < 3 and not binder.is_open()):
 		return -1
-	var card := CardDatabase.get_card(held_card_id)
+	var card := Collection.card(held_card_id)
 	if card.set_code != binder.binder.set_code or not binder.binder.contains(card.collector_number):
 		return -1
 	var pocket := card.collector_number - binder.binder.first
@@ -650,7 +650,7 @@ func brainstorm(binder: Binder) -> Array[int]:
 	missing.shuffle()
 	missing = missing.slice(0, BRAINSTORM_CARDS[rank - 1])
 	for id in missing:
-		var pocket := CardDatabase.get_card(id).collector_number - binder.binder.first
+		var pocket := Collection.card(id).collector_number - binder.binder.first
 		var from := pile.card_pose(id)
 		pile.pick_up(id)
 		_fly_to_pocket(id, from, binder, pocket, func() -> void:
@@ -662,7 +662,7 @@ func brainstorm(binder: Binder) -> Array[int]:
 ## Lightning if it's armed, and the card's achievement if it has one.
 func _locked_in(binder: Binder, pocket: int) -> void:
 	var page := pocket / BinderLayout.POCKETS_PER_PAGE
-	Achievements.card_filed(CardDatabase.get_card(binder.contents.card_at(pocket)))
+	Achievements.card_filed(Collection.card(binder.contents.card_at(pocket)))
 	if Progression.fire("Chain Lightning"):
 		_strike_chain_lightning(binder, page)
 	var sound := FeedbackSounds.Kind.CARD_LOCKED
@@ -680,9 +680,10 @@ func _strike_chain_lightning(binder: Binder, page: int) -> Array[int]:
 	var first := page * BinderLayout.POCKETS_PER_PAGE
 	var missing: Array[int] = []
 	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
+	var near := pile.to_local(binder.global_position)
 	for pocket in range(first, mini(first + BinderLayout.POCKETS_PER_PAGE, binder.contents.capacity())):
-		var id := cards[binder.binder.first + pocket - 1].id
-		if not binder.contents.is_locked(pocket) and pile.is_lying(id):
+		var id := pile.lying_copy(cards[binder.binder.first + pocket - 1].id, near)
+		if not binder.contents.is_locked(pocket) and id >= 0:
 			missing.append(id)
 	missing.shuffle()
 	var count: int = CHAIN_LIGHTNING_CARDS[maxi(Progression.rank("Chain Lightning"), 1) - 1]
@@ -714,13 +715,17 @@ func _update_blessing(delta: float) -> void:
 
 
 ## The cards a binder still needs that are lying about, on the floor or a
-## table.
+## table: for each empty pocket, the copy of its card lying nearest the
+## binder.
 func _missing_lying(binder: Binder) -> Array[int]:
 	var missing: Array[int] = []
 	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
+	var near := pile.to_local(binder.global_position)
 	for pocket in binder.contents.capacity():
-		var id := cards[binder.binder.first + pocket - 1].id
-		if binder.contents.card_at(pocket) < 0 and pile.is_lying(id):
+		if binder.contents.card_at(pocket) >= 0:
+			continue
+		var id := pile.lying_copy(cards[binder.binder.first + pocket - 1].id, near)
+		if id >= 0:
 			missing.append(id)
 	return missing
 
@@ -753,18 +758,20 @@ func cast_tithe() -> Array[int]:
 func cast_abundance() -> Array[int]:
 	if not Progression.can_cast("Abundance") or held_card_id < 0 or not has_room() or _gliding():
 		return []
-	if CardDatabase.is_rare(held_card_id):
+	if Collection.is_rare(held_card_id):
 		return [] # Rare cards come one at a time.
-	var top := CardDatabase.get_card(held_card_id)
+	var top := Collection.card(held_card_id)
 	var cards := CardDatabase.cards_in_set(top.set_code)
 	var brought: Array[int] = []
 	var poses := []
 	for number in range(top.collector_number + 1, cards.size() + 1):
 		if hand_count() + brought.size() >= hand_size():
 			break
-		var id := cards[number - 1].id
-		var binder := pile.binder_for(id)
+		var binder := pile.binder_for_card(cards[number - 1])
 		if binder != null and binder.contents.is_locked(number - binder.binder.first):
+			continue
+		var id := pile.copy_to_take(cards[number - 1].id, pile.to_local(_camera.global_position))
+		if id < 0:
 			continue
 		var from = pile.take_from_anywhere(id)
 		if from != null:
@@ -805,7 +812,7 @@ func cast_teleport() -> bool:
 	var sent: Array[int] = []
 	for id in hand:
 		var binder := pile.binder_for(id)
-		if binder != null and binder.contents.card_at(CardDatabase.get_card(id).collector_number - binder.binder.first) < 0:
+		if binder != null and binder.contents.card_at(Collection.card(id).collector_number - binder.binder.first) < 0:
 			sent.append(id)
 	if sent.is_empty():
 		return false
@@ -813,7 +820,7 @@ func cast_teleport() -> bool:
 	var from := _held_view.global_transform
 	for id in sent:
 		var binder := pile.binder_for(id)
-		var pocket := CardDatabase.get_card(id).collector_number - binder.binder.first
+		var pocket := Collection.card(id).collector_number - binder.binder.first
 		if id == held_card_id:
 			_release_top()
 		else:
@@ -856,7 +863,10 @@ func cast_demonic_tutor() -> bool:
 			or _aim_binder.contents.card_at(_aim_pocket) >= 0:
 		return false
 	var binder := _aim_binder.binder
-	var id := CardDatabase.cards_in_set(binder.set_code)[binder.first + _aim_pocket - 1].id
+	var id := pile.copy_to_take(CardDatabase.cards_in_set(binder.set_code)[binder.first + _aim_pocket - 1].id,
+		pile.to_local(_camera.global_position))
+	if id < 0:
+		return false
 	var from = pile.take_from_anywhere(id)
 	if from == null:
 		return false
@@ -1219,7 +1229,7 @@ func _update_hint() -> void:
 	var set_only := id < 0 and shown_set_card_id() >= 0
 	if set_only:
 		id = shown_set_card_id()
-	var shown: CardData = CardDatabase.get_card(id) if id >= 0 else null
+	var shown: CardData = Collection.card(id) if id >= 0 else null
 	if shown != _shown_card or set_only != _shown_set_only:
 		_shown_card = shown
 		_shown_set_only = set_only
@@ -1321,7 +1331,7 @@ func _pocket_hint(binder: Binder, pocket: int) -> String:
 	var number := "%s #%s" % [set_data.code, set_data.number_text(binder.binder.first + pocket)]
 	if not binder.contents.is_locked(pocket):
 		return number + ": ???"
-	return "%s\n%s" % [number, CardDatabase.get_card(binder.contents.card_at(pocket)).name]
+	return "%s\n%s" % [number, Collection.card(binder.contents.card_at(pocket)).name]
 
 
 func _toss() -> void:
@@ -1587,15 +1597,15 @@ func _process(delta: float) -> void:
 	_pack_effects.set_veil(veil)
 
 
-## Tears the pack in hand open with a flash: its cards come out of the pile
-## into your hand, up close, in the order they're revealed. Returns them.
+## Tears the pack in hand open with a flash: its cards (new copies, see
+## PackContents) are in your hand, up close, in the order they're revealed.
+## Returns them.
 func rip_pack() -> Array[int]:
 	var pack := held_pack
 	if pack == null:
 		return []
-	var ids := PackContents.draw(pile, pack.set_code, _pack_rng)
-	for id in ids:
-		pile.pick_up(id)
+	var ids: Array[int] = []
+	ids.assign(Collection.add_all(PackContents.draw(pack.set_code, _pack_rng)))
 	held_pack = null
 	_ripping = false
 	_rip = 0.0
@@ -1662,7 +1672,7 @@ func reveal_next() -> void:
 
 ## A rare or mythic just revealed glows (gold or orange-red) and chimes.
 func _reveal_flourish(id: int) -> void:
-	match CardDatabase.get_card(id).rarity:
+	match Collection.card(id).rarity:
 		CardData.Rarity.MYTHIC:
 			_pack_effects.glow(PackEffects.MYTHIC_GLOW, _held_view.position)
 			FeedbackSounds.play(pile, _camera.global_position, FeedbackSounds.Kind.MYTHIC_REVEALED)
@@ -1745,7 +1755,7 @@ func _finish_viewing() -> void:
 ## Puts card `id` on top of the hand, the old top card going just behind it
 ## (see _hold for `from`, `seconds` and `lift`).
 func _take_in_hand(id: int, from = null, seconds := -1.0, lift := 0.0) -> void:
-	var first_rare := CardDatabase.is_rare(id) and not seen_cards.keys().any(CardDatabase.is_rare)
+	var first_rare := Collection.is_rare(id) and not seen_cards.keys().any(Collection.is_rare)
 	if first_rare:
 		rare_card_found.emit.call_deferred()
 	if held_card_id >= 0:
@@ -1802,4 +1812,4 @@ func _hold(id: int, from = null, seconds := -1.0, lift := 0.0) -> void:
 		return
 	seen_cards[id] = true
 	CardView.apply(_held_view.material_override, id)
-	held_changed.emit(CardDatabase.get_card(id), null)
+	held_changed.emit(Collection.card(id), null)

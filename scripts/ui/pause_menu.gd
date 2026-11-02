@@ -73,7 +73,8 @@ func _add_button(column: VBoxContainer, found: Dictionary, text: String, enabled
 
 
 ## Developer only: jump straight to noon or midnight to check the lighting,
-## play the ending without filing every card, or switch the floor between
+## play the ending without filing every card, get a booster box or a bulk
+## box (until there's buying), or switch the floor between
 ## near faces as normal, far faces only and late near faces tinted red
 ## (NearFaces.DebugView), to compare them in play.
 func _add_time_buttons(column: VBoxContainer) -> void:
@@ -84,6 +85,14 @@ func _add_time_buttons(column: VBoxContainer) -> void:
 	column.add_child(row)
 	for entry in [["Set Noon", _set_hour.bind(12.0)], ["Set Midnight", _set_hour.bind(0.0)], ["Play Ending", SceneFlow.play_ending]]:
 		_add_debug_button(row, entry[0]).pressed.connect(entry[1])
+	# Product until buying exists (card-copies-plan.md): a booster box on the
+	# pack stand, or a bulk box tipped out in front of you.
+	for entry in [["Booster Box", "debug_booster_box"], ["Bulk Box", "debug_bulk_box"]]:
+		var method: String = entry[1]
+		_add_debug_button(row, entry[0]).pressed.connect(func() -> void:
+			if Saves.shop != null:
+				Saves.shop.call(method)
+				resume())
 	var faces := _add_debug_button(row, FACE_VIEWS[NearFaces.debug_view])
 	faces.pressed.connect(func() -> void:
 		NearFaces.debug_view = (NearFaces.debug_view + 1) % FACE_VIEWS.size() as NearFaces.DebugView

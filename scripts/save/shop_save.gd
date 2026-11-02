@@ -4,13 +4,15 @@ extends RefCounted
 ## save-system-plan.md §4). Everything needed to put the shop back exactly
 ## as it was, and nothing that can be rebuilt from game data.
 ##
-## Cards are never saved by id: an id is only a card's place in cards.json,
-## which shifts with every import. A save lists the sets it was made with
-## ("sets": codes and card counts, in shelf order) and stores every per-card
-## value in that order, set by set, by collector number. Loading maps each
-## entry back to whatever id that card has now, so a save survives data
-## changes (§7.2): cards that are gone are dropped, cards the save doesn't
-## know are scattered on the pile, and so are binders for new sets.
+## What's saved is the copies (Collection: every physical card you own),
+## in copy id order, each as its set code and collector number and its
+## flags, never by card id: a card id is only a card's place in cards.json,
+## which shifts with every import (card-copies-plan.md). Every per-copy
+## value (where it lies, which pocket holds it) is by its place in that
+## list. Loading makes the copies again, in the same order, from whatever
+## card each is now, so a save survives data changes (§7.2): copies of
+## cards that are gone are dropped, and binders for new sets go on the
+## shelf.
 ##
 ## Things in motion are saved where they'd end up: a card on its way into a
 ## pocket is saved in it, and anything else in the air (tossed, flipped,
@@ -19,36 +21,40 @@ extends RefCounted
 ## loads. A tossed binder is saved lying where it would come down. Any
 ## card the save doesn't place anywhere falls near the player.
 
-## The current card ids in save order: sets in shelf order and the rare
-## cards last, then by collector number.
-static func card_order() -> PackedInt32Array:
-	var order := PackedInt32Array()
-	for set_data in CardDatabase.all_sets():
-		for card in CardDatabase.cards_in_set(set_data.code):
-			order.append(card.id)
-	return order
-
-
-## The sets a save is made with: codes and card counts, in save order.
-static func set_table() -> Dictionary:
+## The copies as a save lists them: card ids and flags by copy id (as
+## Collection.card_ids() and all_flags()) become a table of set codes and,
+## per copy, its set's place in that table, its collector number and flags.
+static func copy_table(card_ids: PackedInt32Array, flags: PackedByteArray) -> Dictionary:
 	var codes := PackedStringArray()
-	var counts := PackedInt32Array()
-	for set_data in CardDatabase.all_sets():
-		codes.append(set_data.code)
-		counts.append(CardDatabase.cards_in_set(set_data.code).size())
-	return {"codes": codes, "counts": counts}
+	var index_of := {}
+	var sets := PackedInt32Array()
+	var numbers := PackedInt32Array()
+	sets.resize(card_ids.size())
+	numbers.resize(card_ids.size())
+	for i in card_ids.size():
+		var card := CardDatabase.get_card(card_ids[i])
+		if not index_of.has(card.set_code):
+			index_of[card.set_code] = codes.size()
+			codes.append(card.set_code)
+		sets[i] = index_of[card.set_code]
+		numbers[i] = card.collector_number
+	return {"sets": codes, "set": sets, "number": numbers, "flags": flags}
 
 
-## For each entry of a save made with `table`, the card id it is now, or -1
-## if that card is gone.
-static func id_map(table: Dictionary) -> PackedInt32Array:
+## Makes the copies a save lists (copy_table) again, in order, in an emptied
+## Collection. Returns, for each saved copy, its copy id now, or -1 if its
+## card is gone from the data.
+static func make_copies(table: Dictionary) -> PackedInt32Array:
+	Collection.reset()
+	var codes: PackedStringArray = table.get("sets", PackedStringArray())
+	var sets: PackedInt32Array = table.get("set", PackedInt32Array())
+	var numbers: PackedInt32Array = table.get("number", PackedInt32Array())
+	var flags: PackedByteArray = table.get("flags", PackedByteArray())
 	var ids := PackedInt32Array()
-	var codes: PackedStringArray = table.get("codes", PackedStringArray())
-	var counts: PackedInt32Array = table.get("counts", PackedInt32Array())
-	for s in mini(codes.size(), counts.size()):
-		var cards := CardDatabase.cards_in_set(codes[s])
-		for number in range(1, counts[s] + 1):
-			ids.append(cards[number - 1].id if number <= cards.size() and cards[number - 1].collector_number == number else -1)
+	ids.resize(mini(sets.size(), numbers.size()))
+	for i in ids.size():
+		var card := CardDatabase.find_card(codes[sets[i]], numbers[i]) if sets[i] >= 0 and sets[i] < codes.size() else null
+		ids[i] = Collection.add(card.id, flags[i] if i < flags.size() else 0) if card != null else -1
 	return ids
 
 
@@ -59,7 +65,7 @@ static func capture(pile: PileWorld, hands: Hands, player: Node, day: DayCycle, 
 	return finish(snapshot(pile, hands, player, day, falling))
 
 
-## The shop as it is now, by card id: quick, copies only (packed arrays copy
+## The shop as it is now, by copy id: quick, copies only (packed arrays copy
 ## on write), so it can be taken on the main thread between frames.
 ## finish() turns it into a save, and can run on a worker thread.
 static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle, falling: Array = []) -> Dictionary:
@@ -119,6 +125,7 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 	var hand := PackedInt32Array([hands.held_card_id] if hands.held_card_id >= 0 else [])
 	hand.append_array(PackedInt32Array(hands.behind))
 	return {
+		"copies": [Collection.card_ids(), Collection.all_flags()],
 		"cards": pile.snapshot_cards(),
 		"falling": in_air,
 		"binders": binders,
@@ -131,15 +138,12 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 	}
 
 
-## Turns a snapshot() into a save: every card id becomes its place in save
-## order (see the class notes), and the set table goes in.
+## Turns a snapshot() into a save: the copy table goes in, and every
+## per-copy value is listed by copy id (a copy's place in the table).
 static func finish(taken: Dictionary) -> Dictionary:
-	var order := card_order()
-	var index_of := PackedInt32Array()
-	index_of.resize(CardDatabase.card_count())
-	for i in order.size():
-		index_of[order[i]] = i
-	var to_index := func(id: int) -> int: return index_of[id] if id >= 0 else -1
+	var card_ids: PackedInt32Array = taken.copies[0]
+	var count := card_ids.size()
+	var to_index := func(id: int) -> int: return id if id >= 0 and id < count else -1
 
 	var cards: Dictionary = taken.cards
 	var states: PackedByteArray = cards.states
@@ -147,7 +151,6 @@ static func finish(taken: Dictionary) -> Dictionary:
 	var all_rotations: PackedFloat32Array = cards.rotations
 	var all_face_up: PackedByteArray = cards.face_up
 	var loose: Dictionary = cards.loose
-	var count := order.size()
 	var where := PackedByteArray()
 	var positions := PackedVector3Array()
 	var rotations := PackedFloat32Array()
@@ -157,8 +160,9 @@ static func finish(taken: Dictionary) -> Dictionary:
 	rotations.resize(count)
 	face_up.resize(count)
 	for i in count:
-		var id := order[i]
-		match states[id]:
+		var id := i
+		# A copy the pile hasn't taken in yet is held (in hand, in a pack).
+		match states[id] if id < states.size() else PileWorld.State.HELD:
 			PileWorld.State.ON_FLOOR:
 				positions[i] = all_positions[id]
 				rotations[i] = all_rotations[id]
@@ -193,7 +197,7 @@ static func finish(taken: Dictionary) -> Dictionary:
 	for id in taken.seen:
 		seen.append(to_index.call(id))
 	return {
-		"sets": set_table(),
+		"copies": copy_table(card_ids, taken.copies[1]),
 		"cards": {"where": where, "positions": positions, "rotations": rotations, "face_up": face_up},
 		"falling": falling,
 		"binders": binders,
@@ -212,17 +216,17 @@ static func finish(taken: Dictionary) -> Dictionary:
 ## for land_falling().
 static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: Node, shelves: Array,
 		floor_bounds: Rect2, floor_obstacles: Array[Rect2], random_seed: int) -> Array:
-	var ids := id_map(saved.get("sets", {}))
+	var ids := make_copies(saved.get("copies", {}))
 	Progression.restore_state(saved.get("progression", {}))
 	pile.restore_cards(floor_bounds, floor_obstacles, saved.cards, ids, random_seed)
 	var placed := PackedByteArray()
-	placed.resize(CardDatabase.card_count())
-	for id in CardDatabase.card_count():
+	placed.resize(Collection.count())
+	for id in Collection.count():
 		placed[id] = 1 if pile.is_lying(id) else 0
 	var strays: Array[int] = []
 
-	# Binders: each back where it was; ones for sets the save doesn't know
-	# are dropped on the pile.
+	# Binders: each back where it was; ones for sets the save doesn't know,
+	# or whose place is gone, go in their shelf space, or else on the floor.
 	pile.make_binders()
 	var units := {}
 	for unit: ShelfUnit in shelves:
@@ -245,15 +249,17 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 		strays.append_array(binder.contents.restore(cards, entry.locked))
 		if not _place_binder(binder, entry, pile, hands, units):
 			unplaced.append(binder)
-	pile.scatter_binders(unplaced, random_seed)
+	unplaced = ShelfUnit.shelve_all(unplaced, shelves)
+	if not unplaced.is_empty():
+		pile.scatter_binders(unplaced, random_seed)
 	# A binder a pocket flight finished pays its bonus now (paid ones aren't
 	# paid twice).
 	for binder in pile.binders:
 		if binder.contents.is_complete():
 			Progression.earn_once("complete:" + binder.key(), Progression.binder_complete_bonus(binder.contents.capacity()))
 
-	# Rare cards back in their shadow boxes. Saves from before the rare cards
-	# have none, and their rare cards were scattered on the pile.
+	# Rare cards back in their shadow boxes (nothing brings rare cards yet,
+	# so a save has none for now).
 	for cabinet in hands.cabinets:
 		cabinet.clear_display()
 	for index in saved.get("cabinets", PackedInt32Array()):
@@ -289,7 +295,7 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 			falling.append([id, entry[1], entry[2], entry[3]])
 	# Anything still unplaced (a card a binder no longer has room for, or
 	# that the save somehow lost) falls near the player.
-	for id in CardDatabase.card_count():
+	for id in Collection.count():
 		if placed[id] == 0:
 			strays.append(id)
 	var near: Vector3 = player.global_position - player.global_basis.z * 0.6

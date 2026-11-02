@@ -1,49 +1,76 @@
 class_name PackContents
 extends RefCounted
-## What's in a booster pack, worked out the moment it's ripped open.
+## What's in sealed product, worked out the moment it's opened: which cards
+## (card ids, CardData), for Collection to make new copies of. Every card of
+## the set can turn up, however many copies of it you already have.
 ##
-## A prototype: there are no duplicates yet, so a pack is made of cards
-## still lying about (on the floor or a table) from its set, which leave the
-## pile and come to hand. A pack is SIZE cards: one rare slot (a mythic one
-## time in MYTHIC_CHANCE, in sets that have mythics), UNCOMMONS uncommons and
-## commons for the rest. A slot whose rarity has run out takes the nearest
-## rarity that hasn't, so a pack is always full while its set has SIZE cards
-## lying about, and a smaller pack after that.
+## A booster pack is SIZE cards with no card twice: one rare slot (a mythic
+## one time in MYTHIC_CHANCE, in sets that have mythics), UNCOMMONS
+## uncommons and commons for the rest. A slot whose rarity the set doesn't
+## have enough of takes the nearest rarity that has. It's handed over in the
+## order you reveal it, the way it's done on stream: commons first, then
+## uncommons, the rare slot last.
 ##
-## The pack is handed over in the order you reveal it, the way it's done on
-## stream: commons first, then uncommons, the rare slot last.
+## A booster box is BOX_PACKS packs of one set. A bulk box is BULK_SIZE
+## cards of one set picked one by one, mostly commons (BULK_SHARES), and
+## can hold the same card many times.
 
 const SIZE := 15
 const UNCOMMONS := 3
 const MYTHIC_CHANCE := 8
+const BOX_PACKS := 36
+const BULK_SIZE := 1000
+## A bulk box's share of each rarity (common, uncommon, rare or mythic). Its
+## rare share is a mythic one time in MYTHIC_CHANCE, as in a pack.
+const BULK_SHARES := [0.75, 0.23, 0.02]
 
 
-## The cards of `code`'s set lying about in `pile`, by rarity (CardData.Rarity).
-static func lying_by_rarity(pile: PileWorld, code: String) -> Array[Array]:
+## The cards of `code`'s set by rarity (CardData.Rarity), as card ids.
+static func by_rarity(code: String) -> Array[Array]:
 	var pools: Array[Array] = [[], [], [], []]
 	for card in CardDatabase.cards_in_set(code):
-		if pile.is_lying(card.id):
-			pools[card.rarity].append(card.id)
+		pools[card.rarity].append(card.id)
 	return pools
 
 
-## How many cards of `code`'s set are lying about.
-static func lying_count(pile: PileWorld, code: String) -> int:
-	var count := 0
-	for card in CardDatabase.cards_in_set(code):
-		if pile.is_lying(card.id):
-			count += 1
-	return count
+## A booster pack of `code`, in reveal order.
+static func draw(code: String, rng: RandomNumberGenerator) -> PackedInt32Array:
+	return PackedInt32Array(draw_from(by_rarity(code), set_has_mythics(code), rng))
 
 
-## Draws a pack of `code` from what's lying about, in reveal order. Nothing
-## is taken from the pile here (see Hands.rip_pack).
-static func draw(pile: PileWorld, code: String, rng: RandomNumberGenerator) -> Array[int]:
-	return draw_from(lying_by_rarity(pile, code), set_has_mythics(code), rng)
+## BOX_PACKS packs of `code`, each in reveal order.
+static func booster_box(code: String, rng: RandomNumberGenerator) -> Array[PackedInt32Array]:
+	var pools := by_rarity(code)
+	var mythics := set_has_mythics(code)
+	var packs: Array[PackedInt32Array] = []
+	for i in BOX_PACKS:
+		packs.append(PackedInt32Array(draw_from(pools.duplicate(true), mythics, rng)))
+	return packs
 
 
-## The same from pools of ids by rarity (they're emptied as cards are
-## drawn), in reveal order: by the rarity of the pool each came from.
+## A bulk box of `count` cards of `code`, in no order.
+static func bulk_box(code: String, rng: RandomNumberGenerator, count := BULK_SIZE) -> PackedInt32Array:
+	var pools := by_rarity(code)
+	var mythics := set_has_mythics(code)
+	var cards := PackedInt32Array()
+	for i in count:
+		var roll := rng.randf()
+		var wanted := CardData.Rarity.COMMON
+		if roll >= BULK_SHARES[0] + BULK_SHARES[1]:
+			wanted = CardData.Rarity.MYTHIC if mythics and rng.randi_range(1, MYTHIC_CHANCE) == 1 else CardData.Rarity.RARE
+		elif roll >= BULK_SHARES[0]:
+			wanted = CardData.Rarity.UNCOMMON
+		var rarity := _nearest_rarity(pools, wanted)
+		if rarity < 0:
+			break
+		var pool: Array = pools[rarity]
+		cards.append(pool[rng.randi_range(0, pool.size() - 1)])
+	return cards
+
+
+## The same as draw() from pools of ids by rarity (they're emptied as cards
+## are drawn, so no card comes twice), in reveal order: by the rarity of the
+## pool each came from.
 static func draw_from(pools: Array[Array], has_mythics: bool, rng: RandomNumberGenerator) -> Array[int]:
 	var rare := CardData.Rarity.RARE
 	if has_mythics and rng.randi_range(1, MYTHIC_CHANCE) == 1:
@@ -76,19 +103,14 @@ static func set_has_mythics(code: String) -> bool:
 	return false
 
 
-## A set to make a pack of: one with at least a full pack lying about, picked
-## at random, or "" when no set has.
-static func pick_set(pile: PileWorld, rng: RandomNumberGenerator) -> String:
-	var sets := CardDatabase.sets_in_shelf_order().duplicate()
-	for i in range(sets.size() - 1, 0, -1):
-		var j := rng.randi_range(0, i)
-		var swap = sets[i]
-		sets[i] = sets[j]
-		sets[j] = swap
-	for set_data: SetData in sets:
-		if lying_count(pile, set_data.code) >= SIZE:
-			return set_data.code
-	return ""
+## A set to make product of, picked at random from every set with a binder
+## that has at least a pack's worth of cards; "" when there's none.
+static func pick_set(rng: RandomNumberGenerator) -> String:
+	var sets: Array[String] = []
+	for set_data in CardDatabase.sets_in_shelf_order():
+		if CardDatabase.cards_in_set(set_data.code).size() >= SIZE:
+			sets.append(set_data.code)
+	return sets[rng.randi_range(0, sets.size() - 1)] if not sets.is_empty() else ""
 
 
 ## The rarity a slot draws from: its own, or else the nearest one with

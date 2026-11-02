@@ -1,7 +1,8 @@
 class_name PileGenerator
 extends RefCounted
-## Decides where every card and binder lands when the collection is dumped
-## on the floor (plan §3.4: everything, all at once). Deterministic per seed.
+## Decides where cards and binders land when they're tipped out on the
+## floor (a bulk box, binders with nowhere else to go). Deterministic per
+## seed.
 ##
 ## It's as if a few boxes of cards were tipped out near the middle of the
 ## room: most cards fall more or less straight down around where their box
@@ -38,16 +39,22 @@ class Placement:
 
 ## Places `count` things with footprint half-size `half_size` (a card by
 ## default) inside `bounds`, each clear of every rectangle in `obstacles`.
+## They're tipped out around DUMP_COUNT spots near the middle of the room,
+## or around the floor points in `around` if given (a bulk box tipped out
+## where you stand).
 static func scatter(count: int, bounds: Rect2, obstacles: Array[Rect2], random_seed: int,
-		half_size := PileWorld.CARD_SIZE / 2) -> Array[Placement]:
+		half_size := PileWorld.CARD_SIZE / 2, around: Array[Vector2] = []) -> Array[Placement]:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = random_seed
 	var middle := bounds.get_center()
 	var inner := bounds.grow(-1.0)
 	var dumps: Array[Vector2] = []
-	for d in DUMP_COUNT:
-		var spot := middle + Vector2(rng.randfn(0.0, bounds.size.x * DUMP_SPREAD), rng.randfn(0.0, bounds.size.y * DUMP_SPREAD))
-		dumps.append(spot.clamp(inner.position, inner.end))
+	for spot in around:
+		dumps.append(spot.clamp(bounds.position, bounds.end))
+	if dumps.is_empty():
+		for d in DUMP_COUNT:
+			var spot := middle + Vector2(rng.randfn(0.0, bounds.size.x * DUMP_SPREAD), rng.randfn(0.0, bounds.size.y * DUMP_SPREAD))
+			dumps.append(spot.clamp(inner.position, inner.end))
 	var placements: Array[Placement] = []
 	placements.resize(count)
 	for i in count:

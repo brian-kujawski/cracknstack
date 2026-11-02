@@ -145,11 +145,12 @@ func save(slot: String, wait := false) -> bool:
 ## along. `times` has saved_at, play_time and finished.
 static func make_summary(state: Dictionary, times: Dictionary) -> Dictionary:
 	var organized := 0
-	var where: PackedByteArray = state.get("cards", {}).get("where", PackedByteArray())
+	var pockets := 0
 	for entry in state.get("binders", {}).values():
 		organized += Array(entry.locked).count(1)
+		pockets += entry.locked.size()
 	var made := times.duplicate()
-	made.merge({"organized": organized, "total": where.size(), "mana": state.get("progression", {}).get("mana", 0)})
+	made.merge({"organized": organized, "total": pockets, "mana": state.get("progression", {}).get("mana", 0)})
 	return made
 
 
