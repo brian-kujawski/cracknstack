@@ -12,17 +12,21 @@ extends RefCounted
 ## uncommons, the rare slot last.
 ##
 ## A booster box is BOX_PACKS packs of one set. A bulk box is BULK_SIZE
-## cards of one set picked one by one, mostly commons (BULK_SHARES), and
-## can hold the same card many times.
+## cards of one set picked one by one, by rarity in the shares it's given
+## (BULK_SHARES by default, mostly commons), and can hold the same card many
+## times.
 
 const SIZE := 15
 const UNCOMMONS := 3
 const MYTHIC_CHANCE := 8
 const BOX_PACKS := 36
 const BULK_SIZE := 1000
-## A bulk box's share of each rarity (common, uncommon, rare or mythic). Its
-## rare share is a mythic one time in MYTHIC_CHANCE, as in a pack.
-const BULK_SHARES := [0.75, 0.23, 0.02]
+## A bulk box's mix: the share of each rarity, by CardData.Rarity (common,
+## uncommon, rare, mythic). Tune them here; they needn't add up to 1, only
+## their sizes against each other count. A box of only uncommons would be
+## [0, 1, 0, 0]. A share a set has no cards of (mythics in an old set) goes
+## to the nearest rarity it has.
+const BULK_SHARES: Array[float] = [0.75, 0.23, 0.0175, 0.0025]
 
 
 ## The cards of `code`'s set by rarity (CardData.Rarity), as card ids.
@@ -48,18 +52,23 @@ static func booster_box(code: String, rng: RandomNumberGenerator) -> Array[Packe
 	return packs
 
 
-## A bulk box of `count` cards of `code`, in no order.
-static func bulk_box(code: String, rng: RandomNumberGenerator, count := BULK_SIZE) -> PackedInt32Array:
+## A bulk box of `count` cards of `code`, in no order, mixed by `shares`
+## (see BULK_SHARES).
+static func bulk_box(code: String, rng: RandomNumberGenerator, count := BULK_SIZE,
+		shares: Array[float] = BULK_SHARES) -> PackedInt32Array:
 	var pools := by_rarity(code)
-	var mythics := set_has_mythics(code)
 	var cards := PackedInt32Array()
+	var total := 0.0
+	for share in shares:
+		total += maxf(share, 0.0)
+	if total <= 0.0:
+		return cards
 	for i in count:
-		var roll := rng.randf()
-		var wanted := CardData.Rarity.COMMON
-		if roll >= BULK_SHARES[0] + BULK_SHARES[1]:
-			wanted = CardData.Rarity.MYTHIC if mythics and rng.randi_range(1, MYTHIC_CHANCE) == 1 else CardData.Rarity.RARE
-		elif roll >= BULK_SHARES[0]:
-			wanted = CardData.Rarity.UNCOMMON
+		var roll := rng.randf() * total
+		var wanted := 0
+		while wanted < shares.size() - 1 and roll >= maxf(shares[wanted], 0.0):
+			roll -= maxf(shares[wanted], 0.0)
+			wanted += 1
 		var rarity := _nearest_rarity(pools, wanted)
 		if rarity < 0:
 			break

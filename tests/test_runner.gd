@@ -3293,6 +3293,10 @@ func _test_booster_packs() -> void:
 	_check(bulk.size() == PackContents.BULK_SIZE and bulk_rarities[0] > bulk.size() * 0.65 and bulk_rarities[1] > bulk.size() * 0.15
 		and bulk_rarities[2] + bulk_rarities[3] < bulk.size() * 0.06, "a bulk box is mostly commons, then uncommons: %s" % [bulk_rarities])
 
+	var only_uncommons := PackContents.bulk_box(picked, rng, 50, [0.0, 1.0, 0.0, 0.0] as Array[float])
+	_check(only_uncommons.size() == 50 and Array(only_uncommons).all(func(id: int) -> bool:
+		return CardDatabase.get_card(id).rarity == CardData.Rarity.UNCOMMON), "a box's mix can be just uncommons")
+
 	var pile := PileWorld.new()
 	add_child(pile)
 	Collection.reset()
