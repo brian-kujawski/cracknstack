@@ -1,7 +1,9 @@
 extends Node3D
-## Main scene: the graybox store, its empty floor, every binder standing
-## empty in its shelf space, and the player. Cards come only from product
-## (booster packs from the stand by the door for now; see PackContents). A
+## Main scene: the graybox store, its empty floor, a bare shelf, and the
+## player. Every binder waits out of sight in its shelf space until its set
+## unlocks; then it's delivered inside the door with STARTER_PACKS packs, and
+## its plate appears on the shelf. Cards come only from product (the Card
+## Shop, and the stand by the door for now; see PackContents). A
 ## loaded game builds it all from the save instead (ShopSave), and Saves
 ## asks it for capture_save().
 
@@ -24,6 +26,8 @@ const SAVING_TURN := 0.6
 ## morning): floor spots just inside the door, on its left, filled in turn.
 const DELIVERY_SPOTS := [Vector2(5.25, 7.15), Vector2(4.85, 7.15), Vector2(5.25, 6.75), Vector2(4.85, 6.75),
 	Vector2(4.45, 7.15), Vector2(4.45, 6.75)]
+## Booster packs that come with a set's binder when the set unlocks.
+const STARTER_PACKS := LaptopScreen.STARTER_PACKS
 const SORCERIES := [
 	["Tithe", Controls.CAST_TITHE],
 	["Teleport", Controls.CAST_TELEPORT],
@@ -72,6 +76,9 @@ func _ready() -> void:
 		shelve_binders(_pile, _shelves())
 	else:
 		_falling = ShopSave.restore(saved, _pile, _hands, $Player, _shelves(), _store.floor_bounds(), _store.obstacles, PILE_SEED)
+	for unit: ShelfUnit in _shelves():
+		unit.refresh_locks()
+	Progression.set_unlocked.connect(_on_set_unlocked)
 	laptop = place_laptop(_pile, saved.get("laptop"))
 	_hands.pack_stand = _store.pack_stand
 	_store.pack_stand.stock()
@@ -142,8 +149,9 @@ func _shelves() -> Array:
 	return _store.find_children("*", "ShelfUnit", false, false)
 
 
-## A new game: every binder stands empty in its own shelf space. One with
-## no space (none should be) is dropped on the floor.
+## A new game: every binder stands empty in its own shelf space (out of
+## sight while its set is locked; ShelfUnit.refresh_locks). One with no space
+## (none should be) is dropped on the floor.
 static func shelve_binders(pile: PileWorld, shelves: Array) -> void:
 	var unplaced := ShelfUnit.shelve_all(pile.binders, shelves)
 	if not unplaced.is_empty():
@@ -181,10 +189,8 @@ func laptop_stats() -> Dictionary:
 ## once, for now: kind "pack", "booster_box" or "bulk_box", of set `code`.
 ## Returns what arrived.
 func deliver(kind: String, code: String) -> Node3D:
-	var spot: Vector2 = DELIVERY_SPOTS[_deliveries % DELIVERY_SPOTS.size()]
-	_deliveries += 1
-	# Turned toward where you stand as you come in, to the right.
-	var yaw := PI / 2 + _debug_rng.randf_range(-0.3, 0.3)
+	var spot := _next_delivery_spot()
+	var yaw := _delivery_yaw()
 	if kind == "pack":
 		var pack := BoosterPack.new()
 		pack.setup(code)
@@ -192,6 +198,40 @@ func deliver(kind: String, code: String) -> Node3D:
 		return pack
 	var box_kind := ProductBox.Kind.BOOSTER if kind == "booster_box" else ProductBox.Kind.BULK
 	return place_box(_pile, box_kind, code, Vector3(spot.x, 0.0, spot.y), yaw)
+
+
+## The next floor spot inside the door, in turn.
+func _next_delivery_spot() -> Vector2:
+	var spot: Vector2 = DELIVERY_SPOTS[_deliveries % DELIVERY_SPOTS.size()]
+	_deliveries += 1
+	return spot
+
+
+## Turned toward where you stand as you come in, to the right.
+func _delivery_yaw() -> float:
+	return PI / 2 + _debug_rng.randf_range(-0.3, 0.3)
+
+
+## A set unlocked: its binder comes off the shelf (where it waited out of
+## sight) and turns up inside the door, closed, with STARTER_PACKS packs;
+## its plate arrives on the shelf. Returns what was delivered.
+func _on_set_unlocked(code: String) -> Array[Node3D]:
+	var delivered: Array[Node3D] = []
+	for unit: ShelfUnit in _shelves():
+		var binder := unit.deliver_binder(code)
+		if binder != null:
+			var spot := _next_delivery_spot()
+			var yaw := _delivery_yaw()
+			var half := Vector2(Binder.COVER.x, Binder.COVER.y) / 2
+			var p := _pile.clear_point(spot, half, yaw)
+			var at := Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, _pile.height_under(p, half, yaw) + 0.01, p.y))
+			binder.place(_pile, _pile.global_transform * at)
+			delivered.append(binder)
+	for i in STARTER_PACKS:
+		delivered.append(deliver("pack", code))
+	if _store.pack_stand.pack_count() == 0:
+		_store.pack_stand.stock()
+	return delivered
 
 
 ## Developer only (pause menu), until buying exists: a booster box of a

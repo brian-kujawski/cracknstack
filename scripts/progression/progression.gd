@@ -15,7 +15,7 @@ signal mana_changed(mana: int)
 signal unlocked(colour: int, step: int)
 ## A sorcery was cast or finished recharging.
 signal sorceries_changed
-## A set was unlocked (its binder can come down off the shelf).
+## A set was unlocked: the shop delivers its binder and starter packs.
 signal set_unlocked(code: String)
 
 const CARD_LOCKED := 1
@@ -104,9 +104,10 @@ var _recharging := {}
 ## Sorceries cast and waiting for something to set them off (Chain
 ## Lightning waits for your next lock-in).
 var _armed := {}
-## Sets unlocked so far: code -> true. A locked set's binder stands on the
-## shelf and can't be taken down (card-copies-plan.md). Until levels unlock
-## sets, opening product of a set unlocks it.
+## Sets unlocked so far: code -> true. A locked set's binder waits out of
+## sight on the shelf, with no plate, and can't be bought or taken down;
+## unlocking delivers it with a few packs (Main). Until levels unlock sets,
+## the Card Shop's Unlock button does.
 var _unlocked_sets := {}
 ## Whether sets lock at all. Checks written before set locking turn it off.
 var locks_sets := true

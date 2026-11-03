@@ -36,6 +36,7 @@ func _ready() -> void:
 	await _run(_test_database_loaded)
 	await _run(_test_card_copies)
 	await _run(_test_set_locks)
+	await _run(_test_set_unlock_delivery)
 	await _run(_test_collector_numbers_are_contiguous)
 	await _run(_test_shelf_order)
 	await _run(_test_binders_per_set)
@@ -201,8 +202,8 @@ func _test_card_copies() -> void:
 		"copies of cards gone from the data are dropped")
 
 
-## Sets lock: a locked set's binder stays on the shelf, out of reach, until
-## the set is unlocked (for now, by opening product of it).
+## Sets lock: a locked set's binder waits out of sight on the shelf, out of
+## reach, until the set is unlocked (for now, by the Card Shop's Unlock).
 func _test_set_locks() -> void:
 	Progression.reset()
 	Progression.locks_sets = true
@@ -214,6 +215,89 @@ func _test_set_locks() -> void:
 	_check(not Progression.is_set_unlocked(code), "a new game locks it again")
 	Progression.restore_state(kept)
 	_check(Progression.is_set_unlocked(code), "a save keeps what's unlocked")
+	Progression.reset()
+	Progression.locks_sets = false
+
+
+## A new game's shelf is bare; unlocking a set in the Card Shop delivers its
+## binder and starter packs inside the door and puts up its plate.
+func _test_set_unlock_delivery() -> void:
+	Progression.reset()
+	Progression.locks_sets = true
+	Collection.reset()
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	var pile: PileWorld = main.get_node("Pile")
+	var hands: Hands = main.get_node("Player/Hands")
+	var units: Array = main._shelves()
+	var plates_up := func(shelves: Array) -> int:
+		var count := 0
+		for unit: ShelfUnit in shelves:
+			for space in unit.spaces.size():
+				if unit.nameplates.is_shown(space):
+					count += 1
+		return count
+	_check(plates_up.call(units) == 0, "a new game's shelf has no plates")
+	_check(pile.binders.all(func(b: Binder) -> bool: return b.state == Binder.State.SHELVED and not b.visible),
+		"and every binder waits out of sight in its space")
+	_check(PackContents.pick_set(RandomNumberGenerator.new()) == "" and main._store.pack_stand.pack_count() == 0,
+		"nothing's unlocked, so the pack stand is empty")
+
+	var screen: LaptopScreen = main.laptop_screen
+	var code: String = LaptopScreen.shop_sets()[0].code
+	screen.open()
+	var shop := screen.open_app("shop")
+	_check(shop.find_child("Unlock", true, false) != null and shop.find_child("Order_pack", true, false) == null,
+		"a locked set shows Unlock, not Order")
+	var before := pile.get_child_count()
+	screen.order_product("pack", code)
+	_check(pile.get_child_count() == before, "a locked set can't be ordered")
+
+	screen.unlock_set(code)
+	_check(Progression.is_set_unlocked(code), "Unlock unlocks the set")
+	var binder: Binder = pile.binders.filter(func(b: Binder) -> bool: return b.binder.set_code == code).front()
+	_check(binder.visible and binder.state == Binder.State.CLOSED and binder.get_parent() == pile
+		and binder.global_position.z > 6.0 and binder.global_position.z < 8.0, "its binder is delivered inside the door")
+	var packs := pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.set_code == code)
+	_check(packs.size() == LaptopScreen.STARTER_PACKS, "with %d starter packs, got %d" % [LaptopScreen.STARTER_PACKS, packs.size()])
+	var unit: ShelfUnit = units.filter(func(u: ShelfUnit) -> bool: return u.space_for(code) >= 0).front()
+	var space := unit.space_for(code)
+	_check(unit.nameplates.is_shown(space) and unit.shelved[space] == null and plates_up.call(units) == 1,
+		"its plate goes up over its empty space, and only its")
+	_check(shop.find_child("Order_pack", true, false) != null and screen.shop_status.text.begins_with("Unlocked: "),
+		"the shop now sells it")
+	screen.unlock_set(code)
+	_check(pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.set_code == code).size() == packs.size(),
+		"unlocking again delivers nothing more")
+	_check(main._store.pack_stand.pack_count() > 0 and main._store.pack_stand.columns.all(
+		func(c: Array) -> bool: return c.all(func(p: BoosterPack) -> bool: return p.set_code == code)), "the pack stand stocks the unlocked set")
+	screen.close()
+
+	# Ripping a pack of another (locked) set doesn't unlock it.
+	var other: String = LaptopScreen.shop_sets()[1].code
+	var pack := BoosterPack.new()
+	pack.setup(other)
+	pile.add_child(pack)
+	hands.held_pack = pack
+	hands.rip_pack()
+	_check(not Progression.is_set_unlocked(other), "opening product no longer unlocks a set")
+
+	# Saved and loaded: the plate stays up, locked binders stay hidden.
+	var saved: Dictionary = main.capture_save()
+	main.free()
+	Saves._pending = saved
+	main = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	units = main._shelves()
+	pile = main.get_node("Pile")
+	unit = units.filter(func(u: ShelfUnit) -> bool: return u.space_for(code) >= 0).front()
+	_check(unit.nameplates.is_shown(unit.space_for(code)) and plates_up.call(units) == 1, "a save keeps the plate up")
+	_check(pile.binders.all(func(b: Binder) -> bool: return b.visible == (b.binder.set_code == code)),
+		"and only the unlocked set's binder is out")
+	main.free()
+	get_tree().paused = false
+	Collection.reset()
 	Progression.reset()
 	Progression.locks_sets = false
 
@@ -269,6 +353,36 @@ func _test_binder_layout() -> void:
 
 	binder.last = 449
 	_check(BinderLayout.page_count(binder) == 50, "449 cards fill 50 pages, the last one partly")
+
+	# The squashed round spine's normals face square off its surface, so its
+	# shading and leather grain don't stretch on the thick binders.
+	var spine_tool := SurfaceTool.new()
+	spine_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var depth := Binder.SPINE_DEPTH
+	var radius := 0.0325
+	Binder._append_spine(spine_tool, depth, radius, 0.3, 0.0, 0.0)
+	var spine_arrays := spine_tool.commit_to_arrays()
+	var spine_verts: PackedVector3Array = spine_arrays[Mesh.ARRAY_VERTEX]
+	var spine_normals: PackedVector3Array = spine_arrays[Mesh.ARRAY_NORMAL]
+	var cx := -Binder.COVER.x / 2 + depth
+	var worst := 1.0
+	for i in spine_verts.size():
+		var n := spine_normals[i].normalized()
+		if absf(n.z) > 0.5:
+			continue # the end caps
+		var v := spine_verts[i]
+		var expected := Vector3((v.x - cx) / (depth * depth), v.y / (radius * radius), 0).normalized()
+		worst = minf(worst, n.dot(expected))
+	_check(worst > 0.98, "a thick binder's spine normals face square off it (worst dot %.3f)" % worst)
+
+	# A closed binder's rings stay inside its spine, at every size.
+	for thickness in BinderLayout.SIZE_THICKNESSES:
+		var details: ArrayMesh = Binder._closed_meshes_for(thickness)[1]
+		var metal: PackedVector3Array = details.surface_get_arrays(1)[Mesh.ARRAY_VERTEX]
+		var furthest := INF
+		for v in metal:
+			furthest = minf(furthest, v.x)
+		_check(furthest >= -Binder.COVER.x / 2 + 0.001, "a %.1f cm binder's rings stay inside its spine (reach %.4f)" % [thickness * 100, furthest])
 
 
 func _test_card_sort() -> void:
@@ -3392,7 +3506,7 @@ func _test_booster_packs() -> void:
 	_check(hands.held_box == null and booster.is_queued_for_deletion(), "Space opens the box in hand")
 	_check(tipped_packs.size() == PackContents.BOX_PACKS and lying_packs.call().size() == before_packs + PackContents.BOX_PACKS
 		and tipped_packs.all(func(p: BoosterPack) -> bool: return p.set_code == picked), "its %d packs tip out, lying about" % PackContents.BOX_PACKS)
-	_check(Progression._unlocked_sets.has(picked), "opening a set's product unlocks the set")
+	_check(not Progression._unlocked_sets.has(picked), "opening a set's product doesn't unlock it")
 	var loose_pack: BoosterPack = tipped_packs[0]
 	hands._aim = Hands.Aim.LOOSE_PACK
 	hands._aim_pack = loose_pack
