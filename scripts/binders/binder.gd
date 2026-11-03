@@ -59,6 +59,9 @@ const TOSS_EDGE_REACH := 0.18
 const SETTLE_SECONDS := 0.18
 
 const LOCKED_GLOW := Color(1.0, 0.78, 0.3, 0.3)
+## A locked-in pocket card looks like its plain face: the lock-in flash
+## fades to this.
+const POCKET_GLOW := Color(1.0, 0.78, 0.3, 0.0)
 const FLASH_GLOW := Color(1.0, 0.85, 0.4, 3.0)
 const WRONG_GLOW := Color(1.0, 0.1, 0.06, 1.6)
 const PAGE_DONE_GLOW := Color(1.0, 0.8, 0.35, 0.05)
@@ -340,32 +343,23 @@ func show_pocket(pocket: int) -> void:
 
 func insert(pocket: int, card_id: int) -> BinderContents.Result:
 	var result := contents.insert(pocket, card_id)
-	if result != BinderContents.Result.LOCKED and result != BinderContents.Result.MISPLACED:
+	if result != BinderContents.Result.LOCKED:
 		return result
 	_refresh_spread()
-	if result == BinderContents.Result.LOCKED:
-		Progression.earn(Progression.CARD_LOCKED)
-		_flash(_pocket_view(pocket), FLASH_GLOW, LOCKED_GLOW, 0.9)
-		var page := pocket / BinderLayout.POCKETS_PER_PAGE
-		if contents.is_page_complete(page):
-			_flash(_page_view(page), PAGE_FLASH_GLOW, PAGE_DONE_GLOW, 1.4)
-		if contents.is_complete():
-			Progression.earn_once("complete:" + key(), Progression.binder_complete_bonus(contents.capacity()))
-			_on_complete()
+	Progression.earn(Progression.CARD_LOCKED)
+	_flash(_pocket_view(pocket), FLASH_GLOW, POCKET_GLOW, 0.9)
+	var page := pocket / BinderLayout.POCKETS_PER_PAGE
+	if contents.is_page_complete(page):
+		_flash(_page_view(page), PAGE_FLASH_GLOW, PAGE_DONE_GLOW, 1.4)
+	if contents.is_complete():
+		Progression.earn_once("complete:" + key(), Progression.binder_complete_bonus(contents.capacity()))
+		_on_complete()
 	return result
 
 
 ## Names this binder for bonuses paid once: its set and first number.
 func key() -> String:
 	return "%s#%d" % [binder.set_code, binder.first]
-
-
-## Takes an unlocked card out of a pocket; -1 if there isn't one.
-func take(pocket: int) -> int:
-	var id := contents.take(pocket)
-	if id >= 0:
-		_refresh_spread()
-	return id
 
 
 ## Shows a pocket empty while its card is away being looked at up close
@@ -759,7 +753,7 @@ func _refresh_spread() -> void:
 			if id >= 0:
 				var material: ShaderMaterial = view.material_override
 				CardView.apply(material, id)
-				material.set_shader_parameter("glow", LOCKED_GLOW if contents.is_locked(first_pocket + i) else WRONG_GLOW)
+				material.set_shader_parameter("glow", POCKET_GLOW)
 
 
 ## The closed meshes for a binder this thick, [leather, details], built the

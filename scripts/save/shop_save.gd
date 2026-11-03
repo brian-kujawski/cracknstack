@@ -73,7 +73,7 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 	var binders := {}
 	for binder in pile.binders:
 		var entry := {"state": binder.state, "transform": binder.global_transform, "spread": binder.spread,
-			"pockets": binder.contents.pocket_cards(), "locked": binder.contents.pocket_locks()}
+			"pockets": binder.contents.pocket_cards()}
 		if binder.state == Binder.State.TOSSED:
 			# In the air: saved lying where it would come down.
 			entry.state = Binder.State.CLOSED
@@ -108,14 +108,10 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 			var pocket: int = target[1]
 			var entry: Dictionary = binders[binder.binder.set_code]
 			var pockets: PackedInt32Array = entry.pockets
-			if pockets[pocket] < 0:
+			if pockets[pocket] < 0 and binder.contents.belongs(id, pocket):
 				pockets[pocket] = id
 				entry.pockets = pockets
-				if binder.contents.belongs(id, pocket):
-					var locked: PackedByteArray = entry.locked
-					locked[pocket] = 1
-					entry.locked = locked
-					progression.mana += Progression.CARD_LOCKED
+				progression.mana += Progression.CARD_LOCKED
 			else:
 				in_air.append([id, child.global_position, binder.rotation.y, true])
 		elif child.has_meta("card_id") and child.has_meta("falls_to"):
@@ -251,7 +247,7 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 			if id >= 0:
 				placed[id] = 1
 			cards.append(id)
-		strays.append_array(binder.contents.restore(cards, entry.locked))
+		strays.append_array(binder.contents.restore(cards))
 		if not _place_binder(binder, entry, pile, hands, units):
 			unplaced.append(binder)
 	unplaced = ShelfUnit.shelve_all(unplaced, shelves)

@@ -175,7 +175,8 @@ func _test_card_copies() -> void:
 	_check(contents.belongs(a, 0) and contents.belongs(b, 0), "every copy of a card belongs in its pocket")
 	_check(contents.insert(0, b) == BinderContents.Result.LOCKED, "a copy locks in")
 	_check(contents.insert(0, a) == BinderContents.Result.OCCUPIED, "the second copy finds its pocket taken")
-	_check(contents.insert(5, a) == BinderContents.Result.MISPLACED, "and is just misplaced anywhere else")
+	_check(contents.insert(5, a) == BinderContents.Result.WRONG_POCKET and contents.card_at(5) == -1,
+		"and no other pocket takes it")
 
 	# Found lying about: the nearest copy.
 	var pile := PileWorld.new()
@@ -692,15 +693,27 @@ func _test_binder_contents() -> void:
 	var contents := BinderContents.new(binder)
 	_check(contents.capacity() == ids.size(), "a binder has one pocket per card in its range")
 	_check(contents.insert(0, ids[0]) == BinderContents.Result.LOCKED, "a card in its own pocket locks in")
-	_check(contents.take(0) == -1 and contents.card_at(0) == ids[0], "a locked card can't be taken out")
+	_check(contents.card_at(0) == ids[0] and contents.is_locked(0), "and stays there")
 	_check(contents.insert(0, ids[1]) == BinderContents.Result.OCCUPIED, "a full pocket refuses another card")
-	_check(contents.insert(2, ids[1]) == BinderContents.Result.MISPLACED, "a card in the wrong pocket stays unlocked")
-	_check(contents.insert(1, ids[2]) == BinderContents.Result.MISPLACED, "and blocks the rightful owner's neighbour")
+	_check(contents.insert(2, ids[1]) == BinderContents.Result.WRONG_POCKET and contents.card_at(2) == -1,
+		"the wrong pocket refuses a card")
 	var other_set := CardDatabase.cards_in_set(CardDatabase.sets_in_shelf_order()[1].code)[3]
-	_check(contents.insert(3, other_set.id) == BinderContents.Result.MISPLACED,
-		"a card from another set never locks, even at the same number")
-	_check(contents.take(2) == ids[1] and contents.card_at(2) == -1, "a misplaced card can be taken back out")
-	_check(contents.take(1) == ids[2] and contents.take(3) == other_set.id, "every misplaced card comes back out")
+	_check(contents.insert(3, other_set.id) == BinderContents.Result.WRONG_POCKET and contents.card_at(3) == -1,
+		"so does a pocket of the same number in another set's binder")
+	# A save puts every card back in its own pocket; anything else (an older
+	# save's misplaced card, another set's card) comes back to go on the floor.
+	var saved := PackedInt32Array()
+	saved.resize(contents.capacity())
+	saved.fill(-1)
+	saved[0] = ids[0]
+	saved[5] = ids[2]
+	saved[6] = other_set.id
+	var left := contents.restore(saved)
+	_check(contents.locked_count == 2 and contents.card_at(0) == ids[0] and contents.card_at(2) == ids[2]
+		and contents.card_at(5) == -1 and left == PackedInt32Array([other_set.id]),
+		"restoring a save files each card in its own pocket and returns the rest")
+	contents.restore(PackedInt32Array())
+	contents.insert(0, ids[0])
 	for i in range(1, 8):
 		contents.insert(i, ids[i])
 	_check(not contents.is_page_complete(0), "a page with an empty pocket isn't complete")
@@ -735,8 +748,8 @@ func _test_binder_pockets() -> void:
 	_check(binder.pocket_at(left_top_left) == 9, "left page's top-left pocket is #10 (got %d)" % binder.pocket_at(left_top_left))
 	_check(binder.pocket_at(right_bottom_right) == 26, "right page's bottom-right pocket is #27 (got %d)" % binder.pocket_at(right_bottom_right))
 
-	_check(binder.insert(9, ids[10]) == BinderContents.Result.MISPLACED, "filing into the wrong pocket through the binder")
-	_check(binder.take(9) == ids[10], "taking the misplaced card back out")
+	_check(binder.insert(9, ids[10]) == BinderContents.Result.WRONG_POCKET and binder.contents.card_at(9) == -1,
+		"the wrong pocket refuses a card through the binder")
 	for i in ids.size():
 		binder.show_pocket(i)
 		binder.insert(i, ids[i])
@@ -1786,8 +1799,7 @@ func _test_progression() -> void:
 	binder.put_down(self, Vector3(4.0, 0.75, 2.0), 0.0)
 	binder.open()
 	binder.insert(1, ids[2])
-	_check(Progression.mana == 0, "a misplaced card earns nothing")
-	binder.take(1)
+	_check(Progression.mana == 0, "a card refused by the wrong pocket earns nothing")
 	binder.insert(0, ids[0])
 	_check(Progression.mana == 1, "a card locked in earns 1 Mana")
 	for i in range(1, ids.size()):
@@ -1999,32 +2011,18 @@ func _test_step_one_upgrades() -> void:
 	player.global_position = Vector3(80, 0, 80)
 	_check(is_equal_approx(player.move_speed(), player.walk_speed), "walking at the base speed")
 
-	# Remember the Fallen: a card you've held, seen again on the floor or
-	# misplaced in a pocket.
-	var binder := Binder.new()
-	binder.setup(CardDatabase.all_binders()[0], Color.RED, null)
-	add_child(binder)
-	binder.put_down(self, Vector3(4.0, 0.75, 2.0), 0.0)
-	binder.open()
+	# Remember the Fallen: a card you've held, seen again on the floor.
 	var ids := _first_binder_cards()
-	binder.insert(0, ids[1]) # Misplaced.
-	hands.seen_cards[ids[1]] = true
 	hands.seen_cards[ids[5]] = true
 	hands._aim = Hands.Aim.FLOOR
 	hands._aim_floor_card = ids[5]
 	_check(hands.shown_card_id() == -1, "without Remember the Fallen, a floor card is a mystery")
-	hands._aim = Hands.Aim.BINDER
-	hands._aim_binder = binder
-	hands._aim_pocket = 0
-	_check(hands.shown_card_id() == -1, "and so is a misplaced card")
 
 	_buy_through(0, 0) # Remember the Fallen
 	_buy_through(1, 0) # Snap I
 	_buy_through(3, 0) # Fervor
 	_buy_through(4, 0) # Spider Climb
-	_check(hands.shown_card_id() == ids[1], "Remember the Fallen names a misplaced card you've held")
-	hands._aim = Hands.Aim.FLOOR
-	_check(hands.shown_card_id() == ids[5], "and a floor card you've held")
+	_check(hands.shown_card_id() == ids[5], "Remember the Fallen names a floor card you've held")
 	hands._aim_floor_card = ids[6]
 	_check(hands.shown_card_id() == -1, "but not one you've never held")
 	_check(is_equal_approx(hands.glide_seconds(0.24), 0.16), "Snap I: glides 50% faster")
@@ -2036,7 +2034,6 @@ func _test_step_one_upgrades() -> void:
 	_check(is_equal_approx(hands.glide_seconds(0.24), 0.12), "Snap II: glides twice as fast")
 	player.free()
 	hands.free()
-	binder.free()
 	Progression.reset()
 	Progression.allow_debt = OS.is_debug_build()
 
@@ -2074,16 +2071,10 @@ func _test_demonic_tutor() -> void:
 	hands._hold(-1)
 	Progression.reset()
 	_buy_through(2, 0)
-	binder.insert(1, ids[2]) # Misplaced in the wrong pocket.
+	pile.pick_up(ids[1])
+	binder.insert(1, ids[1])
 	hands._aim_pocket = 1
 	_check(not hands.cast_demonic_tutor(), "a pocket that isn't empty can't be tutored for")
-	hands._aim_pocket = 2
-	_check(hands.cast_demonic_tutor() and hands.held_card_id == ids[2] and binder.contents.card_at(1) == -1,
-		"a card misplaced in a pocket comes out of it")
-	hands._glide.custom_step(10.0)
-	hands._hold(-1)
-	Progression.reset()
-	_buy_through(2, 0)
 	var loose := LooseCard.new()
 	pile.add_child(loose)
 	loose.setup(ids[3], Vector3(1, 0.75, 1), 0.0)
@@ -2235,6 +2226,19 @@ func _test_step_three_upgrades() -> void:
 	_check(not Progression.can_cast("Tithe"), "and recharges")
 	pile._process(5.5)
 	_check(not lit.any(func(id: int) -> bool: return pile.is_glowing(id)), "the glow lasts 5 s")
+
+	# Without Shunt, a click on the wrong pocket does nothing: the card stays
+	# in hand. Its own pocket takes it.
+	pile.pick_up(ids[5])
+	hands._take_in_hand(ids[5])
+	binder.show_pocket(5)
+	hands._aim_pocket = 7
+	_check(hands._try_file_held_card() and hands.held_card_id == ids[5] and binder.contents.card_at(7) == -1
+		and not hands._gliding(), "a click on the wrong pocket leaves the card in hand")
+	hands._aim_pocket = 5
+	_check(hands._try_file_held_card(), "a click on its own pocket files it")
+	hands._glide.custom_step(10.0)
+	_check(binder.contents.is_locked(5) and hands.held_card_id == -1, "and it locks in")
 
 	# Shunt: click anywhere on the right open pages.
 	_buy_through(3, 2)
@@ -2942,14 +2946,11 @@ func _test_shop_save() -> void:
 	_old_start(main)
 	var ids := _first_binder_cards()
 	var binder := pile.binders[0]
-	# Some cards locked in, one misplaced, one in hand, one on a table, one
-	# in the air.
+	# Some cards locked in, one in hand, one on a table, one in the air.
 	binder.place(pile, Transform3D(Basis(Vector3.UP, 0.3), Vector3(2.0, 0.2, 2.0)), 0)
 	for i in 5:
 		pile.pick_up(ids[i])
 		binder.insert(i, ids[i])
-	pile.pick_up(ids[7])
-	binder.insert(6, ids[7])
 	pile.pick_up(ids[9])
 	hands.restore_hand([ids[9]] as Array[int])
 	pile.pick_up(ids[10])
@@ -2987,8 +2988,8 @@ func _test_shop_save() -> void:
 	hands = main.get_node("Player/Hands")
 	player = main.get_node("Player")
 	binder = pile.binders[0]
-	_check(binder.is_open() and binder.contents.locked_count == 5 and binder.contents.card_at(6) == ids[7]
-		and not binder.contents.is_locked(6), "the binder comes back open, five cards locked in and one misplaced")
+	_check(binder.is_open() and binder.contents.locked_count == 5 and binder.contents.card_at(6) == -1,
+		"the binder comes back open, five cards locked in")
 	_check(binder.global_position.distance_to(Vector3(2.0, 0.2, 2.0)) < 0.001, "where it lay")
 	_check(hands.held_card_id == ids[9], "the card in hand is back in hand")
 	var on_table := pile.loose_card(ids[10])
@@ -3014,7 +3015,7 @@ func _test_shop_save() -> void:
 	var after: Dictionary = main.capture_save()
 	var binders_same: bool = after.binders.keys() == before.binders.keys()
 	for code in before.binders:
-		for key in ["state", "pockets", "locked", "spread"]:
+		for key in ["state", "pockets", "spread"]:
 			binders_same = binders_same and after.binders[code][key] == before.binders[code][key]
 	_check(binders_same and after.hand == before.hand and after.progression.bought == before.progression.bought
 		and after.falling.is_empty(), "saved again, every binder, the hand and the unlocks are the same")
@@ -3146,8 +3147,8 @@ func _test_rare_cards() -> void:
 	_check(hands.cast_abundance().is_empty(), "holding a rare card, Abundance brings nothing")
 	_check(hands.held_card_id == rare[0].id and hands.behind.is_empty(), "and it stays in hand")
 	var binder := pile.binders[0]
-	var misplaced := BinderContents.new(binder.binder)
-	_check(misplaced.insert(0, rare[0].id) == BinderContents.Result.MISPLACED, "in a binder pocket it's just misplaced")
+	var pockets := BinderContents.new(binder.binder)
+	_check(pockets.insert(0, rare[0].id) == BinderContents.Result.WRONG_POCKET, "no binder pocket takes it")
 
 	# Clicking either cabinet sends it to its own shadow box.
 	var mana := Progression.mana
@@ -3277,9 +3278,6 @@ func _test_wall_art() -> void:
 	var binders: Array[Binder] = [binder]
 	var number := CardDatabase.get_card(ids[4]).collector_number
 	_check(not WallArt.is_card_filed(range_data.set_code, number, binders), "a card not in its pocket isn't filed")
-	binder.contents.insert(4, ids[5])
-	_check(not WallArt.is_card_filed(range_data.set_code, number, binders), "nor is a card in the wrong pocket")
-	binder.contents.take(4)
 	binder.contents.insert(4, ids[4])
 	_check(WallArt.is_card_filed(range_data.set_code, number, binders), "a card locked into its pocket is")
 	binder.free()
