@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop"]
 
 var _failures := 0
 var _checks := 0
@@ -92,6 +92,7 @@ func _ready() -> void:
 	await _run(_test_wall_art)
 	await _run(_test_shop_clock)
 	await _run(_test_booster_packs)
+	await _run(_test_laptop)
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
 	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
@@ -3430,3 +3431,107 @@ func _test_booster_packs() -> void:
 	other_pile.free()
 	holder.free()
 	pile.free()
+
+
+func _test_laptop() -> void:
+	_check(LaptopScreen.clock_text(0.0) == "12:00 AM" and LaptopScreen.clock_text(13.5) == "1:30 PM"
+		and LaptopScreen.clock_text(9.084) == "9:05 AM", "the taskbar clock reads like a 90s one")
+	_check(LaptopText.story_entries(0).size() == 1 and LaptopText.story_entries(1000).size() == LaptopText.STORY.size(),
+		"the story starts with one entry and grows as you sort")
+	var sets := LaptopScreen.shop_sets()
+	_check(not sets.is_empty() and sets[0].release_date >= sets[-1].release_date
+		and sets.all(func(s: SetData) -> bool: return s.code != RareCards.SET_CODE), "the Card Shop sells every set, newest first")
+
+	Collection.reset()
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var hands: Hands = main.get_node("Player/Hands")
+	var pile: PileWorld = main.get_node("Pile")
+	var laptop: Laptop = main.laptop
+	var screen: LaptopScreen = main.laptop_screen
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var table: Vector2 = store_script.TABLE_CENTERS[2]
+	var table_rect := Rect2(table - Vector2(store_script.TABLE_SIZE.x, store_script.TABLE_SIZE.z) / 2,
+		Vector2(store_script.TABLE_SIZE.x, store_script.TABLE_SIZE.z))
+	_check(laptop != null and laptop.get_parent() == pile and is_equal_approx(laptop.global_position.y, store_script.TABLE_SIZE.y)
+		and table_rect.has_point(Vector2(laptop.global_position.x, laptop.global_position.z)), "a new game puts the laptop on the front left table")
+	_check(laptop.global_basis.z.z > 0.8, "its screen faces the door")
+	_check(not screen.is_open() and not get_tree().paused, "a shop loaded without New Game doesn't open on the laptop")
+
+	# Aimed at: E uses it, Space doesn't open it, the hint says so.
+	var camera: Camera3D = main.get_node("Player/Camera3D")
+	var target := laptop.global_position + Vector3.UP * 0.12
+	camera.global_transform = Transform3D(Basis(), target + laptop.global_basis.z * 0.8 + Vector3.UP * 0.5).looking_at(target)
+	hands._update_aim()
+	_check(hands._aim == Hands.Aim.BOX and hands._aim_box == laptop, "the laptop can be aimed at")
+	_check(hands._laptop_at_hand() == laptop, "so E would use it")
+	var hint := [""]
+	hands.hint_changed.connect(func(text: String) -> void: hint[0] = text)
+	hands._update_hint()
+	_check(hint[0] == "E: Use Laptop", "the hint says E: Use Laptop, got " + hint[0])
+	hands.press_rip()
+	_check(is_instance_valid(laptop) and not laptop.is_queued_for_deletion() and hands.open_box(laptop).is_empty(),
+		"Space doesn't open the laptop like a box")
+	hands.laptop_used.emit()
+	_check(screen.is_open() and get_tree().paused and screen.message_box == null, "using it opens the laptop screen, no welcome")
+	screen.close()
+	_check(not screen.is_open() and not get_tree().paused, "Close Laptop goes back into the room")
+
+	# Picked up and put down on another table.
+	hands._use_hand()
+	_check(hands.held_box == laptop and hands._laptop_at_hand() == laptop, "clicking the laptop picks it up")
+	hands._glide.custom_step(10.0)
+	_check(ShopSave.snapshot_laptop(pile, hands, main.get_node("Player")) is Transform3D
+		and ShopSave.snapshot_products(pile, hands, main.get_node("Player")).is_empty(), "in hand, it's saved, and never as product")
+	var other: Vector2 = store_script.TABLE_CENTERS[0]
+	hands._aim = Hands.Aim.SURFACE
+	hands._aim_point = Vector3(other.x, store_script.TABLE_SIZE.y, other.y)
+	hands._use_hand()
+	hands._glide.custom_step(10.0)
+	_check(hands.held_box == null and laptop.get_parent() == pile
+		and Vector2(laptop.global_position.x, laptop.global_position.z).distance_to(other) < 0.3
+		and is_equal_approx(laptop.global_position.y, store_script.TABLE_SIZE.y), "and puts it down on another table")
+	var pose: Transform3D = ShopSave.snapshot_laptop(pile, hands, main.get_node("Player"))
+	_check(pose.is_equal_approx(laptop.global_transform), "a save keeps it where it was put")
+	var other_pile := PileWorld.new()
+	add_child(other_pile)
+	var back: Laptop = main.place_laptop(other_pile, pose)
+	_check(back.global_transform.is_equal_approx(pose), "and loads it back there")
+	other_pile.free()
+
+	# The Card Shop: an order of each kind turns up inside the door.
+	screen.open()
+	var shop := screen.open_app("shop")
+	_check(screen.windows.has("shop") and shop.find_child("Order_bulk_box", true, false) != null, "the Card Shop opens with an Order button per product")
+	_check(screen.shop_set == sets[0].code, "the newest set is chosen first")
+	var code := sets[0].code
+	var before := pile.get_child_count()
+	screen.order_product("pack", code)
+	screen.order_product("booster_box", code)
+	screen.order_product("bulk_box", code)
+	var arrived := pile.get_children().slice(before)
+	var pack: BoosterPack = arrived.filter(func(n: Node) -> bool: return n is BoosterPack).front()
+	var boxes := arrived.filter(func(n: Node) -> bool: return n is ProductBox)
+	_check(pack != null and pack.is_lying() and pack.set_code == code, "a booster pack arrives, lying inside the door")
+	_check(boxes.size() == 2 and boxes.all(func(b: ProductBox) -> bool: return b.set_code == code)
+		and boxes.any(func(b: ProductBox) -> bool: return b.kind == ProductBox.Kind.BULK), "and a booster box and a bulk box")
+	_check(boxes.all(func(b: ProductBox) -> bool: return b.global_position.z > 6.0 and b.global_position.z < 8.0), "by the door")
+	_check(screen.shop_status.text.begins_with("Ordered: "), "the shop says it's on its way")
+	screen.open_app("collection")
+	screen.open_app("story")
+	screen.open_app("readme")
+	_check(screen.windows.size() == 4 and screen.open_app("shop") == shop, "every program opens, once")
+	shop.close()
+	_check(not screen.windows.has("shop"), "closing a window closes the program")
+	screen.close()
+
+	# A New Game opens on the welcome, whose OK starts the game.
+	screen.open(true)
+	_check(screen.message_box != null and get_tree().paused, "the welcome message box is up, the game stopped")
+	screen.press_ok()
+	_check(not screen.is_open() and not get_tree().paused, "OK drops you into the room")
+	_check(not SceneFlow.take_opening_request(), "only New Game asks for the welcome")
+	main.free()
+	get_tree().paused = false
