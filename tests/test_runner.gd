@@ -3458,6 +3458,9 @@ func _test_laptop() -> void:
 	_check(laptop != null and laptop.get_parent() == pile and is_equal_approx(laptop.global_position.y, store_script.TABLE_SIZE.y)
 		and table_rect.has_point(Vector2(laptop.global_position.x, laptop.global_position.z)), "a new game puts the laptop on the front left table")
 	_check(laptop.global_basis.z.z > 0.8, "its screen faces the door")
+	var glow: SpotLight3D = laptop.find_child("Glow", true, false)
+	_check(glow != null and not glow.shadow_enabled and glow.light_energy > 0.0 and glow.light_energy < 1.0
+		and -glow.global_basis.z.dot(laptop.global_basis.z) > 0.8, "its screen casts a faint glow out in front of it")
 	_check(not screen.is_open() and not get_tree().paused, "a shop loaded without New Game doesn't open on the laptop")
 
 	# Aimed at: E uses it, Space doesn't open it, the hint says so.
