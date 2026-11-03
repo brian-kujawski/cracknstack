@@ -1700,7 +1700,6 @@ func open_box(box: ProductBox) -> Array:
 		held_pack_changed.emit("")
 	box.get_parent().remove_child(box)
 	box.queue_free()
-	Progression.unlock_set(box.set_code) # For now: until levels unlock sets.
 	FeedbackSounds.play(pile, at, FeedbackSounds.Kind.PACK_RIP)
 	if box.kind == ProductBox.Kind.BULK:
 		var copies := Collection.add_all(PackContents.bulk_box(box.set_code, _pack_rng))
@@ -1792,7 +1791,6 @@ func rip_pack() -> Array[int]:
 		return []
 	var ids: Array[int] = []
 	ids.assign(Collection.add_all(PackContents.draw(pack.set_code, _pack_rng)))
-	Progression.unlock_set(pack.set_code) # For now: until levels unlock sets.
 	held_pack = null
 	_ripping = false
 	_rip = 0.0

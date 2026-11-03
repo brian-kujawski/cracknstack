@@ -15,6 +15,10 @@ extends StaticBody3D
 ## turns from black to gold; when every space on a shelf has, the light under
 ## the shelf above comes on.
 ##
+## A locked set's space is bare: no plate, and its binder waits out of
+## sight in it (refresh_locks) until the set unlocks and the binder is
+## delivered (deliver_binder).
+##
 ## The unit's collision is one solid box from the floor up, so nothing gets
 ## under or behind it; only the top is a separate body (`top`), which aiming
 ## treats like a table top.
@@ -252,6 +256,34 @@ static func shelve_all(binders: Array[Binder], shelves: Array) -> Array[Binder]:
 		if not placed:
 			left.append(binder)
 	return left
+
+
+## Shows the plate of every unlocked set's space and hides the rest, and
+## hides each locked set's binder standing here (Progression.is_set_unlocked).
+func refresh_locks() -> void:
+	var shown: Array[bool] = []
+	for space in spaces.size():
+		shown.append(Progression.is_set_unlocked(spaces[space].set_code))
+		var binder: Binder = shelved[space]
+		if binder != null:
+			binder.visible = Progression.is_set_unlocked(binder.binder.set_code)
+	nameplates.show_plates(shown)
+
+
+## A set has just unlocked: its plate arrives in a glow, and if its binder is
+## still waiting out of sight in its space, the binder comes off the shelf
+## for delivery. Returns that binder (not yet placed anywhere), or null.
+func deliver_binder(set_code: String) -> Binder:
+	var space := space_for(set_code)
+	if space < 0:
+		return null
+	nameplates.set_shown(space, true, true)
+	var binder: Binder = shelved[space]
+	if binder == null or binder.binder.set_code != set_code or binder.visible:
+		return null
+	unshelve(space)
+	binder.visible = true
+	return binder
 
 
 ## The space labelled for a set's binder, or -1.
