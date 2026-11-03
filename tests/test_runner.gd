@@ -354,6 +354,27 @@ func _test_binder_layout() -> void:
 	binder.last = 449
 	_check(BinderLayout.page_count(binder) == 50, "449 cards fill 50 pages, the last one partly")
 
+	# The squashed round spine's normals face square off its surface, so its
+	# shading and leather grain don't stretch on the thick binders.
+	var spine_tool := SurfaceTool.new()
+	spine_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var depth := Binder.SPINE_DEPTH
+	var radius := 0.0325
+	Binder._append_spine(spine_tool, depth, radius, 0.3, 0.0, 0.0)
+	var spine_arrays := spine_tool.commit_to_arrays()
+	var spine_verts: PackedVector3Array = spine_arrays[Mesh.ARRAY_VERTEX]
+	var spine_normals: PackedVector3Array = spine_arrays[Mesh.ARRAY_NORMAL]
+	var cx := -Binder.COVER.x / 2 + depth
+	var worst := 1.0
+	for i in spine_verts.size():
+		var n := spine_normals[i].normalized()
+		if absf(n.z) > 0.5:
+			continue # the end caps
+		var v := spine_verts[i]
+		var expected := Vector3((v.x - cx) / (depth * depth), v.y / (radius * radius), 0).normalized()
+		worst = minf(worst, n.dot(expected))
+	_check(worst > 0.98, "a thick binder's spine normals face square off it (worst dot %.3f)" % worst)
+
 	# A closed binder's rings stay inside its spine, at every size.
 	for thickness in BinderLayout.SIZE_THICKNESSES:
 		var details: ArrayMesh = Binder._closed_meshes_for(thickness)[1]

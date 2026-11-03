@@ -854,7 +854,22 @@ static func _append_spine(tool: SurfaceTool, depth: float, radius: float, length
 	cylinder.radial_segments = 24
 	cylinder.rings = 1
 	var basis := Basis(Vector3(1, 0, 0), PI / 2).scaled(Vector3(depth / radius, 1, 1))
-	tool.append_from(cylinder, 0, Transform3D(basis, Vector3(-COVER.x / 2 + depth, y, z)))
+	# Squashing the round flat bends its normals the other way: they need the
+	# inverse transpose, which append_from doesn't use. Left as they were, the
+	# shading and the leather's triplanar mapping (which goes by the normal)
+	# treat the spine's sloping sides as if they faced the covers, and the
+	# grain stretches there, more the thicker the binder.
+	var arrays := cylinder.get_mesh_arrays()
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	# append_from turns them by `basis`, so they go in pre-turned back.
+	var fix := basis.inverse() * basis.inverse().transposed()
+	for i in normals.size():
+		normals[i] = (fix * normals[i]).normalized()
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TANGENT] = null
+	var squashed := ArrayMesh.new()
+	squashed.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	tool.append_from(squashed, 0, Transform3D(basis, Vector3(-COVER.x / 2 + depth, y, z)))
 
 
 ## How far a closed binder's rings may reach toward the spine (-x) from
