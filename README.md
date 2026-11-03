@@ -1,6 +1,6 @@
 # Pickup
 
-A game store's entire Magic: The Gathering collection has been dumped on the floor: about 30,000 cards plus every set's binder. Walk the store in first person, dig out binders, file every card into its 9-pocket page in collector-number order, and shelve the binders in release-date order.
+A collector's room with an empty binder for every Magic: The Gathering set on the shelf, and no cards yet. Every card comes from sealed product you open: booster packs, booster boxes and bulk boxes. Walk the room in first person, rip packs, file every card into its 9-pocket page in collector-number order, and keep the binders shelved in release-date order. Duplicates turn up; each physical card is its own copy (`Collection`), and saves list copies by set code and collector number.
 
 The full design and milestones are in the development plan (kept in the project's shared files, `plan/pickup-development-plan.md`).
 
@@ -13,7 +13,7 @@ Pickup is free and always will be.
 1. Install [Godot 4.7](https://godotengine.org/download) (standard build, not .NET).
 2. Open `project.godot` in Godot and press **Play** (F5). The game opens on the title screen: press any key for the main menu, then **New Game** shows the intro (the Fan Content disclaimer, on black) and fades into the shop. Credits unlocks on the menu once you have started a game. (While developing, `godot --path . -- --skip-title` goes straight into the shop, and the pause menu's **Play Ending** button plays the ending without filing every card.) Filing every card and shelving every binder fades out into the credits. You start just inside the door of the store's one cramped room: a two-shelf binder shelf along the back wall, raised on legs, whose top works like a table (the timeline runs left to right, top shelf first) and four work tables in the middle.
 
-**Booster packs (prototype):** a stand of sealed packs by the door, three sets at a time. Click it with empty hands to take the front pack of a column (click again to put it back, until it starts to tear). F brings it up close and R turns it over, like a card. Hold Space to rip it open: it trembles, tears across the top and the room goes dark, then it bursts with a flash and its 15 cards are in your hand up close, commons first and the rare slot last. They come out the size they were in the pack and quickly come up to full size. Press Space to show each next card; a rare or mythic glows as it comes up, and Space once more lowers the stack into your hand. For now a pack's cards come out of the pile (no duplicates yet), and the stand restocks itself when it's empty. Wrapper art goes in `assets/packs/` (see the README there).
+**Booster packs (prototype):** a stand of sealed packs by the door, three sets at a time. Click it with empty hands to take the front pack of a column (click again to put it back, until it starts to tear). F brings it up close and R turns it over, like a card. Hold Space to rip it open: it trembles, tears across the top and the room goes dark, then it bursts with a flash and its 15 cards are in your hand up close, commons first and the rare slot last. They come out the size they were in the pack and quickly come up to full size. Press Space to show each next card; a rare or mythic glows as it comes up, and Space once more lowers the stack into your hand. Each pack makes 15 new cards (any card of the set, so you get duplicates), and the stand restocks itself for free when it's empty, until buying exists. **Boxes:** a booster box (about 6" x 5" x 4" tall, in its set's colours for now) and a bulk box (a white cardboard box about 12" x 10" x 8" with a printed "LEA Bulk" label) can be picked up and put down like a binder. Press Space with one in hand, or aimed at one lying on the floor or a table, to open it: a booster box tips its 36 packs out in a heap, to be picked up (and put down) and ripped like any pack; a bulk box tips its 1,000 cards out onto the floor, or onto the table it's on (up to 200 stay on the table, the rest spill onto the floor). Opening a set's product unlocks its binder on the shelf. Until buying exists, the debug pause menu's **Booster Box** and **Bulk Box** buttons put a box of a random set on the floor in front of you. Wrapper art goes in `assets/packs/` (see the README there).
 
 Controls:
 
@@ -48,7 +48,7 @@ A card in its own pocket locks in with a chime and a gold edge; anywhere else it
 
 ## Benchmark
 
-The full game puts the whole collection (~30,000 cards) on the floor at once. To measure frame rate at that scale, run the scripted walk-through on the placeholder collection; it prints average fps and 1% lows after 20 seconds:
+The floor can hold one copy of every card (~30,000) at once. To measure frame rate at that scale (the benchmark tips one copy of every card out first), run the scripted walk-through on the placeholder collection; it prints average fps and 1% lows after 20 seconds:
 
 ```sh
 godot --path . -- --benchmark --placeholder

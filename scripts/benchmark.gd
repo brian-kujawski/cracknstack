@@ -4,7 +4,8 @@ extends Node
 ##   godot --path . -- --benchmark --crouched  (at crouched eye height)
 ## The camera walks a fixed loop through the store for DURATION seconds, then
 ## prints average fps, 1% low, draw calls and, with real data, how many near
-## faces (NearFaces) arrived and how many of them late, and quits.
+## faces (NearFaces) arrived and how many of them late, and quits. The floor
+## gets one copy of every card first.
 
 const WARMUP := 2.0
 const DURATION := 20.0
@@ -32,12 +33,20 @@ func _ready() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	if "--crouched" in OS.get_cmdline_user_args():
 		_eye = CROUCHED_EYE
+	# The floor starts empty now: the benchmark tips out one copy of every
+	# card, the full scale it's for.
+	_fill_floor.call_deferred()
 	var player: Node3D = get_node("../Player")
 	player.process_mode = Node.PROCESS_MODE_DISABLED
 	_camera = Camera3D.new()
 	_camera.fov = 75
 	get_parent().add_child.call_deferred(_camera)
 	_camera.ready.connect(_camera.make_current)
+
+
+func _fill_floor() -> void:
+	var pile: PileWorld = get_node("../Pile")
+	pile.scatter(Collection.add_all(PackedInt32Array(range(CardDatabase.card_count()))), 1993)
 
 
 func _process(delta: float) -> void:
@@ -75,7 +84,7 @@ func _report() -> void:
 	var low_fps := slowest.size() / slow_total
 	var near: NearFaces = get_node("../Pile").near_faces
 	var line := "BENCHMARK cards=%d eye=%.2f frames=%d avg_fps=%.1f one_percent_low_fps=%.1f max_draw_calls=%d near_arrived=%d near_late=%d gpu=%s" % [
-		CardDatabase.card_count(), _eye, sorted.size(), average_fps, low_fps, _max_draw_calls,
+		Collection.count(), _eye, sorted.size(), average_fps, low_fps, _max_draw_calls,
 		near.arrived_count if near != null else 0, near.late_count if near != null else 0,
 		RenderingServer.get_video_adapter_name()]
 	print(line)

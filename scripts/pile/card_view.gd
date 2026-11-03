@@ -28,8 +28,8 @@ static var _near_order: Array[int] = []
 
 
 static func apply(material: ShaderMaterial, id: int) -> void:
-	var card := CardDatabase.get_card(id)
-	var rare := CardDatabase.is_rare(id)
+	var card := Collection.card(id)
+	var rare := Collection.is_rare(id)
 	_set_foil(material, rare)
 	var set_data := CardDatabase.get_set(card.set_code)
 	var accent := set_data.accent_color

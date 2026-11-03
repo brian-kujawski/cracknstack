@@ -1,8 +1,11 @@
 class_name PileWorld
 extends Node3D
 ## Owns every card lying on the floor (plan §4.4). Cards are not nodes: they
-## live in packed arrays indexed by card id (one instance per card), and are
-## drawn by one MultiMesh per floor chunk.
+## live in packed arrays indexed by copy id (Collection: one entry per
+## physical card, and there can be many copies of a card), and are drawn by
+## one MultiMesh per floor chunk. Every id here is a copy id; the arrays
+## grow as copies are made, and a new copy starts HELD (in a pack, in hand)
+## until it's put down, tipped out (scatter) or lands.
 ##
 ## It also keeps track of the few cards lying on tables, which are nodes of
 ## their own (LooseCard) so they can sit at any height. The split is only for
@@ -38,6 +41,13 @@ const FLIP_RADIUS := 0.15
 const FLIP_HEIGHT := 0.1
 ## Cards landing on a table (or the shelf top) stay this far in from its edge.
 const TABLE_MARGIN := 0.01
+## A box tipped out on a table (tip_out): at most this many cards stay on
+## it (each is a node of its own, LooseCard), heaped around the box with
+## this standard deviation (m), stacked by cells this size; the rest spill
+## onto the floor.
+const TABLE_HEAP_MAX := 200
+const TABLE_HEAP_SPREAD := 0.09
+const TABLE_HEAP_CELL := 0.03
 ## Collision layer of the pile's surface: a coarse height field that only
 ## binders collide with, so they can rest on the cards.
 const SURFACE_LAYER := 8
@@ -79,6 +89,8 @@ var _set_numbers := PackedInt32Array()
 var _accents := PackedColorArray()
 ## Per card: its slot in CardDatabase.face_atlas, or -1 for a placeholder face.
 var _faces := PackedFloat32Array()
+## Set code -> its place on the shelf from 1 (the floor shader's set number).
+var _set_numbers_by_code := {}
 
 var _chunk_columns := 0
 var _chunk_rows := 0
@@ -127,16 +139,34 @@ var _surface_heights := PackedFloat32Array()
 var _surface_dirty := {}
 
 
-## Scatters every card in the database over `floor_bounds`, avoiding the
-## footprints in `obstacles`. Binders are placed separately by spawn_binders().
-func build(floor_bounds: Rect2, floor_obstacles: Array[Rect2], random_seed: int) -> void:
+## Readies an empty floor over `floor_bounds`, avoiding the footprints in
+## `obstacles`. Cards come later, as copies are made and put down or tipped
+## out (scatter); binders separately (spawn_binders, shelve_binders).
+func setup(floor_bounds: Rect2, floor_obstacles: Array[Rect2]) -> void:
 	bounds = floor_bounds
 	obstacles = floor_obstacles
-	var count := CardDatabase.card_count()
-	_allocate(count)
-	_build_set_lookup()
-	var placements := PileGenerator.scatter(count, bounds, obstacles, random_seed)
-	# Drop cards in a random order so every set ends up mixed through the layers.
+	_allocate()
+	_build_surface()
+
+
+## The old start, for tests and the benchmark: an empty Collection gets one
+## copy of every card (so copy ids match card ids), all scattered over the
+## floor at once.
+func build_one_of_each(floor_bounds: Rect2, floor_obstacles: Array[Rect2], random_seed: int) -> void:
+	Collection.reset()
+	var all := PackedInt32Array(range(CardDatabase.card_count()))
+	setup(floor_bounds, floor_obstacles)
+	scatter(Collection.add_all(all), random_seed)
+
+
+## Tips held copies out onto the floor: around the middle of the room as if
+## a few boxes were dumped there, or around `around` (floor x/z points) if
+## given, each copy landing on top of whatever's there. Mixed in a random
+## order, so cards that came together don't lie in a block.
+func scatter(copies: PackedInt32Array, random_seed: int, around: Array[Vector2] = []) -> void:
+	_sync()
+	var count := copies.size()
+	var placements := PileGenerator.scatter(count, bounds, obstacles, random_seed, CARD_SIZE / 2, around)
 	var order := range(count)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = random_seed + 1
@@ -145,13 +175,18 @@ func build(floor_bounds: Rect2, floor_obstacles: Array[Rect2], random_seed: int)
 		var swap: int = order[i]
 		order[i] = order[j]
 		order[j] = swap
-	for id in order:
-		var placement := placements[id]
+	var touched := {}
+	for k in order:
+		var id := copies[k]
+		if _states[id] != State.HELD:
+			continue
+		var placement := placements[k]
+		_states[id] = State.ON_FLOOR
 		_face_up[id] = 1 if placement.face_up else 0
 		_put_on_floor(id, placement.position, placement.rotation)
-	for c in _chunks.size():
+		touched[_chunk_of[id]] = true
+	for c in touched:
 		_rebuild_chunk(c)
-	_build_surface()
 
 
 ## Drops each set's binder closed somewhere on top of the pile, with room to
@@ -162,7 +197,7 @@ func spawn_binders(random_seed: int) -> void:
 
 
 ## Makes one binder per set, in shelf order, into `binders`, without putting
-## them anywhere yet (spawn_binders, or a save, does that).
+## them anywhere yet (spawn_binders, the shelf, or a save does that).
 func make_binders() -> void:
 	binders.clear()
 	for range_data in CardDatabase.all_binders():
@@ -212,7 +247,7 @@ func snapshot_cards() -> Dictionary:
 ## every one it had on a table is laid there again. `cards` is the save's
 ## "cards" (ShopSave.finish) and `ids` maps each of its entries to a card id now (-1 for a card
 ## that's gone). Cards the save doesn't know (a set imported since) are
-## scattered on top, as in a new game. Every other card starts in hand
+## scattered on top. Every other card starts in hand
 ## (HELD), for the save's binders and hands to take. A card where furniture
 ## now stands, or on a table that's gone, moves to the nearest clear spot
 ## on the floor; nothing else moves. Set `surfaces` first. Returns the ids
@@ -221,10 +256,9 @@ func restore_cards(floor_bounds: Rect2, floor_obstacles: Array[Rect2], cards: Di
 		random_seed: int) -> PackedInt32Array:
 	bounds = floor_bounds
 	obstacles = floor_obstacles
-	var count := CardDatabase.card_count()
-	_allocate(count)
-	_build_set_lookup()
-	_states.fill(State.HELD)
+	_allocate()
+	_sync()
+	var count := _states.size()
 	var where: PackedByteArray = cards.where
 	var positions: PackedVector3Array = cards.positions
 	var rotations: PackedFloat32Array = cards.rotations
@@ -289,23 +323,23 @@ func card_count_on_floor() -> int:
 
 ## Where a card lying on the floor or a table is, in the pile's space.
 func card_position(id: int) -> Vector3:
-	if _states[id] == State.ON_TABLE:
+	if _state(id) == State.ON_TABLE:
 		return _loose[id].position
 	return _positions[id]
 
 
 func is_on_floor(id: int) -> bool:
-	return _states[id] == State.ON_FLOOR
+	return _state(id) == State.ON_FLOOR
 
 
 ## Whether card `id` is lying about, on the floor or on a table, rather than
 ## in hand, in flight or in a binder.
 func is_lying(id: int) -> bool:
-	return _states[id] == State.ON_FLOOR or _states[id] == State.ON_TABLE
+	return _state(id) == State.ON_FLOOR or _state(id) == State.ON_TABLE
 
 
 func is_face_up(id: int) -> bool:
-	if _states[id] == State.ON_TABLE:
+	if _state(id) == State.ON_TABLE:
 		return _loose[id].face_up
 	return _face_up[id] == 1
 
@@ -318,7 +352,7 @@ func loose_card(id: int) -> LooseCard:
 ## Where a card lying on the floor or a table is, as a global pose for a
 ## card quad (see Glide).
 func card_pose(id: int) -> Transform3D:
-	if _states[id] == State.ON_TABLE:
+	if _state(id) == State.ON_TABLE:
 		return _loose[id].card_pose()
 	return Glide.flat_card(to_global(_positions[id]), global_basis * Basis(Vector3.UP, _rotations[id]), _face_up[id] == 1)
 
@@ -389,7 +423,7 @@ func card_on_ray(from: Vector3, to: Vector3) -> Dictionary:
 
 ## Lifts a card out of the pile or off its table. Nothing around it moves.
 func pick_up(id: int) -> void:
-	if _states[id] == State.ON_TABLE:
+	if _state(id) == State.ON_TABLE:
 		if id == _highlighted:
 			_highlighted = -1
 		_stop_glow(id)
@@ -397,7 +431,7 @@ func pick_up(id: int) -> void:
 		_loose[id].queue_free()
 		_loose.erase(id)
 		return
-	if _states[id] != State.ON_FLOOR:
+	if _state(id) != State.ON_FLOOR:
 		return
 	if id == _highlighted:
 		set_highlight(-1)
@@ -408,13 +442,51 @@ func pick_up(id: int) -> void:
 	_refresh_cells(_footprint_cells(Vector2(_positions[id].x, _positions[id].z), _rotations[id]))
 
 
-## The binder card `id` belongs in, wherever it is now.
+## The binder copy `id` belongs in, wherever it is now.
 func binder_for(id: int) -> Binder:
-	var card := CardDatabase.get_card(id)
+	return binder_for_card(Collection.card(id))
+
+
+## The binder `card` (a CardData) belongs in, wherever it is now.
+func binder_for_card(card: CardData) -> Binder:
 	for binder in binders:
 		if binder.binder.set_code == card.set_code and binder.binder.contains(card.collector_number):
 			return binder
 	return null
+
+
+## A copy of card `card_id` (a CardData id) lying about, the one nearest
+## `near` (in the pile's space), or -1 if none is.
+func lying_copy(card_id: int, near: Vector3) -> int:
+	var best := -1
+	var best_distance := INF
+	for copy in Collection.copies_of(card_id):
+		if is_lying(copy):
+			var distance := card_position(copy).distance_squared_to(near)
+			if distance < best_distance:
+				best = copy
+				best_distance = distance
+	return best
+
+
+## A copy of card `card_id` that take_from_anywhere() can have: the nearest
+## lying about, or else one hovering or misplaced in a binder; -1 if none.
+func copy_to_take(card_id: int, near: Vector3) -> int:
+	var lying := lying_copy(card_id, near)
+	if lying >= 0:
+		return lying
+	var copies := Collection.copies_of(card_id)
+	if copies.is_empty():
+		return -1
+	for child in get_children():
+		if child is LooseCard and child.card_id in copies and not child.is_queued_for_deletion():
+			return child.card_id
+	for binder in binders:
+		for pocket in binder.contents.capacity():
+			var copy := binder.contents.card_at(pocket)
+			if copy >= 0 and copy in copies and not binder.contents.is_locked(pocket):
+				return copy
+	return -1
 
 
 ## Takes card `id` from wherever it lies: the floor, a table, hovering, or
@@ -442,6 +514,7 @@ func take_from_anywhere(id: int):
 
 ## Lays a held card on top of whatever is at `point`, face up or down.
 func drop(id: int, point: Vector3, rotation_y: float, face_up := true) -> void:
+	_sync()
 	if _states[id] != State.HELD:
 		return
 	_states[id] = State.ON_FLOOR
@@ -451,9 +524,54 @@ func drop(id: int, point: Vector3, rotation_y: float, face_up := true) -> void:
 	_rebuild_chunk(_chunk_of[id])
 
 
+## Tips held copies out of a box at `point` (global, the box's underside):
+## on a table (any of `surfaces`), a heap on the table top, up to
+## TABLE_HEAP_MAX of them, the rest spilling onto the floor around it; on
+## the floor, a heap there (scatter). Each lands face up or down at random.
+func tip_out(copies: PackedInt32Array, point: Vector3, random_seed: int) -> void:
+	_sync()
+	var local := to_local(point)
+	var p := Vector2(local.x, local.z)
+	var table := Rect2()
+	for top in surfaces:
+		if top.has_point(p):
+			table = top
+	var to_floor := PackedInt32Array()
+	if local.y < 0.05 or table.size == Vector2.ZERO:
+		to_floor = copies
+	else:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = random_seed
+		var inner := table.grow(-TABLE_MARGIN - CARD_SIZE.y / 2)
+		var heights := {}
+		var on_table := 0
+		for copy in copies:
+			if _states[copy] != State.HELD:
+				continue
+			var at := p + Vector2(rng.randfn(0.0, TABLE_HEAP_SPREAD), rng.randfn(0.0, TABLE_HEAP_SPREAD))
+			if on_table >= TABLE_HEAP_MAX or not inner.has_point(at):
+				to_floor.append(copy)
+				continue
+			# A rough heap: each card lies on the cards already landed in the
+			# cells it covers.
+			var cell := Vector2i((at / TABLE_HEAP_CELL).floor())
+			var stack := 0
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					stack = maxi(stack, heights.get(cell + Vector2i(dx, dy), 0))
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					heights[cell + Vector2i(dx, dy)] = stack + 1
+			on_table += 1
+			lay_loose(copy, to_global(Vector3(at.x, local.y + stack * CARD_THICKNESS, at.y)), rng.randf() * TAU, rng.randf() < 0.7)
+	if not to_floor.is_empty():
+		scatter(to_floor, random_seed, [p] as Array[Vector2])
+
+
 ## Lays a held card on a table at `point` (global, its underside), turned to
 ## `yaw`, face up or down. Returns the card as it lies there.
 func lay_loose(id: int, point: Vector3, yaw: float, face_up := true) -> LooseCard:
+	_sync()
 	if _states[id] != State.HELD:
 		return null
 	var card := LooseCard.new()
@@ -702,16 +820,17 @@ func _glow_marker_material() -> StandardMaterial3D:
 	return _glow_material
 
 
-func _allocate(count: int) -> void:
-	_positions.resize(count)
-	_rotations.resize(count)
-	_face_up.resize(count)
-	_states.resize(count)
-	_states.fill(State.ON_FLOOR)
-	_chunk_of.resize(count)
-	_slot_of.resize(count)
-	_grid_cell_of.resize(count)
-	_grid_cell_of.fill(-1)
+## Sets up the floor's chunks, grid and height map, with no cards (every
+## copy HELD; _sync() takes in the ones made since).
+func _allocate() -> void:
+	# Packed arrays are values: each is cleared by name.
+	_positions.clear(); _rotations.clear(); _face_up.clear(); _states.clear()
+	_chunk_of.clear(); _slot_of.clear(); _grid_cell_of.clear()
+	_set_numbers.clear(); _accents.clear(); _faces.clear()
+	_set_numbers_by_code.clear()
+	var sets := CardDatabase.sets_in_shelf_order()
+	for i in sets.size():
+		_set_numbers_by_code[sets[i].code] = i + 1
 
 	_chunk_columns = ceili(bounds.size.x / CHUNK_SIZE)
 	_chunk_rows = ceili(bounds.size.y / CHUNK_SIZE)
@@ -783,19 +902,29 @@ func _add_chunk(material: ShaderMaterial) -> void:
 	_chunk_cards.append(PackedInt32Array())
 
 
-func _build_set_lookup() -> void:
-	var set_numbers := {}
-	var sets := CardDatabase.sets_in_shelf_order()
-	for i in sets.size():
-		set_numbers[sets[i].code] = i + 1
-	_set_numbers.resize(CardDatabase.card_count())
-	_accents.resize(CardDatabase.card_count())
-	_faces.resize(CardDatabase.card_count())
-	for id in CardDatabase.card_count():
-		var card := CardDatabase.get_card(id)
+## Takes in every copy made since the last call (Collection): each starts
+## HELD, until it's put down.
+func _sync() -> void:
+	var from := _states.size()
+	var count := Collection.count()
+	if count <= from:
+		return
+	# Packed arrays are values: each is resized by name.
+	_positions.resize(count); _rotations.resize(count); _face_up.resize(count); _states.resize(count)
+	_chunk_of.resize(count); _slot_of.resize(count); _grid_cell_of.resize(count)
+	_set_numbers.resize(count); _accents.resize(count); _faces.resize(count)
+	for id in range(from, count):
+		var card := Collection.card(id)
+		_states[id] = State.HELD
+		_grid_cell_of[id] = -1
 		_faces[id] = card.face_index
-		_set_numbers[id] = set_numbers.get(card.set_code, 0) # 0: the rare cards
+		_set_numbers[id] = _set_numbers_by_code.get(card.set_code, 0) # 0: the rare cards
 		_accents[id] = CardDatabase.get_set(card.set_code).accent_color
+
+
+## A copy's state; HELD for one made since the last _sync().
+func _state(id: int) -> int:
+	return _states[id] if id >= 0 and id < _states.size() else State.HELD
 
 
 ## The coarse collision surface binders rest on: each surface cell holds
@@ -957,7 +1086,7 @@ func _put_on_floor(id: int, p: Vector2, rotation_y: float, at_height := -1.0) ->
 	_positions[id] = Vector3(p.x, y, p.y)
 	_rotations[id] = rotation_y
 	_grid_add(id)
-	var chunk := _foil_chunk if CardDatabase.is_rare(id) else _chunk_index(p)
+	var chunk := _foil_chunk if Collection.is_rare(id) else _chunk_index(p)
 	_chunk_of[id] = chunk
 	var cards := _chunk_cards[chunk]
 	_slot_of[id] = cards.size()
@@ -1032,7 +1161,7 @@ func _card_transform(id: int) -> Transform3D:
 
 
 func _instance_custom(id: int) -> Color:
-	var card := CardDatabase.get_card(id)
+	var card := Collection.card(id)
 	var flags := float(card.rarity) + (4.0 if id == _highlighted else 0.0) + (8.0 if _glowing.has(id) else 0.0) \
 		+ (16.0 if card.has_alpha_corners() else 0.0)
 	return Color(card.collector_number, _set_numbers[id], flags, _face_up[id])
@@ -1040,10 +1169,10 @@ func _instance_custom(id: int) -> Color:
 
 ## Shows a card's highlight and glow, on the floor or a table.
 func _update_instance_custom(id: int) -> void:
-	if _states[id] == State.ON_TABLE:
+	if _state(id) == State.ON_TABLE:
 		_loose[id].set_highlighted(id == _highlighted)
 		_loose[id].set_glowing(_glowing.has(id))
-	elif _states[id] == State.ON_FLOOR:
+	elif _state(id) == State.ON_FLOOR:
 		_chunks[_chunk_of[id]].multimesh.set_instance_custom_data(_slot_of[id], _instance_custom(id))
 
 

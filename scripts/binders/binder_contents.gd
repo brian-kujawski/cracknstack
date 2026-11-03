@@ -1,7 +1,9 @@
 class_name BinderContents
 extends RefCounted
 ## What's in one binder's pockets (plan §3.2). Pocket i holds collector
-## number binder.first + i. A card in its own pocket locks in for good; a card
+## number binder.first + i. Pockets hold copy ids (Collection): any copy of
+## a card belongs in its pocket, and once one is locked in, the others have
+## nowhere to go here. A card in its own pocket locks in for good; a card
 ## anywhere else stays put, unlocked, until the player takes it back out.
 
 enum Result {
@@ -29,7 +31,7 @@ func capacity() -> int:
 	return _cards.size()
 
 
-## The card id in a pocket, or -1.
+## The copy id in a pocket, or -1.
 func card_at(pocket: int) -> int:
 	return _cards[pocket] if pocket >= 0 and pocket < _cards.size() else -1
 
@@ -40,7 +42,7 @@ func is_locked(pocket: int) -> bool:
 
 ## True if this card's home is exactly this pocket of this binder.
 func belongs(card_id: int, pocket: int) -> bool:
-	var card := CardDatabase.get_card(card_id)
+	var card := Collection.card(card_id)
 	return card.set_code == binder.set_code and binder.contains(card.collector_number) \
 		and card.collector_number - binder.first == pocket
 
@@ -94,8 +96,8 @@ func restore(cards: PackedInt32Array, locked: PackedByteArray) -> PackedInt32Arr
 		var id := cards[pocket]
 		if id < 0 or pocket >= locked.size() or locked[pocket] == 0:
 			continue
-		var home := CardDatabase.get_card(id).collector_number - binder.first
-		if CardDatabase.get_card(id).set_code == binder.set_code and binder.contains(binder.first + home) \
+		var home := Collection.card(id).collector_number - binder.first
+		if Collection.card(id).set_code == binder.set_code and binder.contains(binder.first + home) \
 				and _cards[home] < 0:
 			insert(home, id)
 		else:

@@ -1,7 +1,9 @@
 extends Node3D
-## Main scene: the graybox store, the whole collection and every binder
-## dumped on its floor, and the player. A loaded game builds it all from the
-## save instead (ShopSave), and Saves asks it for capture_save().
+## Main scene: the graybox store, its empty floor, every binder standing
+## empty in its shelf space, and the player. Cards come only from product
+## (booster packs from the stand by the door for now; see PackContents). A
+## loaded game builds it all from the save instead (ShopSave), and Saves
+## asks it for capture_save().
 
 const PILE_SEED := 1993
 ## How long "Achievement: Tithe" stays up in the top right, and its fade.
@@ -45,6 +47,7 @@ var _day: DayCycle
 var _falling := []
 var _saving_icon: TextureRect
 var _saving_tween: Tween
+var _debug_rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
@@ -55,13 +58,15 @@ func _ready() -> void:
 	_hands.pile = _pile
 	_hands.cabinets = _store.cabinets
 	if saved.is_empty():
-		_pile.build(_store.floor_bounds(), _store.obstacles, PILE_SEED)
-		_pile.spawn_binders(PILE_SEED)
+		Collection.reset()
+		_pile.setup(_store.floor_bounds(), _store.obstacles)
+		_pile.make_binders()
+		shelve_binders(_pile, _shelves())
 	else:
 		_falling = ShopSave.restore(saved, _pile, _hands, $Player, _shelves(), _store.floor_bounds(), _store.obstacles, PILE_SEED)
 	_hands.pack_stand = _store.pack_stand
-	_store.pack_stand.stock_from(_pile)
-	print("Pile %s: %d cards in %d ms" % ["built" if saved.is_empty() else "loaded", CardDatabase.card_count(),
+	_store.pack_stand.stock()
+	print("Shop %s: %d cards in %d ms" % ["built" if saved.is_empty() else "loaded", Collection.count(),
 		Time.get_ticks_msec() - started])
 	_day = DayCycle.new()
 	_day.name = "DayCycle"
@@ -117,6 +122,47 @@ func snapshot_save() -> Dictionary:
 
 func _shelves() -> Array:
 	return _store.find_children("*", "ShelfUnit", false, false)
+
+
+## A new game: every binder stands empty in its own shelf space. One with
+## no space (none should be) is dropped on the floor.
+static func shelve_binders(pile: PileWorld, shelves: Array) -> void:
+	var unplaced := ShelfUnit.shelve_all(pile.binders, shelves)
+	if not unplaced.is_empty():
+		pile.scatter_binders(unplaced, PILE_SEED)
+
+
+## Developer only (pause menu), until buying exists: a booster box of a
+## random set on the floor in front of you.
+func debug_booster_box() -> void:
+	_debug_box(ProductBox.Kind.BOOSTER)
+
+
+## Developer only (pause menu): a bulk box of a random set in front of you.
+func debug_bulk_box() -> void:
+	_debug_box(ProductBox.Kind.BULK)
+
+
+func _debug_box(kind: ProductBox.Kind) -> void:
+	var code := PackContents.pick_set(_debug_rng)
+	if code.is_empty():
+		return
+	var player: Node3D = $Player
+	var ahead := player.global_position - player.global_basis.z * 0.8
+	place_box(_pile, kind, code, Vector3(ahead.x, 0.0, ahead.z), player.global_rotation.y)
+
+
+## A new box of product standing on the pile at floor point `at` (global),
+## turned to `yaw`. Returns it.
+static func place_box(pile: PileWorld, kind: ProductBox.Kind, code: String, at: Vector3, yaw: float) -> ProductBox:
+	var box := ProductBox.new()
+	box.setup(kind, code)
+	var local := pile.to_local(at)
+	var p := pile.clear_point(Vector2(local.x, local.z), box.half_footprint(), yaw)
+	var y := pile.height_under(p, box.half_footprint(), yaw) if local.y < 0.05 else local.y
+	pile.add_child(box)
+	box.global_transform = pile.global_transform * Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, y, p.y))
+	return box
 
 
 ## Cards a save left in the air land once the shop's physics is running,
@@ -186,7 +232,7 @@ func _process(delta: float) -> void:
 		_stats_timer = 0.0
 		_update_stats()
 		_hang_wall_art(true)
-		if not _finished and is_finished(_pile.binders, _shelves(), _store.cabinets):
+		if not _finished and is_finished(_pile.binders, _shelves()):
 			_finished = true
 			Saves.finished = true
 			Saves.save(Saves.AUTOSAVE)
@@ -210,7 +256,7 @@ func _hang_wall_art(fade: bool) -> void:
 ## left out of release exports.
 func _update_stats() -> void:
 	var text := "Cards Organized: %d/%d\nMana: %d" % [
-		cards_organized(_pile.binders, _store.cabinets), CardDatabase.card_count(), Progression.mana]
+		cards_organized(_pile.binders, _store.cabinets), pockets(_pile.binders), Progression.mana]
 	for line in sorcery_lines():
 		text += "\n" + line
 	if OS.is_debug_build():
@@ -226,16 +272,13 @@ func _update_stats() -> void:
 
 ## Cards Organized as a share of every card, for the radio's unlocks.
 func _organized_share() -> float:
-	return float(cards_organized(_pile.binders, _store.cabinets)) / maxf(1.0, CardDatabase.card_count())
+	return float(cards_organized(_pile.binders, _store.cabinets)) / maxf(1.0, pockets(_pile.binders))
 
 
-## The game is finished when every card is locked into its own pocket,
-## every binder stands in its own shelf space and every rare card is on
-## display.
-static func is_finished(binders: Array[Binder], shelves: Array, cabinets: Array = []) -> bool:
-	for cabinet: DisplayCabinet in cabinets:
-		if not cabinet.is_complete():
-			return false
+## The game is finished when every binder pocket holds its own card, locked
+## in, and every binder stands in its own shelf space. The display cabinets
+## don't count: nothing brings rare cards for them yet (card-copies-plan.md).
+static func is_finished(binders: Array[Binder], shelves: Array) -> bool:
 	for binder in binders:
 		if not binder.contents.is_complete():
 			return false
@@ -244,6 +287,14 @@ static func is_finished(binders: Array[Binder], shelves: Array, cabinets: Array 
 			if shelf.spaces[space] != null and (shelf.shelved[space] == null or shelf.shelved[space].binder != shelf.spaces[space]):
 				return false
 	return not binders.is_empty()
+
+
+## Every pocket of every binder: the most Cards Organized can reach.
+static func pockets(binders: Array[Binder]) -> int:
+	var count := 0
+	for binder in binders:
+		count += binder.contents.capacity()
+	return count
 
 
 ## Cards locked into their own pockets, across every binder, and rare cards
@@ -294,7 +345,9 @@ func _show_notice(text: String) -> void:
 
 
 func _on_shown_card_changed(card: CardData, set_only: bool) -> void:
-	if _hands.held_pack != null:
+	if _hands.held_box != null:
+		_held.text = _hands.held_box.details()
+	elif _hands.held_pack != null:
 		_held.text = pack_details(_hands.held_pack.set_code)
 	elif card == null:
 		_held.text = ""

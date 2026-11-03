@@ -200,8 +200,21 @@ func set_count() -> int:
 	return _sets_in_shelf_order.size()
 
 
+## A card by card id (its place in the data). Physical cards are copies:
+## ask Collection.card(copy) which card a copy is.
 func get_card(id: int) -> CardData:
 	return _cards[id]
+
+
+## The card with collector number `number` in set `code`, or null.
+func find_card(code: String, number: int) -> CardData:
+	var cards := cards_in_set(code)
+	if number >= 1 and number <= cards.size() and cards[number - 1].collector_number == number:
+		return cards[number - 1]
+	for card in cards:
+		if card.collector_number == number:
+			return card
+	return null
 
 
 func get_set(code: String) -> SetData:
@@ -213,8 +226,7 @@ func sets_in_shelf_order() -> Array[SetData]:
 	return _sets_in_shelf_order
 
 
-## Every set with a binder in shelf order, then the rare cards: the order
-## a save lists cards in.
+## Every set with a binder in shelf order, then the rare cards.
 func all_sets() -> Array[SetData]:
 	var sets := _sets_in_shelf_order.duplicate()
 	sets.append(_rare_set)

@@ -17,7 +17,8 @@ const MAGIC := "PKUP"
 ## Bump whenever a change makes older saves unreadable or wrong: a field
 ## added, removed, or meaning something new. Saves from any other version
 ## are listed as "From an older version" and can't be loaded (§7.1).
-const SAVE_VERSION := 1
+## 2: cards saved as copies (card-copies-plan.md).
+const SAVE_VERSION := 2
 const EXTENSION := ".save"
 
 ## Where a save stands, for the menus.

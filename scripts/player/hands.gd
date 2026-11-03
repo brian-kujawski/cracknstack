@@ -75,7 +75,7 @@ extends Node
 ## the last card is shown the room comes back. Space once more lowers the
 ## stack back into your hand. Let go of Space before the end and the tear stays where it
 ## got to, but the room comes back and the pack stops shaking. The cards
-## come out of the pile (see PackContents): no duplicates yet.
+## are new copies (see PackContents), so they can be cards you already have.
 
 signal held_changed(card: CardData, binder: BinderRange)
 ## The card whose details to show: the one in hand, or else a card you're
@@ -91,7 +91,7 @@ signal radio_used
 ## A booster pack came to hand (its set's code), or left it ("").
 signal held_pack_changed(set_code: String)
 
-enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACKS }
+enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACKS, BOX, LOOSE_PACK }
 
 ## How far from the eye the player can reach, and with Spider Climb.
 @export var reach := 2.6
@@ -177,6 +177,8 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACK
 const HELD_POSITION := Vector3(0.075, -0.05, -0.2)
 ## A pack is held a little lower, being taller than a card.
 const PACK_HELD_POSITION := Vector3(0.075, -0.07, -0.21)
+## A box in hand tips its top this far toward you (radians).
+const BOX_HELD_TILT := 0.35
 ## How far the pack shakes while being ripped, at the very end (metres and
 ## radians); it starts at a sliver of that and grows.
 const RIP_SHAKE := 0.0025
@@ -233,6 +235,8 @@ var _incoming := 0
 var carried_binder: Binder
 ## The booster pack in hand (a prototype), or null.
 var held_pack: BoosterPack
+## A box of product in hand (ProductBox), or null.
+var held_box: ProductBox
 ## The pack stand (the shop sets it).
 var pack_stand: PackDisplay
 ## Cards of the pack just ripped still to be shown (after the one on top).
@@ -253,7 +257,7 @@ const EMERGE_DEPTH := 1.08
 ## The display cabinets (the shop sets them), whose shadow boxes hold the
 ## rare cards.
 var cabinets: Array[DisplayCabinet] = []
-## Every card you've held at least once, by id. With Remember the Fallen
+## Every copy you've held at least once, by copy id. With Remember the Fallen
 ## you know one of these wherever you see it again.
 var seen_cards := {}
 
@@ -306,6 +310,8 @@ var _aim_space := -1
 var _aim_cabinet: DisplayCabinet
 ## The shadow box the crosshair is on, in _aim_cabinet, or -1.
 var _aim_slot := -1
+var _aim_box: ProductBox
+var _aim_pack: BoosterPack
 var _hovered_binder: Binder
 var _hint := ""
 var _shown_card: CardData
@@ -456,7 +462,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _hands_empty() -> bool:
-	return held_card_id < 0 and carried_binder == null and held_pack == null
+	return held_card_id < 0 and carried_binder == null and held_pack == null and held_box == null
 
 
 ## How many cards you can hold, with Harmonize.
@@ -470,7 +476,7 @@ func hand_count() -> int:
 
 ## Whether another card can come into your hand.
 func has_room() -> bool:
-	return carried_binder == null and held_pack == null and hand_count() < hand_size()
+	return carried_binder == null and held_pack == null and held_box == null and hand_count() < hand_size()
 
 
 func _gliding() -> bool:
@@ -487,8 +493,20 @@ func _use_hand() -> void:
 		elif _hands_empty():
 			_take_pack()
 		return
+	if held_box != null:
+		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
+			put_down_box()
+		return
 	if held_pack != null:
-		return # A pack only goes back on the stand (or gets ripped).
+		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD, Aim.LOOSE_PACK]:
+			put_down_pack()
+		return # Otherwise a pack goes back on the stand or gets ripped.
+	if _hands_empty() and _aim == Aim.BOX:
+		take_box(_aim_box)
+		return
+	if _hands_empty() and _aim == Aim.LOOSE_PACK:
+		_take_pack_node(_aim_pack)
+		return
 	if carried_binder != null:
 		if _aim == Aim.SHELF:
 			_shelve_carried_binder()
@@ -576,9 +594,9 @@ func _try_file_held_card() -> bool:
 ## sends it to its own shadow box, wherever that is. Returns false if
 ## that's not what the click does.
 func _try_display_held_card() -> bool:
-	if _aim != Aim.CABINET or not CardDatabase.is_rare(held_card_id):
+	if _aim != Aim.CABINET or not Collection.is_rare(held_card_id):
 		return false
-	var number := CardDatabase.get_card(held_card_id).collector_number
+	var number := Collection.card(held_card_id).collector_number
 	for cabinet in cabinets:
 		var slot := cabinet.slot_for(number)
 		if slot < 0 or cabinet.displayed[slot] >= 0:
@@ -600,8 +618,8 @@ func _display(cabinet: DisplayCabinet, id: int) -> void:
 	Progression.earn(Progression.CARD_LOCKED)
 	Progression.card_filed_by_hand()
 	var all := cabinets.all(func(c: DisplayCabinet) -> bool: return c.is_complete())
-	Achievements.rare_card_displayed(CardDatabase.get_card(id).collector_number, all)
-	var slot := cabinet.slot_for(CardDatabase.get_card(id).collector_number)
+	Achievements.rare_card_displayed(Collection.card(id).collector_number, all)
+	var slot := cabinet.slot_for(Collection.card(id).collector_number)
 	FeedbackSounds.play(pile, cabinet.slot_pose(slot).origin,
 		FeedbackSounds.Kind.BINDER_COMPLETE if all else FeedbackSounds.Kind.CARD_LOCKED)
 
@@ -615,7 +633,7 @@ func shunt_pocket(binder: Binder) -> int:
 	var rank := Progression.rank("Shunt")
 	if rank == 0 or held_card_id < 0 or (rank < 3 and not binder.is_open()):
 		return -1
-	var card := CardDatabase.get_card(held_card_id)
+	var card := Collection.card(held_card_id)
 	if card.set_code != binder.binder.set_code or not binder.binder.contains(card.collector_number):
 		return -1
 	var pocket := card.collector_number - binder.binder.first
@@ -650,7 +668,7 @@ func brainstorm(binder: Binder) -> Array[int]:
 	missing.shuffle()
 	missing = missing.slice(0, BRAINSTORM_CARDS[rank - 1])
 	for id in missing:
-		var pocket := CardDatabase.get_card(id).collector_number - binder.binder.first
+		var pocket := Collection.card(id).collector_number - binder.binder.first
 		var from := pile.card_pose(id)
 		pile.pick_up(id)
 		_fly_to_pocket(id, from, binder, pocket, func() -> void:
@@ -662,7 +680,7 @@ func brainstorm(binder: Binder) -> Array[int]:
 ## Lightning if it's armed, and the card's achievement if it has one.
 func _locked_in(binder: Binder, pocket: int) -> void:
 	var page := pocket / BinderLayout.POCKETS_PER_PAGE
-	Achievements.card_filed(CardDatabase.get_card(binder.contents.card_at(pocket)))
+	Achievements.card_filed(Collection.card(binder.contents.card_at(pocket)))
 	if Progression.fire("Chain Lightning"):
 		_strike_chain_lightning(binder, page)
 	var sound := FeedbackSounds.Kind.CARD_LOCKED
@@ -680,9 +698,10 @@ func _strike_chain_lightning(binder: Binder, page: int) -> Array[int]:
 	var first := page * BinderLayout.POCKETS_PER_PAGE
 	var missing: Array[int] = []
 	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
+	var near := pile.to_local(binder.global_position)
 	for pocket in range(first, mini(first + BinderLayout.POCKETS_PER_PAGE, binder.contents.capacity())):
-		var id := cards[binder.binder.first + pocket - 1].id
-		if not binder.contents.is_locked(pocket) and pile.is_lying(id):
+		var id := pile.lying_copy(cards[binder.binder.first + pocket - 1].id, near)
+		if not binder.contents.is_locked(pocket) and id >= 0:
 			missing.append(id)
 	missing.shuffle()
 	var count: int = CHAIN_LIGHTNING_CARDS[maxi(Progression.rank("Chain Lightning"), 1) - 1]
@@ -714,13 +733,17 @@ func _update_blessing(delta: float) -> void:
 
 
 ## The cards a binder still needs that are lying about, on the floor or a
-## table.
+## table: for each empty pocket, the copy of its card lying nearest the
+## binder.
 func _missing_lying(binder: Binder) -> Array[int]:
 	var missing: Array[int] = []
 	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
+	var near := pile.to_local(binder.global_position)
 	for pocket in binder.contents.capacity():
-		var id := cards[binder.binder.first + pocket - 1].id
-		if binder.contents.card_at(pocket) < 0 and pile.is_lying(id):
+		if binder.contents.card_at(pocket) >= 0:
+			continue
+		var id := pile.lying_copy(cards[binder.binder.first + pocket - 1].id, near)
+		if id >= 0:
 			missing.append(id)
 	return missing
 
@@ -753,18 +776,20 @@ func cast_tithe() -> Array[int]:
 func cast_abundance() -> Array[int]:
 	if not Progression.can_cast("Abundance") or held_card_id < 0 or not has_room() or _gliding():
 		return []
-	if CardDatabase.is_rare(held_card_id):
+	if Collection.is_rare(held_card_id):
 		return [] # Rare cards come one at a time.
-	var top := CardDatabase.get_card(held_card_id)
+	var top := Collection.card(held_card_id)
 	var cards := CardDatabase.cards_in_set(top.set_code)
 	var brought: Array[int] = []
 	var poses := []
 	for number in range(top.collector_number + 1, cards.size() + 1):
 		if hand_count() + brought.size() >= hand_size():
 			break
-		var id := cards[number - 1].id
-		var binder := pile.binder_for(id)
+		var binder := pile.binder_for_card(cards[number - 1])
 		if binder != null and binder.contents.is_locked(number - binder.binder.first):
+			continue
+		var id := pile.copy_to_take(cards[number - 1].id, pile.to_local(_camera.global_position))
+		if id < 0:
 			continue
 		var from = pile.take_from_anywhere(id)
 		if from != null:
@@ -805,7 +830,7 @@ func cast_teleport() -> bool:
 	var sent: Array[int] = []
 	for id in hand:
 		var binder := pile.binder_for(id)
-		if binder != null and binder.contents.card_at(CardDatabase.get_card(id).collector_number - binder.binder.first) < 0:
+		if binder != null and binder.contents.card_at(Collection.card(id).collector_number - binder.binder.first) < 0:
 			sent.append(id)
 	if sent.is_empty():
 		return false
@@ -813,7 +838,7 @@ func cast_teleport() -> bool:
 	var from := _held_view.global_transform
 	for id in sent:
 		var binder := pile.binder_for(id)
-		var pocket := CardDatabase.get_card(id).collector_number - binder.binder.first
+		var pocket := Collection.card(id).collector_number - binder.binder.first
 		if id == held_card_id:
 			_release_top()
 		else:
@@ -856,7 +881,10 @@ func cast_demonic_tutor() -> bool:
 			or _aim_binder.contents.card_at(_aim_pocket) >= 0:
 		return false
 	var binder := _aim_binder.binder
-	var id := CardDatabase.cards_in_set(binder.set_code)[binder.first + _aim_pocket - 1].id
+	var id := pile.copy_to_take(CardDatabase.cards_in_set(binder.set_code)[binder.first + _aim_pocket - 1].id,
+		pile.to_local(_camera.global_position))
+	if id < 0:
+		return false
 	var from = pile.take_from_anywhere(id)
 	if from == null:
 		return false
@@ -1140,6 +1168,8 @@ func _update_aim() -> void:
 	_aim_space = -1
 	_aim_cabinet = null
 	_aim_slot = -1
+	_aim_box = null
+	_aim_pack = null
 	var from := _camera.global_position
 	var to := from - _camera.global_transform.basis.z * current_reach()
 	var query := PhysicsRayQueryParameters3D.create(from, to)
@@ -1161,6 +1191,20 @@ func _update_aim() -> void:
 		return
 	_aim_point = hit.position
 	var collider: Object = hit.collider
+	if collider is ShelfUnit:
+		var at: int = collider.space_at(hit.position)
+		if at >= 0 and collider.shelved[at] != null:
+			collider = collider.shelved[at]
+	if collider is Binder and collider.state == Binder.State.SHELVED and not Progression.is_set_unlocked(collider.binder.set_code):
+		return # A locked set's binder stays on the shelf, untouchable.
+	if collider is ProductBox:
+		_aim = Aim.BOX
+		_aim_box = collider
+		return
+	if collider is StaticBody3D and (collider as Node).get_parent() is BoosterPack:
+		_aim = Aim.LOOSE_PACK
+		_aim_pack = (collider as Node).get_parent()
+		return
 	if collider is Binder:
 		_aim = Aim.BINDER
 		_aim_binder = collider
@@ -1219,7 +1263,7 @@ func _update_hint() -> void:
 	var set_only := id < 0 and shown_set_card_id() >= 0
 	if set_only:
 		id = shown_set_card_id()
-	var shown: CardData = CardDatabase.get_card(id) if id >= 0 else null
+	var shown: CardData = Collection.card(id) if id >= 0 else null
 	if shown != _shown_card or set_only != _shown_set_only:
 		_shown_card = shown
 		_shown_set_only = set_only
@@ -1321,7 +1365,7 @@ func _pocket_hint(binder: Binder, pocket: int) -> String:
 	var number := "%s #%s" % [set_data.code, set_data.number_text(binder.binder.first + pocket)]
 	if not binder.contents.is_locked(pocket):
 		return number + ": ???"
-	return "%s\n%s" % [number, CardDatabase.get_card(binder.contents.card_at(pocket)).name]
+	return "%s\n%s" % [number, Collection.card(binder.contents.card_at(pocket)).name]
 
 
 func _toss() -> void:
@@ -1495,6 +1539,12 @@ func _take_pack() -> void:
 	var pack := pack_stand.take(_aim_point)
 	if pack == null:
 		return
+	_take_pack_node(pack)
+
+
+## Takes a pack into your hand, from the stand or from where it lies.
+func _take_pack_node(pack: BoosterPack) -> void:
+	pack.stop_lying()
 	var from := pack.global_transform
 	_hold(-1)
 	pack.get_parent().remove_child(pack)
@@ -1530,13 +1580,140 @@ func _return_pack() -> void:
 ## all been shown, lower the stack into your hand; otherwise show the next
 ## card.
 func press_rip() -> void:
-	if held_pack != null:
+	if held_box != null:
+		open_box(held_box)
+	elif _hands_empty() and _aim == Aim.BOX:
+		open_box(_aim_box)
+	elif held_pack != null:
 		_start_ripping()
 	elif _revealed_all and _zoomed:
 		_revealed_all = false
 		_set_zoomed(false)
 	else:
 		reveal_next()
+
+
+## Picks a box of product up off the floor or a table.
+func take_box(box: ProductBox) -> void:
+	var from := box.global_transform
+	_hold(-1)
+	box.get_parent().remove_child(box)
+	_camera.add_child(box)
+	box.collision_layer = 0 # Not in the way of your aim (or you).
+	held_box = box
+	var held := Transform3D(Basis(Vector3.RIGHT, BOX_HELD_TILT), box_held_position(box))
+	box.global_transform = from
+	_glide = Glide.start(box, from, func() -> Transform3D: return _camera.global_transform * held,
+		glide_seconds(binder_glide_seconds))
+	held_pack_changed.emit(box.set_code)
+
+
+## Where a box is held, below and in front of the eyes, further for a big one.
+static func box_held_position(box: ProductBox) -> Vector3:
+	var size := box.box_size()
+	return Vector3(0.0, -0.12 - size.y, -0.25 - size.z)
+
+
+## Where a box put down where you're aiming would stand (global): on the
+## pile, or on the table or card you're aiming at, its front toward you.
+func box_drop_pose(box: ProductBox) -> Transform3D:
+	var yaw := _camera.global_rotation.y
+	var half := box.half_footprint()
+	var local := pile.to_local(_aim_point)
+	var p := Vector2(local.x, local.z)
+	var y := local.y
+	if _aim == Aim.FLOOR or local.y < 0.05:
+		p = pile.clear_point(p, half, yaw)
+		y = pile.height_under(p, half, yaw)
+	else:
+		p = pile.onto_surface(p, yaw, half)
+	return pile.global_transform * Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, y, p.y))
+
+
+## Puts the box in hand down where you're aiming.
+func put_down_box() -> void:
+	var box := held_box
+	var to := box_drop_pose(box)
+	var from := box.global_transform
+	held_box = null
+	box.get_parent().remove_child(box)
+	pile.add_child(box)
+	box.global_transform = from
+	_glide = Glide.start(box, from, func() -> Transform3D: return to, glide_seconds(binder_glide_seconds))
+	_glide.tween_callback(func() -> void: box.collision_layer = Binder.PHYSICS_LAYER)
+	held_pack_changed.emit("")
+
+
+## Puts the pack in hand down, lying where you're aiming, unless it's
+## started to tear.
+func put_down_pack() -> void:
+	var pack := held_pack
+	if pack.tear > 0.0:
+		return
+	var local := pile.to_local(_aim_point)
+	var p := Vector2(local.x, local.z)
+	var y := local.y if _aim != Aim.FLOOR else pile.height_at(p)
+	var from := pack.global_transform
+	held_pack = null
+	_hold(-1)
+	pack.lie(pile, pile.to_global(Vector3(p.x, y, p.y)), _camera.global_rotation.y)
+	var to := pack.global_transform
+	pack.global_transform = from
+	_glide = Glide.start(pack, from, func() -> Transform3D: return to, glide_seconds(card_glide_seconds))
+	held_pack_changed.emit("")
+
+
+## Opens a box of product, in hand or lying about. A booster box tips its
+## packs out in a heap where it stands (or where you're aiming, or at your
+## feet, from your hand); a bulk box tips its cards out there, onto the
+## table or the floor. Opening a set's product unlocks the set (for now).
+## Returns the packs tipped out, or the copies made.
+func open_box(box: ProductBox) -> Array:
+	var at := box.global_position
+	if box == held_box:
+		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
+			at = box_drop_pose(box).origin
+		else:
+			var ahead := _camera.global_position - _camera.global_basis.z.slide(Vector3.UP).normalized() * 0.6
+			var local := pile.to_local(ahead)
+			at = pile.to_global(Vector3(local.x, 0.0, local.z))
+		held_box = null
+		held_pack_changed.emit("")
+	box.get_parent().remove_child(box)
+	box.queue_free()
+	Progression.unlock_set(box.set_code) # For now: until levels unlock sets.
+	FeedbackSounds.play(pile, at, FeedbackSounds.Kind.PACK_RIP)
+	if box.kind == ProductBox.Kind.BULK:
+		var copies := Collection.add_all(PackContents.bulk_box(box.set_code, _pack_rng))
+		pile.tip_out(copies, at, _pack_rng.randi())
+		return Array(copies)
+	return tip_out_packs(box.set_code, PackContents.BOX_PACKS, at)
+
+
+## A booster box's packs tumble out in a loose heap around `at` (global,
+## where the box stood): on the table there, or the floor. Returns them.
+func tip_out_packs(code: String, count: int, at: Vector3) -> Array:
+	var local := pile.to_local(at)
+	var on_floor := local.y < 0.05
+	var packs := []
+	var placed: Array[Vector3] = []
+	for i in count:
+		var p := Vector2(local.x, local.z) + Vector2(_pack_rng.randfn(0.0, 0.07), _pack_rng.randfn(0.0, 0.07))
+		var yaw := _pack_rng.randf() * TAU
+		if on_floor:
+			p = pile.clear_point(p, BoosterPack.SIZE / 2, yaw)
+		else:
+			p = pile.onto_surface(p, yaw, BoosterPack.SIZE / 2)
+		var y := pile.height_at(p) if on_floor else local.y
+		for other in placed:
+			if Vector2(other.x, other.z).distance_to(p) < BoosterPack.SIZE.x:
+				y = maxf(y, other.y + BoosterPack.THICKNESS)
+		placed.append(Vector3(p.x, y, p.y))
+		var pack := BoosterPack.new()
+		pack.setup(code)
+		pack.lie(pile, pile.to_global(Vector3(p.x, y, p.y)), yaw)
+		packs.append(pack)
+	return packs
 
 
 ## Space on a pack in hand: start ripping, bringing it up close if it isn't.
@@ -1587,15 +1764,16 @@ func _process(delta: float) -> void:
 	_pack_effects.set_veil(veil)
 
 
-## Tears the pack in hand open with a flash: its cards come out of the pile
-## into your hand, up close, in the order they're revealed. Returns them.
+## Tears the pack in hand open with a flash: its cards (new copies, see
+## PackContents) are in your hand, up close, in the order they're revealed.
+## Returns them.
 func rip_pack() -> Array[int]:
 	var pack := held_pack
 	if pack == null:
 		return []
-	var ids := PackContents.draw(pile, pack.set_code, _pack_rng)
-	for id in ids:
-		pile.pick_up(id)
+	var ids: Array[int] = []
+	ids.assign(Collection.add_all(PackContents.draw(pack.set_code, _pack_rng)))
+	Progression.unlock_set(pack.set_code) # For now: until levels unlock sets.
 	held_pack = null
 	_ripping = false
 	_rip = 0.0
@@ -1662,7 +1840,7 @@ func reveal_next() -> void:
 
 ## A rare or mythic just revealed glows (gold or orange-red) and chimes.
 func _reveal_flourish(id: int) -> void:
-	match CardDatabase.get_card(id).rarity:
+	match Collection.card(id).rarity:
 		CardData.Rarity.MYTHIC:
 			_pack_effects.glow(PackEffects.MYTHIC_GLOW, _held_view.position)
 			FeedbackSounds.play(pile, _camera.global_position, FeedbackSounds.Kind.MYTHIC_REVEALED)
@@ -1745,7 +1923,7 @@ func _finish_viewing() -> void:
 ## Puts card `id` on top of the hand, the old top card going just behind it
 ## (see _hold for `from`, `seconds` and `lift`).
 func _take_in_hand(id: int, from = null, seconds := -1.0, lift := 0.0) -> void:
-	var first_rare := CardDatabase.is_rare(id) and not seen_cards.keys().any(CardDatabase.is_rare)
+	var first_rare := Collection.is_rare(id) and not seen_cards.keys().any(Collection.is_rare)
 	if first_rare:
 		rare_card_found.emit.call_deferred()
 	if held_card_id >= 0:
@@ -1802,4 +1980,4 @@ func _hold(id: int, from = null, seconds := -1.0, lift := 0.0) -> void:
 		return
 	seen_cards[id] = true
 	CardView.apply(_held_view.material_override, id)
-	held_changed.emit(CardDatabase.get_card(id), null)
+	held_changed.emit(Collection.card(id), null)

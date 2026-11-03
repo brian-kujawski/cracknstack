@@ -145,7 +145,7 @@ func is_complete() -> bool:
 ## cabinet's rare cards or its slot's taken. With `flash`, it glows up the
 ## way a card locking into its pocket does (a save putting it back doesn't).
 func display(id: int, flash := true) -> bool:
-	var card := CardDatabase.get_card(id)
+	var card := Collection.card(id)
 	var slot := slot_for(card.collector_number) if RareCards.is_rare(card) else -1
 	if slot < 0 or displayed[slot] >= 0:
 		return false

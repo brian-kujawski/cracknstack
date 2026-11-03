@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks"]
 
 var _failures := 0
 var _checks := 0
@@ -29,8 +29,13 @@ func _ready() -> void:
 	Settings.reset_all()
 	Saves.save_dir = SAVES_TEST_DIR
 	Radio.load_from(RADIO_TEST_PATH)
+	# Most checks were written before sets locked (_test_set_locks turns it
+	# back on).
+	Progression.locks_sets = false
 	_clear_test_saves()
 	await _run(_test_database_loaded)
+	await _run(_test_card_copies)
+	await _run(_test_set_locks)
 	await _run(_test_collector_numbers_are_contiguous)
 	await _run(_test_shelf_order)
 	await _run(_test_binders_per_set)
@@ -100,8 +105,35 @@ func _run(group: Callable) -> void:
 		return
 	var started := Time.get_ticks_msec()
 	var checks := _checks
+	_one_of_each()
 	await group.call()
 	print("%s: %d checks in %d ms" % [group.get_method(), _checks - checks, Time.get_ticks_msec() - started])
+
+
+## Most checks are written against one copy of every card, numbered like
+## the cards (copy id == card id), as the game used to start: each group
+## starts with that Collection.
+func _one_of_each() -> void:
+	Collection.reset()
+	Collection.add_all(PackedInt32Array(range(CardDatabase.card_count())))
+
+
+## A new shop as the game used to start, for checks written against it:
+## one copy of every card scattered on the floor (copy id == card id) and
+## every binder dropped on top, not on the shelf.
+func _old_start(main: Node3D) -> void:
+	var pile: PileWorld = main.get_node("Pile")
+	for unit: ShelfUnit in main._shelves():
+		for space in unit.spaces.size():
+			if unit.shelved[space] != null:
+				unit.unshelve(space)
+	for binder in pile.binders:
+		binder.get_parent().remove_child(binder)
+		binder.shelf_unit = null
+		binder.collision_mask = Binder.PHYSICS_MASK
+	_one_of_each()
+	pile.scatter(PackedInt32Array(range(Collection.count())), main.PILE_SEED)
+	pile.scatter_binders(pile.binders, main.PILE_SEED)
 
 
 func _check(condition: bool, message: String) -> void:
@@ -115,6 +147,74 @@ func _test_database_loaded() -> void:
 	_check(CardDatabase.set_count() == 150, "expected 150 placeholder sets, got %d" % CardDatabase.set_count())
 	_check(CardDatabase.card_count() > 25000 and CardDatabase.card_count() < 35000,
 		"expected ~30k placeholder cards, got %d" % CardDatabase.card_count())
+
+
+## Copies (Collection): any number of physical cards of one card, each
+## its own id, filed, found and saved as itself.
+func _test_card_copies() -> void:
+	Collection.reset()
+	_check(Collection.count() == 0, "the collection starts empty")
+	var card := CardDatabase.all_binders()[0]
+	var first: CardData = CardDatabase.cards_in_set(card.set_code)[0]
+	var a := Collection.add(first.id)
+	var b := Collection.add(first.id, Collection.FOIL)
+	var other := Collection.add(first.id + 1)
+	_check(a == 0 and b == 1 and other == 2 and Collection.count() == 3, "copies are numbered in order")
+	_check(Collection.card(a) == first and Collection.card(b) == first and Collection.card(other) != first, "each knows its card")
+	_check(not Collection.is_foil(a) and Collection.is_foil(b), "and its own flags")
+	_check(Collection.copies_of(first.id) == PackedInt32Array([a, b]) and Collection.copies_of(first.id + 2).is_empty(),
+		"a card's copies, or none")
+	_check(CardDatabase.find_card(first.set_code, first.collector_number) == first and CardDatabase.find_card(first.set_code, 9999) == null,
+		"cards are found by set and number")
+
+	# Either copy belongs in the card's pocket; once one's in, the other has
+	# nowhere to go there.
+	var contents := BinderContents.new(card)
+	_check(contents.belongs(a, 0) and contents.belongs(b, 0), "every copy of a card belongs in its pocket")
+	_check(contents.insert(0, b) == BinderContents.Result.LOCKED, "a copy locks in")
+	_check(contents.insert(0, a) == BinderContents.Result.OCCUPIED, "the second copy finds its pocket taken")
+	_check(contents.insert(5, a) == BinderContents.Result.MISPLACED, "and is just misplaced anywhere else")
+
+	# Found lying about: the nearest copy.
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.setup(Rect2(0, 0, 4, 4), [] as Array[Rect2])
+	pile.drop(a, Vector3(0.5, 0, 0.5), 0.0)
+	pile.drop(b, Vector3(3.5, 0, 3.5), 0.0)
+	_check(pile.lying_copy(first.id, Vector3(3, 0, 3)) == b and pile.lying_copy(first.id, Vector3(1, 0, 1)) == a, "the nearest copy lying about")
+	pile.pick_up(a)
+	_check(pile.lying_copy(first.id, Vector3(1, 0, 1)) == b and pile.copy_to_take(first.id, Vector3.ZERO) == b, "or the only one")
+	_check(pile.lying_copy(first.id + 2, Vector3.ZERO) == -1, "none for a card with no copies")
+	pile.free()
+
+	# Saved as set code, number and flags; made again in the same order.
+	var table := ShopSave.copy_table(Collection.card_ids(), Collection.all_flags())
+	_check(table.sets == PackedStringArray([first.set_code]) and table.number == PackedInt32Array([1, 1, 2]),
+		"a save lists copies by set code and number, never by card id")
+	Collection.reset()
+	var ids := ShopSave.make_copies(table)
+	_check(ids == PackedInt32Array([0, 1, 2]) and Collection.card(1) == first and Collection.is_foil(1),
+		"loading makes the same copies again")
+	table.sets = PackedStringArray(["ZZZ"])
+	_check(ShopSave.make_copies(table) == PackedInt32Array([-1, -1, -1]) and Collection.count() == 0,
+		"copies of cards gone from the data are dropped")
+
+
+## Sets lock: a locked set's binder stays on the shelf, out of reach, until
+## the set is unlocked (for now, by opening product of it).
+func _test_set_locks() -> void:
+	Progression.reset()
+	Progression.locks_sets = true
+	var code: String = CardDatabase.sets_in_shelf_order()[0].code
+	_check(not Progression.is_set_unlocked(code), "a new game's sets are locked")
+	_check(Progression.unlock_set(code) and Progression.is_set_unlocked(code) and not Progression.unlock_set(code), "a set unlocks once")
+	var kept := Progression.save_state()
+	Progression.reset()
+	_check(not Progression.is_set_unlocked(code), "a new game locks it again")
+	Progression.restore_state(kept)
+	_check(Progression.is_set_unlocked(code), "a save keeps what's unlocked")
+	Progression.reset()
+	Progression.locks_sets = false
 
 
 func _test_collector_numbers_are_contiguous() -> void:
@@ -235,7 +335,7 @@ func _test_pile() -> void:
 	add_child(pile)
 	var obstacle := Rect2(10, 5, 2, 2)
 	var obstacles: Array[Rect2] = [obstacle]
-	pile.build(Rect2(0, 0, 28, 14), obstacles, 7)
+	pile.build_one_of_each(Rect2(0, 0, 28, 14), obstacles, 7)
 	var total := CardDatabase.card_count()
 	_check(pile.card_count_on_floor() == total, "every card starts on the floor")
 
@@ -299,7 +399,7 @@ func _test_pile_aim() -> void:
 	var pile := PileWorld.new()
 	add_child(pile)
 	var no_obstacles: Array[Rect2] = []
-	pile.build(Rect2(0, 0, 28, 14), no_obstacles, 7)
+	pile.build_one_of_each(Rect2(0, 0, 28, 14), no_obstacles, 7)
 
 	# Stack 40 cards in one spot and look at the top one from low down, as
 	# when crouching in a big pile: the crosshair's ray reaches the floor well
@@ -351,7 +451,7 @@ func _test_pile_clearing() -> void:
 	var pile := PileWorld.new()
 	add_child(pile)
 	var no_obstacles: Array[Rect2] = []
-	pile.build(Rect2(0, 0, 28, 14), no_obstacles, 7)
+	pile.build_one_of_each(Rect2(0, 0, 28, 14), no_obstacles, 7)
 
 	# Clearing a spot lowers the pile there, so whatever is put down next
 	# lands on what's left, not on the cards that used to be there.
@@ -388,7 +488,7 @@ func _test_pile_stacking() -> void:
 	add_child(pile)
 	var bounds := Rect2(0.05, 0.05, 11.9, 7.9)
 	var no_obstacles: Array[Rect2] = []
-	pile.build(bounds, no_obstacles, 11)
+	pile.build_one_of_each(bounds, no_obstacles, 11)
 	var resting := 0
 	var sampled := 0
 	for k in 300:
@@ -421,7 +521,7 @@ func _test_pile_grid() -> void:
 	var pile := PileWorld.new()
 	add_child(pile)
 	var no_obstacles: Array[Rect2] = []
-	pile.build(Rect2(0, 0, 28, 14), no_obstacles, 7)
+	pile.build_one_of_each(Rect2(0, 0, 28, 14), no_obstacles, 7)
 
 	# Gap fill keeps the picking grid tidy: one entry per card on the floor.
 	for k in 400:
@@ -797,7 +897,7 @@ func _test_real_data_format() -> void:
 	var pile := PileWorld.new()
 	add_child(pile)
 	var no_obstacles: Array[Rect2] = []
-	pile.build(Rect2(0, 0, 4, 4), no_obstacles, 3)
+	pile.build_one_of_each(Rect2(0, 0, 4, 4), no_obstacles, 3)
 	_check(pile.card_count_on_floor() == FIXTURE_CARDS + RareCards.count(), "the whole real set is on the floor, with the rare cards")
 	var faces_ok := true
 	for id in FIXTURE_CARDS:
@@ -933,6 +1033,7 @@ func _test_turn_over() -> void:
 	add_child(main)
 	await get_tree().physics_frame
 	await get_tree().physics_frame
+	_old_start(main)
 	var pile: PileWorld = main.get_node("Pile")
 	var hands: Hands = main.get_node("Player/Hands")
 	var id := _first_binder_cards()[0]
@@ -1829,7 +1930,7 @@ func _test_demonic_tutor() -> void:
 	Progression.reset()
 	var pile := PileWorld.new()
 	add_child(pile)
-	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 3)
+	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 3)
 	var binder := Binder.new()
 	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
 	pile.add_child(binder)
@@ -1893,7 +1994,7 @@ func _test_step_two_upgrades() -> void:
 	Progression.reset()
 	var pile := PileWorld.new()
 	add_child(pile)
-	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 5)
+	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 5)
 	var binder := Binder.new()
 	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
 	pile.add_child(binder)
@@ -1989,7 +2090,7 @@ func _test_step_three_upgrades() -> void:
 	Progression.reset()
 	var pile := PileWorld.new()
 	add_child(pile)
-	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 9)
+	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 9)
 	var binder := Binder.new()
 	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
 	pile.add_child(binder)
@@ -2058,7 +2159,7 @@ func _test_step_four_upgrades() -> void:
 	Progression.reset()
 	var pile := PileWorld.new()
 	add_child(pile)
-	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
+	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
 	var binder := Binder.new()
 	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
 	pile.add_child(binder)
@@ -2112,7 +2213,7 @@ func _test_steps_five_to_seven() -> void:
 	Progression.reset()
 	var pile := PileWorld.new()
 	add_child(pile)
-	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 13)
+	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 13)
 	var binder := Binder.new()
 	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
 	pile.add_child(binder)
@@ -2216,7 +2317,7 @@ func _test_table_cards() -> void:
 	Progression.reset()
 	var pile := PileWorld.new()
 	add_child(pile)
-	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
+	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
 	var store := preload("res://scripts/store/store_builder.gd")
 	var center: Vector2 = store.TABLE_CENTERS[0]
 	var top_y: float = store.TABLE_SIZE.y
@@ -2334,7 +2435,7 @@ func _test_binder_toss() -> void:
 			child.free()
 	var pile := PileWorld.new()
 	add_child(pile)
-	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
+	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
 	var clear := Rect2(3.5, 3.0, 3.0, 2.0)
 	for id in CardDatabase.card_count():
 		var at := pile.card_position(id)
@@ -2716,6 +2817,14 @@ func _test_shop_save() -> void:
 	var hands: Hands = main.get_node("Player/Hands")
 	var player: CharacterBody3D = main.get_node("Player")
 	_check(Saves.shop == main, "the shop registers itself to be saved")
+	# A new game: nothing on the floor, every binder empty on the shelf.
+	_check(Collection.count() == 0 and pile.card_count_on_floor() == 0, "a new game starts with no cards at all")
+	_check(pile.binders.size() == CardDatabase.set_count() and pile.binders.all(func(b: Binder) -> bool:
+		return b.state == Binder.State.SHELVED and b.shelf_unit.spaces[b.shelf_space] == b.binder and b.contents.card_at(0) < 0),
+		"and every binder stands empty in its own shelf space")
+	_check(not main.is_finished(pile.binders, main._shelves()), "empty binders on the shelf aren't a finished game")
+	_check(main.pockets(pile.binders) == CardDatabase.card_count() - RareCards.count(), "Cards Organized counts every binder pocket")
+	_old_start(main)
 	var ids := _first_binder_cards()
 	var binder := pile.binders[0]
 	# Some cards locked in, one misplaced, one in hand, one on a table, one
@@ -2773,7 +2882,7 @@ func _test_shop_save() -> void:
 	var floor_same := true
 	var probe_ids := [ids[20], ids[30], 5000, 12345]
 	for id in probe_ids:
-		var i := ShopSave.card_order().find(id)
+		var i: int = id # copies are saved in copy order
 		floor_same = floor_same and pile.is_on_floor(id) and pile.card_position(id).is_equal_approx(before.cards.positions[i])
 	_check(floor_same, "floor cards lie exactly where they lay, at the same height")
 	var same_shelf := pile.binders[1]
@@ -2795,68 +2904,60 @@ func _test_shop_save() -> void:
 	_check(binders_same and after.hand == before.hand and after.progression.bought == before.progression.bought
 		and after.falling.is_empty(), "saved again, every binder, the hand and the unlocks are the same")
 
-	# The data changes: the last set is gone from the save (as if imported
-	# since), and the save has a set that's no longer in the data.
+	# Copies are saved by set code and number, in copy order.
+	var table: Dictionary = before.copies
+	_check(table.set.size() == Collection.count() and table.sets[table.set[ids[3]]] == CardDatabase.get_card(ids[3]).set_code
+		and table.number[ids[3]] == CardDatabase.get_card(ids[3]).collector_number, "a save lists every copy by set code and number")
+
+	# The data changes: the last set is gone (as if removed since), so the
+	# save has copies of cards that no longer exist, and a binder the data
+	# has that the save doesn't know.
 	var changed: Dictionary = before.duplicate(true)
-	var codes: PackedStringArray = changed.sets.codes
-	var counts_saved: PackedInt32Array = changed.sets.counts
-	# The rare cards come last; dropping them too makes this a save from
-	# before there were any.
-	_check(codes[codes.size() - 1] == RareCards.SET_CODE, "a save lists the rare cards last")
-	var last_code := codes[codes.size() - 2]
-	var last_count := counts_saved[counts_saved.size() - 2] + counts_saved[counts_saved.size() - 1]
-	var keep := ShopSave.card_order().size() - last_count
-	for i in 2:
-		codes.remove_at(codes.size() - 1)
-		counts_saved.remove_at(counts_saved.size() - 1)
-	codes.append("ZZZ")
-	counts_saved.append(2)
-	changed.sets = {"codes": codes, "counts": counts_saved}
-	for key in ["where", "positions", "rotations", "face_up"]:
-		var values = changed.cards[key].slice(0, keep)
-		values.append_array(changed.cards[key].slice(0, 2))
-		changed.cards[key] = values
+	var last_code: String = CardDatabase.sets_in_shelf_order()[-1].code
+	var codes: PackedStringArray = changed.copies.sets
+	_check(codes.find(last_code) >= 0, "the save has copies of the last set")
+	codes[codes.find(last_code)] = "ZZZ"
+	changed.copies.sets = codes
 	changed.binders.erase(last_code)
 	# New furniture over some floor cards, and a table that's gone.
 	var furniture := Rect2(0.0, 0.0, 0.0, 0.0)
 	var buried: Array[int] = []
-	var order_now := ShopSave.card_order()
-	for i in keep:
+	for i in changed.cards.where.size():
 		var at: Vector3 = changed.cards.positions[i]
-		if changed.cards.where[i] == 0 and buried.size() < 3 and at.x > 3.0 and at.x < 9.0:
-			buried.append(order_now[i])
+		if changed.cards.where[i] == 0 and buried.size() < 3 and at.x > 3.0 and at.x < 9.0 \
+				and CardDatabase.get_card(i).set_code != last_code:
+			buried.append(i)
 			furniture = Rect2(at.x - 0.05, at.z - 0.05, 0.1, 0.1) if furniture.size == Vector2.ZERO else furniture.expand(Vector2(at.x, at.z))
-	var on_gone_table: Vector3 = changed.cards.positions[order_now.find(ids[10])]
-	var moved_table_card := order_now.find(ids[10])
+	var on_gone_table: Vector3 = changed.cards.positions[ids[10]]
 	var positions_moved: PackedVector3Array = changed.cards.positions
-	positions_moved[moved_table_card] = Vector3(on_gone_table.x + 20.0, on_gone_table.y, on_gone_table.z)
+	positions_moved[ids[10]] = Vector3(on_gone_table.x + 20.0, on_gone_table.y, on_gone_table.z)
 	changed.cards.positions = positions_moved
 	main.free()
 	Saves._pending = changed
 	main = load(SceneFlow.SHOP_SCENE).instantiate()
 	add_child(main)
 	pile = main.get_node("Pile")
-	var new_cards := CardDatabase.cards_in_set(last_code)
-	var all_down := new_cards.all(func(card: CardData) -> bool: return pile.is_on_floor(card.id))
-	_check(all_down, "a set the save doesn't know is scattered on the pile")
-	_check(CardDatabase.rare_cards().all(func(card: CardData) -> bool: return pile.is_on_floor(card.id)),
-		"so are rare cards a save from before them doesn't know")
+	var gone := CardDatabase.cards_in_set(last_code)
+	_check(gone.all(func(card: CardData) -> bool: return Collection.copies_of(card.id).is_empty())
+		and Collection.count() == table.set.size() - gone.size(), "copies of cards gone from the data are dropped")
+	var now := ShopSave.make_copies(changed.copies)
+	_check(now[ids[3]] >= 0 and Collection.card(now[ids[3]]) == CardDatabase.get_card(ids[3]), "the rest are the same cards")
 	var new_binder: Binder = pile.binders[-1]
-	_check(new_binder.binder.set_code == last_code and new_binder.is_inside_tree() and new_binder.state == Binder.State.CLOSED,
-		"and its binder is dropped on top")
+	_check(new_binder.binder.set_code == last_code and new_binder.state == Binder.State.SHELVED,
+		"a binder the save doesn't know goes in its shelf space")
 	_check(pile.binders[0].contents.locked_count == 5, "the rest of the save loads as before")
 	var test_pile := PileWorld.new()
 	add_child(test_pile)
 	test_pile.surfaces = main.get_node("Store").surfaces
 	var obstacles_now: Array[Rect2] = main.get_node("Store").obstacles.duplicate()
 	obstacles_now.append(furniture.grow(0.05))
-	test_pile.restore_cards(main.get_node("Store").floor_bounds(), obstacles_now, changed.cards, ShopSave.id_map(changed.sets), 1)
-	var clear_now := buried.all(func(id: int) -> bool:
-		var at := test_pile.card_position(id)
-		return test_pile.is_on_floor(id) and not furniture.grow(0.05).has_point(Vector2(at.x, at.z)))
+	test_pile.restore_cards(main.get_node("Store").floor_bounds(), obstacles_now, changed.cards, now, 1)
+	var clear_now := buried.all(func(i: int) -> bool:
+		var at := test_pile.card_position(now[i])
+		return test_pile.is_on_floor(now[i]) and not furniture.grow(0.05).has_point(Vector2(at.x, at.z)))
 	_check(not buried.is_empty() and clear_now, "cards under new furniture move to the nearest clear spot")
-	_check(test_pile.is_on_floor(ids[10]), "and a card on a table that's gone lands on the floor")
-	_check(test_pile.card_position(ids[20]).is_equal_approx(pile.card_position(ids[20])), "while the rest stay put")
+	_check(test_pile.is_on_floor(now[ids[10]]), "and a card on a table that's gone lands on the floor")
+	_check(test_pile.card_position(now[ids[20]]).is_equal_approx(pile.card_position(now[ids[20]])), "while the rest stay put")
 	test_pile.free()
 	main.free()
 	Progression.reset()
@@ -2880,7 +2981,6 @@ func _test_rare_cards() -> void:
 		and CardDatabase.all_binders().all(func(b: BinderRange) -> bool: return b.set_code != RareCards.SET_CODE),
 		"they have no binder and no shelf space")
 	_check(CardDatabase.binder_for(rare[0]) == null and CardDatabase.is_rare(rare[0].id) and not CardDatabase.is_rare(0), "and no binder to belong in")
-	_check(ShopSave.card_order().size() == CardDatabase.card_count(), "a save lists every card, rare ones too")
 	var rare_material := ShaderMaterial.new()
 	rare_material.shader = preload("res://shaders/held_card.gdshader")
 	CardView.apply(rare_material, rare[0].id)
@@ -2899,9 +2999,11 @@ func _test_rare_cards() -> void:
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	var pile: PileWorld = main.get_node("Pile")
+	_check(rare.all(func(card: CardData) -> bool: return Collection.copies_of(card.id).is_empty()), "a new game has no rare cards (they're parked)")
+	_old_start(main)
 	var hands: Hands = main.get_node("Player/Hands")
 	var cabinets: Array[DisplayCabinet] = main.get_node("Store").cabinets
-	_check(rare.all(func(card: CardData) -> bool: return pile.is_on_floor(card.id)), "rare cards start in the pile")
+	_check(rare.all(func(card: CardData) -> bool: return pile.is_on_floor(card.id)), "given copies, rare cards lie on the floor like any other")
 	_check(pile.binder_for(rare[0].id) == null, "no binder in the store is theirs")
 	_check(cabinets.size() == 2 and cabinets[0].slot_for(1) == 0 and cabinets[0].slot_for(19) == -1 and cabinets[1].slot_for(19) == 0,
 		"cards 1-18 go in the back cabinet, 19-36 in the front one")
@@ -2965,7 +3067,7 @@ func _test_rare_cards() -> void:
 	_check(cabinets.all(func(c: DisplayCabinet) -> bool: return c.is_complete()), "every rare card on display")
 	_check(Achievements.is_unlocked(Achievements.rare_index(36)) and Achievements.is_unlocked(Achievements.all_rare_index()),
 		"the last unlocks its own achievement and the one for all of them")
-	_check(not main.is_finished(pile.binders, main._shelves(), cabinets), "binders still to do: not finished")
+	_check(not main.is_finished(pile.binders, main._shelves()), "binders still to do: not finished")
 	_check(notes[0] == 1, "the note came up only once")
 
 	# Saved and loaded, they stay on display.
@@ -3165,15 +3267,54 @@ func _test_booster_packs() -> void:
 		and is_equal_approx(Hands.rip_tear(1.0), Hands.RIP_TEAR_AT_BURST), "the tear starts slowly and the burst finishes it")
 	_check(preload("res://scripts/main.gd").pack_details(code) == "%s\nBooster Pack" % CardDatabase.get_set(code).name, "a pack in hand shows its set")
 
+	# Product makes new cards: any card of the set, however many copies of
+	# it there are already.
+	var picked := PackContents.pick_set(rng)
+	_check(CardDatabase.cards_in_set(picked).size() >= PackContents.SIZE, "packs are of sets with at least a pack's worth of cards")
+	var drawn := PackContents.draw(picked, rng)
+	_check(drawn.size() == PackContents.SIZE and Array(drawn).all(func(id: int) -> bool: return CardDatabase.get_card(id).set_code == picked),
+		"a pack of the set, drawn from all its cards")
+	var box := PackContents.booster_box(picked, rng)
+	var seen_in_box := {}
+	var repeats := false
+	for box_pack in box:
+		var in_pack := {}
+		for id in box_pack:
+			in_pack[id] = true
+			repeats = repeats or seen_in_box.has(id)
+		_check(in_pack.size() == box_pack.size(), "no card twice in one pack of a box")
+		for id in box_pack:
+			seen_in_box[id] = true
+	_check(box.size() == PackContents.BOX_PACKS and repeats, "a booster box is %d packs, and cards turn up in more than one" % PackContents.BOX_PACKS)
+	var bulk := PackContents.bulk_box(picked, rng)
+	var bulk_rarities := [0, 0, 0, 0]
+	for id in bulk:
+		bulk_rarities[CardDatabase.get_card(id).rarity] += 1
+	_check(bulk.size() == PackContents.BULK_SIZE and bulk_rarities[0] > bulk.size() * 0.65 and bulk_rarities[1] > bulk.size() * 0.15
+		and bulk_rarities[2] + bulk_rarities[3] < bulk.size() * 0.06, "a bulk box is mostly commons, then uncommons: %s" % [bulk_rarities])
+
+	var only_uncommons := PackContents.bulk_box(picked, rng, 50, [0.0, 1.0, 0.0, 0.0] as Array[float])
+	_check(only_uncommons.size() == 50 and Array(only_uncommons).all(func(id: int) -> bool:
+		return CardDatabase.get_card(id).rarity == CardData.Rarity.UNCOMMON), "a box's mix can be just uncommons")
+
 	var pile := PileWorld.new()
 	add_child(pile)
-	pile.build(Rect2(0, 0, 12, 8), [] as Array[Rect2], 3)
-	var picked := PackContents.pick_set(pile, rng)
-	_check(PackContents.lying_count(pile, picked) >= PackContents.SIZE, "packs are of sets with a pack's worth lying about")
+	Collection.reset()
+	pile.setup(Rect2(0, 0, 12, 8), [] as Array[Rect2])
+	_check(pile.card_count_on_floor() == 0, "a new floor is empty")
+	var tipped := Collection.add_all(bulk)
+	_check(not pile.is_lying(tipped[0]), "a new copy is held until it's put somewhere")
+	pile.scatter(tipped, 4, [Vector2(6, 4)] as Array[Vector2])
+	_check(pile.card_count_on_floor() == bulk.size() and Array(tipped).all(pile.is_on_floor), "a bulk box tips out on the floor")
+	var near_spot := 0
+	for copy in tipped:
+		if Vector2(pile.card_position(copy).x, pile.card_position(copy).z).distance_to(Vector2(6, 4)) < 1.5:
+			near_spot += 1
+	_check(near_spot > bulk.size() * 0.7, "most of it around where it was tipped (%d)" % near_spot)
 	var stand := PackDisplay.new()
 	stand.build(StandardMaterial3D.new(), 2)
 	pile.add_child(stand)
-	stand.stock_from(pile)
+	stand.stock()
 	_check(stand.pack_count() == PackDisplay.COLUMNS * PackDisplay.PER_COLUMN, "the stand is stocked full")
 	_check(stand.columns.all(func(column: Array) -> bool:
 		return column.all(func(p: BoosterPack) -> bool: return p.set_code == column[0].set_code)), "one set to a column")
@@ -3205,8 +3346,9 @@ func _test_booster_packs() -> void:
 	_check(hands.held_pack == front, "a pack that's started to tear can't go back")
 	var ids := hands.rip_pack()
 	_check(ids.size() == PackContents.SIZE and hands.hand_count() == ids.size(), "ripping puts the pack's cards in your hand")
-	_check(ids.all(func(id: int) -> bool: return not pile.is_lying(id) and CardDatabase.get_card(id).set_code == front.set_code),
-		"they come out of the pile, all of the pack's set")
+	_check(ids.all(func(id: int) -> bool: return not pile.is_lying(id) and Collection.card(id).set_code == front.set_code),
+		"they're new copies, all of the pack's set")
+	_check(ids[0] == tipped.size() and Collection.count() == tipped.size() + ids.size(), "made after the bulk box's copies")
 	_check(hands.held_card_id == ids[0] and hands.behind.back() == ids[-1], "commons on top, the rare slot at the back")
 	_check(hands.held_pack == null and hands._zoomed and hands.revealing == ids.size() - 1, "the cards are up close, to be revealed")
 	var full_size := Hands.zoomed_distance(camera.fov, PileWorld.CARD_SIZE.y)
@@ -3225,5 +3367,66 @@ func _test_booster_packs() -> void:
 	hands._set_zoomed(true)
 	hands.press_rip()
 	_check(hands.held_card_id == ids[0], "after that, Space just shows the next card")
+	hands._set_zoomed(false)
+	hands.restore_hand([] as Array[int])
+
+	# A booster box: picked up, opened in hand, its packs tip out in a heap;
+	# one is picked up and put down again.
+	var main_script := preload("res://scripts/main.gd")
+	var booster: ProductBox = main_script.place_box(pile, ProductBox.Kind.BOOSTER, picked, Vector3(3, 0, 3), 0.0)
+	var box_size := booster.box_size()
+	_check(is_equal_approx(box_size.x, 0.152) and is_equal_approx(box_size.y, 0.102) and is_equal_approx(box_size.z, 0.127),
+		"a booster box is about 6 by 5 inches and 4 tall")
+	_check(booster.get_parent() == pile and booster.details() == "%s\nBooster Box" % CardDatabase.get_set(picked).name, "it stands on the floor")
+	hands._aim = Hands.Aim.BOX
+	hands._aim_box = booster
+	hands._use_hand()
+	_check(hands.held_box == booster and not hands.has_room() and not hands._hands_empty(), "clicking a box picks it up")
+	hands._glide.custom_step(10.0)
+	var lying_packs := func() -> Array:
+		return pile.get_children().filter(func(n: Node) -> bool:
+			return n is BoosterPack and n.is_lying() and not n.is_queued_for_deletion())
+	var before_packs: int = lying_packs.call().size()
+	var tipped_packs := hands.open_box(booster)
+	_check(hands.held_box == null and booster.is_queued_for_deletion(), "Space opens the box in hand")
+	_check(tipped_packs.size() == PackContents.BOX_PACKS and lying_packs.call().size() == before_packs + PackContents.BOX_PACKS
+		and tipped_packs.all(func(p: BoosterPack) -> bool: return p.set_code == picked), "its %d packs tip out, lying about" % PackContents.BOX_PACKS)
+	_check(Progression._unlocked_sets.has(picked), "opening a set's product unlocks the set")
+	var loose_pack: BoosterPack = tipped_packs[0]
+	hands._aim = Hands.Aim.LOOSE_PACK
+	hands._aim_pack = loose_pack
+	hands._use_hand()
+	_check(hands.held_pack == loose_pack and not loose_pack.is_lying(), "a pack lying about can be picked up")
+	hands._glide.custom_step(10.0)
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_point = Vector3(5, 0, 5)
+	hands._use_hand()
+	_check(hands.held_pack == null and loose_pack.is_lying(), "and put down again")
+	hands._glide.custom_step(10.0)
+
+	# A bulk box, opened where it stands: its cards tip out on the floor.
+	var bulk_box: ProductBox = main_script.place_box(pile, ProductBox.Kind.BULK, picked, Vector3(8, 0, 4), 0.0)
+	_check(is_equal_approx(bulk_box.box_size().x, 0.305) and bulk_box.details().ends_with("Bulk Box"), "a bulk box is about a foot wide")
+	hands._aim = Hands.Aim.BOX
+	hands._aim_box = bulk_box
+	var copies_before := Collection.count()
+	var tipped_cards := hands.open_box(bulk_box)
+	_check(tipped_cards.size() == PackContents.BULK_SIZE and Collection.count() == copies_before + PackContents.BULK_SIZE
+		and tipped_cards.all(pile.is_on_floor), "a bulk box tips %d new cards out on the floor" % PackContents.BULK_SIZE)
+
+	# Product lying about is saved and put back.
+	var still_box: ProductBox = main_script.place_box(pile, ProductBox.Kind.BULK, picked, Vector3(10, 0, 2), 0.0)
+	var products := ShopSave.snapshot_products(pile, hands, holder)
+	_check(products.size() == PackContents.BOX_PACKS + 1 and products.any(func(e: Array) -> bool: return e[0] == "bulk_box"),
+		"a save lists the packs and boxes lying about")
+	var other_pile := PileWorld.new()
+	add_child(other_pile)
+	other_pile.setup(Rect2(0, 0, 12, 8), [] as Array[Rect2])
+	ShopSave.restore_products(products, other_pile)
+	var back_boxes := other_pile.get_children().filter(func(n: Node) -> bool: return n is ProductBox)
+	_check(back_boxes.size() == 1 and back_boxes[0].global_position.is_equal_approx(still_box.global_position)
+		and other_pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.is_lying()).size() == PackContents.BOX_PACKS,
+		"and they load back where they lay")
+	other_pile.free()
 	holder.free()
 	pile.free()

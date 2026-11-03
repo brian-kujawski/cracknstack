@@ -19,6 +19,7 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 
 Settings="*res://scripts/settings/settings.gd"
 CardDatabase="*res://scripts/data/card_database.gd"
+Collection="*res://scripts/data/collection.gd"
 Controls="*res://scripts/input/controls.gd"
 Progression="*res://scripts/progression/progression.gd"
 Achievements="*res://scripts/progression/achievements.gd"

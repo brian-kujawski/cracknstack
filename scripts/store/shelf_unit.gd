@@ -236,6 +236,24 @@ func binder_transform(space: int, thickness: float) -> Transform3D:
 	return Transform3D(basis, origin)
 
 
+## Stands each binder in its own empty space on whichever of `shelves`
+## has one, quietly (a new game: every binder starts on the shelf). Returns
+## the binders that found no space.
+static func shelve_all(binders: Array[Binder], shelves: Array) -> Array[Binder]:
+	var left: Array[Binder] = []
+	for binder in binders:
+		var placed := false
+		for unit: ShelfUnit in shelves:
+			var space := unit.space_for(binder.binder.set_code)
+			if space >= 0 and unit.shelved[space] == null:
+				unit.shelve(space, binder, true)
+				placed = true
+				break
+		if not placed:
+			left.append(binder)
+	return left
+
+
 ## The space labelled for a set's binder, or -1.
 func space_for(set_code: String) -> int:
 	for space in spaces.size():

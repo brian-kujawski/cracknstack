@@ -15,6 +15,8 @@ signal mana_changed(mana: int)
 signal unlocked(colour: int, step: int)
 ## A sorcery was cast or finished recharging.
 signal sorceries_changed
+## A set was unlocked (its binder can come down off the shelf).
+signal set_unlocked(code: String)
 
 const CARD_LOCKED := 1
 ## Finishing a binder pays this share of its card count (rounded up).
@@ -102,6 +104,12 @@ var _recharging := {}
 ## Sorceries cast and waiting for something to set them off (Chain
 ## Lightning waits for your next lock-in).
 var _armed := {}
+## Sets unlocked so far: code -> true. A locked set's binder stands on the
+## shelf and can't be taken down (card-copies-plan.md). Until levels unlock
+## sets, opening product of a set unlocks it.
+var _unlocked_sets := {}
+## Whether sets lock at all. Checks written before set locking turn it off.
+var locks_sets := true
 
 
 func _init() -> void:
@@ -115,8 +123,23 @@ func reset() -> void:
 	_paid.clear()
 	_recharging.clear()
 	_armed.clear()
+	_unlocked_sets.clear()
 	mana_changed.emit(mana)
 	sorceries_changed.emit()
+
+
+## Whether a set's binder can be taken down and used.
+func is_set_unlocked(code: String) -> bool:
+	return not locks_sets or _unlocked_sets.has(code)
+
+
+## Unlocks a set. Returns whether it was locked.
+func unlock_set(code: String) -> bool:
+	if _unlocked_sets.has(code):
+		return false
+	_unlocked_sets[code] = true
+	set_unlocked.emit(code)
+	return true
 
 
 ## Everything here, for a save (ShopSave). Bought steps are kept by name
@@ -132,7 +155,8 @@ func save_state() -> Dictionary:
 	for node in _recharging:
 		recharging[node] = PackedFloat32Array(_recharging[node])
 	return {"mana": mana, "bought": bought, "paid": PackedStringArray(_paid.keys()),
-		"recharging": recharging, "armed": PackedStringArray(_armed.keys())}
+		"recharging": recharging, "armed": PackedStringArray(_armed.keys()),
+		"sets": PackedStringArray(_unlocked_sets.keys())}
 
 
 ## Puts back what save_state() kept. Each colour keeps the steps bought, in
@@ -160,6 +184,8 @@ func restore_state(saved: Dictionary) -> void:
 	for node in saved.get("armed", PackedStringArray()):
 		if rank(node) > 0:
 			_armed[node] = true
+	for code in saved.get("sets", PackedStringArray()):
+		_unlocked_sets[code] = true
 	mana_changed.emit(mana)
 	sorceries_changed.emit()
 

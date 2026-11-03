@@ -6,10 +6,10 @@ extends StaticBody3D
 ## Click it with empty hands to take the front pack of the column you're
 ## aiming at; click it with a pack in hand to put the pack back.
 ##
-## It never runs out: when the last pack goes, it fills up again with
-## three new sets (each with at least a pack's worth of cards still lying
-## about; see PackContents). What's on the stand isn't saved; a loaded game
-## stocks it afresh.
+## It never runs out, and its packs are free: when the last pack goes, it
+## fills up again with three new sets (PackContents.pick_set). It stands in
+## for the morning's deliveries until buying exists. What's on the stand
+## isn't saved; a loaded game stocks it afresh.
 ##
 ## Its origin is on the floor under the middle of the plinth, and it faces
 ## local +Z.
@@ -30,11 +30,10 @@ const CARDBOARD := Color(0.13, 0.11, 0.16)
 
 ## The packs in each column, front first.
 var columns: Array[Array] = []
-var _pile: PileWorld
 var _rng := RandomNumberGenerator.new()
 
 
-## Builds the plinth and the display, empty (see stock_from).
+## Builds the plinth and the display, empty (see stock).
 func build(wood: Material, random_seed := 0) -> void:
 	_rng.seed = random_seed
 	var plinth := MeshInstance3D.new()
@@ -71,12 +70,6 @@ func build(wood: Material, random_seed := 0) -> void:
 	add_child(shape)
 
 
-## Stocks the stand with packs of sets lying about in `pile`.
-func stock_from(pile: PileWorld) -> void:
-	_pile = pile
-	stock()
-
-
 ## Fills every column with a full run of packs of a new set.
 func stock() -> void:
 	for column in columns:
@@ -85,7 +78,7 @@ func stock() -> void:
 	columns.clear()
 	for c in COLUMNS:
 		columns.append([])
-		var code := PackContents.pick_set(_pile, _rng) if _pile != null else ""
+		var code := PackContents.pick_set(_rng)
 		if code.is_empty():
 			continue
 		for i in PER_COLUMN:

@@ -30,7 +30,7 @@ func setup(id: int, point: Vector3, yaw: float, lying_face_up := true) -> void:
 	add_child(collision)
 
 	var side := MeshInstance3D.new()
-	side.mesh = PileWorld.card_mesh(CardDatabase.get_card(id).has_alpha_corners())
+	side.mesh = PileWorld.card_mesh(Collection.card(id).has_alpha_corners())
 	var side_material := StandardMaterial3D.new()
 	side_material.albedo_color = Color(0.85, 0.83, 0.78)
 	side.material_override = side_material
