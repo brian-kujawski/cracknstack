@@ -7,7 +7,8 @@ extends StaticBody3D
 ## aiming at; click it with a pack in hand to put the pack back.
 ##
 ## It never runs out, and its packs are free: when the last pack goes, it
-## fills up again with three new sets (PackContents.pick_set). It stands in
+## fills up again with three unlocked sets (PackContents.pick_set; it stands
+## empty until a set unlocks, and the shop stocks it then). It stands in
 ## for the morning's deliveries until buying exists. What's on the stand
 ## isn't saved; a loaded game stocks it afresh.
 ##

@@ -8,10 +8,12 @@ extends CanvasLayer
 ## it again.
 ##
 ## Its programs, as desktop icons and in the Start menu:
-## - Card Shop: buy booster packs, booster boxes and bulk boxes of any set.
-##   For now it's free and an order turns up inside the door at once
-##   (`ordered`, handled by the shop); money and next-morning deliveries
-##   come later.
+## - Card Shop: buy booster packs, booster boxes and bulk boxes of any
+##   unlocked set. For now it's free and an order turns up inside the door
+##   at once (`ordered`, handled by the shop); money and next-morning
+##   deliveries come later. A locked set has an Unlock button instead (a
+##   stand-in until levels unlock sets): its binder and starter packs turn
+##   up inside the door (Progression.set_unlocked, handled by the shop).
 ## - My Collection: Mana, Cards Organized and each unlocked set's binder.
 ##   Levels go here when they exist.
 ## - To Do: the story so far (LaptopText.STORY), more as you sort.
@@ -43,6 +45,9 @@ const APPS := [
 	["readme", "Instructions", LaptopText.README_TITLE, Vector2(860, 700)],
 ]
 ## What the Card Shop sells: [kind, name, what's in it].
+## Booster packs that come with a set's binder when it unlocks (Main
+## delivers them).
+const STARTER_PACKS := 3
 const PRODUCTS := [
 	["pack", "Booster Pack", "%d cards" % PackContents.SIZE],
 	["booster_box", "Booster Box", "%d packs" % PackContents.BOX_PACKS],
@@ -562,7 +567,7 @@ func _build_shop(into: Control) -> void:
 		row.button_group = group
 		row.focus_mode = Control.FOCUS_NONE
 		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		row.text = "%s  (%s, %s)" % [set_data.name, set_data.code, set_data.release_date.left(4)]
+		row.text = _row_text(set_data)
 		row.clip_text = true
 		row.add_theme_font_size_override("font_size", 18)
 		row.add_theme_stylebox_override("normal", Win95.bevel(Win95.Look.FLAT, Win95.WHITE, 8))
@@ -577,7 +582,14 @@ func _build_shop(into: Control) -> void:
 		_show_set(detail, sets[0].code)
 
 
-## The Card Shop's right-hand side: the chosen set and what it sells.
+## A set's line in the Card Shop's list.
+static func _row_text(set_data: SetData) -> String:
+	var text := "%s  (%s, %s)" % [set_data.name, set_data.code, set_data.release_date.left(4)]
+	return text if Progression.is_set_unlocked(set_data.code) else text + "  - locked"
+
+
+## The Card Shop's right-hand side: the chosen set and what it sells, or,
+## while it's locked, its Unlock button.
 func _show_set(detail: Control, code: String) -> void:
 	shop_set = code
 	for child in detail.get_children():
@@ -590,6 +602,25 @@ func _show_set(detail: Control, code: String) -> void:
 	swatch.color = set_data.accent_color
 	swatch.custom_minimum_size = Vector2(0, 8)
 	detail.add_child(swatch)
+	if not Progression.is_set_unlocked(code):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		var words := VBoxContainer.new()
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.add_theme_constant_override("separation", 0)
+		words.add_child(Win95.label("Locked", 22))
+		var note := Win95.label("Unlocking brings its binder and %d booster packs. Free for now: levels will unlock sets." % STARTER_PACKS, 18, Win95.SHADOW.darkened(0.3))
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.add_child(note)
+		row.add_child(words)
+		var unlock := Win95.button("Unlock", unlock_set.bind(code), 130)
+		unlock.name = "Unlock"
+		unlock.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(unlock)
+		var panel := Win95.well(row, Win95.FACE)
+		panel.add_theme_stylebox_override("panel", Win95.bevel(Win95.Look.RAISED, Win95.FACE, 14))
+		detail.add_child(panel)
+		return
 	for product in PRODUCTS:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 14)
@@ -608,8 +639,29 @@ func _show_set(detail: Control, code: String) -> void:
 		detail.add_child(panel)
 
 
+## Unlocks set `code` (for now, until levels do): the shop delivers its
+## binder and starter packs, and the shop's list and side show it unlocked.
+func unlock_set(code: String) -> void:
+	if not Progression.unlock_set(code):
+		return
+	if shop_status != null:
+		shop_status.text = "Unlocked: %s. Its binder and %d packs are waiting inside the door." % [CardDatabase.get_set(code).name, STARTER_PACKS]
+	var window: Control = windows.get("shop")
+	if window == null:
+		return
+	var row: Button = window.find_child("Set_" + code, true, false)
+	if row != null:
+		row.text = _row_text(CardDatabase.get_set(code))
+	var detail: Control = window.find_child("Detail", true, false)
+	if detail != null and shop_set == code:
+		_show_set(detail, code)
+
+
 ## Orders one of `kind` ("pack", "booster_box", "bulk_box") of set `code`.
+## A locked set can't be ordered.
 func order_product(kind: String, code: String) -> void:
+	if not Progression.is_set_unlocked(code):
+		return
 	ordered.emit(kind, code)
 	var product: Array = PRODUCTS.filter(func(p: Array) -> bool: return p[0] == kind).front()
 	if shop_status != null:

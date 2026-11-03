@@ -112,12 +112,12 @@ static func set_has_mythics(code: String) -> bool:
 	return false
 
 
-## A set to make product of, picked at random from every set with a binder
-## that has at least a pack's worth of cards; "" when there's none.
+## A set to make product of, picked at random from every unlocked set with
+## a binder that has at least a pack's worth of cards; "" when there's none.
 static func pick_set(rng: RandomNumberGenerator) -> String:
 	var sets: Array[String] = []
 	for set_data in CardDatabase.sets_in_shelf_order():
-		if CardDatabase.cards_in_set(set_data.code).size() >= SIZE:
+		if CardDatabase.cards_in_set(set_data.code).size() >= SIZE and Progression.is_set_unlocked(set_data.code):
 			sets.append(set_data.code)
 	return sets[rng.randi_range(0, sets.size() - 1)] if not sets.is_empty() else ""
 

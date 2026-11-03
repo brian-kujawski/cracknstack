@@ -5,6 +5,8 @@ extends MeshInstance3D
 ## with black letters once its own completed binder stands above it. All the
 ## plates are one mesh (one draw call, always drawn, so nothing pops in); a
 ## plate that's turning gold is lifted out into its own mesh while it glows.
+## A plate can be hidden (a locked set's space has none yet); one shown with
+## `animate` arrives with the same glow fading out.
 
 ## Plate size (the band it's fixed to is BOARD_THICKNESS + BAND_DROP tall),
 ## and how far its face stands off the band.
@@ -30,6 +32,8 @@ const BLACK_LETTERS := [Color(0.03, 0.026, 0.022), 0.3, 0.45]
 ## Per plate: its centre on the band, and whether it's gold now.
 var _centers: Array[Vector3] = []
 var _gold: Array[bool] = []
+## Per plate: whether it's there at all.
+var _shown: Array[bool] = []
 ## Per plate: [black, gold] flat triangle arrays, made when first needed.
 var _arrays: Array = []
 var _codes: Array[String] = []
@@ -50,6 +54,7 @@ func build(codes: Array[String], centers: Array[Vector3], widths: Array[float]) 
 	for i in codes.size():
 		_widths.append(minf(PLATE_SIZE.x, widths[i]))
 		_gold.append(false)
+		_shown.append(true)
 		_turning.append(null)
 		_arrays.append([_plate_arrays(i, false), null])
 	_rebuild()
@@ -68,7 +73,7 @@ func set_gold(plate: int, gold: bool, animate := true) -> void:
 	if _turning[plate] != null:
 		_turning[plate].queue_free()
 		_turning[plate] = null
-	if not gold or not animate or not is_inside_tree():
+	if not gold or not animate or not is_inside_tree() or not _shown[plate]:
 		_rebuild()
 		return
 	var glowing := MeshInstance3D.new()
@@ -88,6 +93,48 @@ func set_gold(plate: int, gold: bool, animate := true) -> void:
 		_rebuild())
 
 
+func is_shown(plate: int) -> bool:
+	return _shown[plate]
+
+
+## Puts up or takes away every plate at once, at no animation, with one
+## rebuild: `shown` per plate.
+func show_plates(shown: Array[bool]) -> void:
+	for plate in _codes.size():
+		_shown[plate] = shown[plate]
+		if _turning[plate] != null:
+			_turning[plate].queue_free()
+			_turning[plate] = null
+	_rebuild()
+
+
+## Puts a plate up or takes it away. Put up with `animate`, it arrives in a
+## glow that fades.
+func set_shown(plate: int, shown: bool, animate := false) -> void:
+	if _shown[plate] == shown:
+		return
+	_shown[plate] = shown
+	if _turning[plate] != null:
+		_turning[plate].queue_free()
+		_turning[plate] = null
+	if not shown or not animate or not is_inside_tree():
+		_rebuild()
+		return
+	var glowing := MeshInstance3D.new()
+	glowing.mesh = _mesh_of([_variant(plate, _gold[plate])])
+	glowing.material_override = _material
+	glowing.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(glowing)
+	_turning[plate] = glowing
+	_set_glow(1.0, glowing)
+	var tween := glowing.create_tween()
+	tween.tween_method(_set_glow.bind(glowing), 1.0, 0.0, GLOW_DOWN).set_ease(Tween.EASE_OUT)
+	tween.tween_callback(func() -> void:
+		_turning[plate] = null
+		glowing.queue_free()
+		_rebuild())
+
+
 func _set_glow(amount: float, instance: MeshInstance3D) -> void:
 	instance.set_instance_shader_parameter("glow", amount)
 
@@ -99,11 +146,11 @@ func _variant(plate: int, gold: bool) -> Dictionary:
 	return pair[1] if gold else pair[0]
 
 
-## Every plate not turning, merged into this one mesh, each at its centre.
+## Every plate shown and not turning, merged into this one mesh, each at its centre.
 func _rebuild() -> void:
 	var parts: Array[Dictionary] = []
 	for i in _codes.size():
-		if _turning[i] == null:
+		if _shown[i] and _turning[i] == null:
 			parts.append(_variant(i, _gold[i]))
 	mesh = _mesh_of(parts)
 
