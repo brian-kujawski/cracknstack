@@ -3572,6 +3572,9 @@ func _test_laptop() -> void:
 	_check(laptop != null and laptop.get_parent() == pile and is_equal_approx(laptop.global_position.y, store_script.TABLE_SIZE.y)
 		and table_rect.has_point(Vector2(laptop.global_position.x, laptop.global_position.z)), "a new game puts the laptop on the front left table")
 	_check(laptop.global_basis.z.z > 0.8, "its screen faces the door")
+	var glow: SpotLight3D = laptop.find_child("Glow", true, false)
+	_check(glow != null and not glow.shadow_enabled and glow.light_energy > 0.0 and glow.light_energy < 1.0
+		and -glow.global_basis.z.dot(laptop.global_basis.z) > 0.8, "its screen casts a faint glow out in front of it")
 	_check(not screen.is_open() and not get_tree().paused, "a shop loaded without New Game doesn't open on the laptop")
 
 	# Aimed at: E uses it, Space doesn't open it, the hint says so.
@@ -3641,11 +3644,17 @@ func _test_laptop() -> void:
 	_check(not screen.windows.has("shop"), "closing a window closes the program")
 	screen.close()
 
-	# A New Game opens on the welcome, whose OK starts the game.
+	# A New Game opens on the welcome; its OK leaves you on the desktop,
+	# pointed at the Read Me, and closing the laptop starts the game.
 	screen.open(true)
 	_check(screen.message_box != null and get_tree().paused, "the welcome message box is up, the game stopped")
 	screen.press_ok()
-	_check(not screen.is_open() and not get_tree().paused, "OK drops you into the room")
+	_check(screen.is_open() and screen.message_box == null and get_tree().paused and screen.readme_nudge,
+		"OK leaves you on the desktop, the Read Me picked out")
+	screen.open_app("readme")
+	_check(not screen.readme_nudge, "opening the Read Me stops pointing at it")
+	screen.close()
+	_check(not screen.is_open() and not get_tree().paused, "closing the laptop drops you into the room")
 	_check(not SceneFlow.take_opening_request(), "only New Game asks for the welcome")
 	main.free()
 	get_tree().paused = false

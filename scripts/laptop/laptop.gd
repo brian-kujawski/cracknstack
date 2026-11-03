@@ -19,6 +19,13 @@ const LID_LEAN := deg_to_rad(16.0)
 const PLASTIC := Color(0.16, 0.16, 0.17)
 const KEYS := Color(0.07, 0.07, 0.08)
 const SCREEN_GLOW := 0.45
+## The screen's light on whatever's in front of it: a faint teal spot that
+## reads at night and is all but lost in daylight. Energy, reach (metres)
+## and spread (degrees). No shadows: it only lights forward, away from the
+## lid, so nothing of the laptop's own is in its way.
+const GLOW_ENERGY := 0.35
+const GLOW_RANGE := 1.4
+const GLOW_ANGLE := 70.0
 
 
 func _init() -> void:
@@ -71,6 +78,19 @@ func build() -> void:
 	bar_material.emission_energy_multiplier = SCREEN_GLOW * 0.5
 	bar.material_override = bar_material
 	hinge.add_child(bar)
+	# The screen's glow: a spot from the middle of the screen, facing out of
+	# it (a spot shines along its -z, so it's turned round).
+	var glow := SpotLight3D.new()
+	glow.name = "Glow"
+	glow.light_color = Win95.DESKTOP.lightened(0.25)
+	glow.light_energy = GLOW_ENERGY
+	glow.spot_range = GLOW_RANGE
+	glow.spot_angle = GLOW_ANGLE
+	glow.spot_attenuation = 1.5
+	glow.shadow_enabled = false
+	glow.position = screen.position + Vector3(0, 0, 0.01)
+	glow.rotation.y = PI
+	hinge.add_child(glow)
 	# The lid's collider, so aiming at the screen finds the laptop too.
 	var lid_shape := CollisionShape3D.new()
 	var lid_box := BoxShape3D.new()

@@ -2,8 +2,10 @@ class_name LaptopScreen
 extends CanvasLayer
 ## The laptop, up close: a mid-90s desktop (Win95 for the look) filling a
 ## dark laptop bezel. A New Game opens on it with a message box (LaptopText
-## .WELCOME); clicking OK closes the laptop and the game starts. In the room,
-## using the laptop (Laptop) opens it again.
+## .WELCOME); clicking OK leaves you on the desktop with the Instructions icon
+## picked out and blinking until it's opened (point_to_readme), and closing
+## the laptop starts the game. In the room, using the laptop (Laptop) opens
+## it again.
 ##
 ## Its programs, as desktop icons and in the Start menu:
 ## - Card Shop: buy booster packs, booster boxes and bulk boxes of any
@@ -14,8 +16,8 @@ extends CanvasLayer
 ##   up inside the door (Progression.set_unlocked, handled by the shop).
 ## - My Collection: Mana, Cards Organized and each unlocked set's binder.
 ##   Levels go here when they exist.
-## - Story: the story so far (LaptopText.STORY), more as you sort.
-## - Read Me: what to do (LaptopText.README).
+## - To Do: the story so far (LaptopText.STORY), more as you sort.
+## - Instructions: what to do (LaptopText.README).
 ##
 ## The game stops while it's open. Esc, or Start > Close Laptop, closes it.
 ## Mouse only, like every menu.
@@ -39,8 +41,8 @@ const ICON_SIZE := Vector2(130, 110)
 const APPS := [
 	["shop", "Card Shop", "Card Shop", Vector2(1180, 720)],
 	["collection", "My Collection", "My Collection", Vector2(860, 680)],
-	["story", "Story", LaptopText.STORY_TITLE, Vector2(820, 640)],
-	["readme", "Read Me", LaptopText.README_TITLE, Vector2(860, 700)],
+	["story", "To Do", LaptopText.STORY_TITLE, Vector2(820, 640)],
+	["readme", "Instructions", LaptopText.README_TITLE, Vector2(860, 700)],
 ]
 ## What the Card Shop sells: [kind, name, what's in it].
 ## Booster packs that come with a set's binder when it unlocks (Main
@@ -75,6 +77,9 @@ var _start_button: Button
 var _start_menu: Control
 var _modal: Control
 var _welcome := false
+## The Instructions icon is picked out and blinking, to be opened first.
+var readme_nudge := false
+var _nudge_tween: Tween
 var _cascade := 0
 
 
@@ -109,7 +114,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not visible or SceneFlow.is_busy():
 		return
 	if event.is_action_pressed(Controls.PAUSE):
-		if _start_menu.visible:
+		if message_box != null:
+			press_ok()
+		elif _start_menu.visible:
 			_start_menu.visible = false
 		else:
 			close()
@@ -124,7 +131,8 @@ func is_open() -> bool:
 
 
 ## Opens the laptop and stops the game. `welcome` (a New Game) shows the
-## welcome message box, whose OK closes the laptop.
+## welcome message box, whose OK leaves you on the desktop, pointed at the
+## Instructions.
 func open(welcome := false) -> void:
 	visible = true
 	_welcome = welcome
@@ -133,7 +141,7 @@ func open(welcome := false) -> void:
 	for app in windows:
 		_refresh(app)
 	if welcome:
-		show_message(LaptopText.WELCOME_TITLE, LaptopText.WELCOME, close)
+		show_message(LaptopText.WELCOME_TITLE, LaptopText.WELCOME, point_to_readme)
 
 
 ## Closes the laptop: back into the room.
@@ -239,6 +247,7 @@ func _desktop_icon(app: String, title: String) -> Control:
 	caption.add_theme_constant_override("shadow_offset_x", 1)
 	caption.add_theme_constant_override("shadow_offset_y", 1)
 	caption.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
+	caption.name = "Caption"
 	icon.add_child(caption)
 	icon.pressed.connect(open_app.bind(app))
 	return icon
@@ -334,6 +343,8 @@ func _toggle_start_menu() -> void:
 ## Opens program `app` (an APPS id), or brings its window to the front if
 ## it's open already. Returns its window.
 func open_app(app: String) -> LaptopWindow:
+	if app == "readme":
+		_stop_nudge()
 	if windows.has(app):
 		_focus(windows[app])
 		return windows[app]
@@ -429,6 +440,33 @@ func show_message(title: String, text: String, ok := Callable()) -> void:
 		_modal.visible = false
 		if ok.is_valid():
 			ok.call())
+
+
+## Picks out the Instructions icon, the way a selected icon looks (its name on
+## navy), and blinks it until Instructions is opened.
+func point_to_readme() -> void:
+	readme_nudge = true
+	var icon: Control = _desktop.find_child("Icon_readme", true, false)
+	var caption := icon.get_node("Caption") as Label
+	caption.add_theme_stylebox_override("normal", Win95.bevel(Win95.Look.FLAT, Win95.SELECTED, 4))
+	caption.size.x = ICON_SIZE.x
+	if _nudge_tween != null:
+		_nudge_tween.kill()
+	_nudge_tween = icon.create_tween().set_loops()
+	_nudge_tween.tween_property(icon, "modulate", Color(1, 1, 1, 0.35), 0.45).set_trans(Tween.TRANS_SINE)
+	_nudge_tween.tween_property(icon, "modulate", Color.WHITE, 0.45).set_trans(Tween.TRANS_SINE)
+
+
+func _stop_nudge() -> void:
+	if not readme_nudge:
+		return
+	readme_nudge = false
+	if _nudge_tween != null:
+		_nudge_tween.kill()
+		_nudge_tween = null
+	var icon: Control = _desktop.find_child("Icon_readme", true, false)
+	icon.modulate = Color.WHITE
+	(icon.get_node("Caption") as Label).remove_theme_stylebox_override("normal")
 
 
 ## Clicks the message box's OK. For the tests (and Esc on the welcome box).
@@ -676,7 +714,7 @@ func _build_collection(into: Control) -> void:
 	column.add_child(well)
 
 
-# --- Story and Read Me -------------------------------------------------------
+# --- To Do and Instructions -------------------------------------------------------
 
 ## The story so far at `organized` Cards Organized, as one page.
 static func story_text(organized: int) -> String:
