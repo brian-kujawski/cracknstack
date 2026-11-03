@@ -3,10 +3,10 @@ extends RefCounted
 ## Every word the laptop shows that's story or help, in one place to
 ## rewrite. All of it is placeholder until the story is written.
 
-## The message box a New Game opens on. Clicking OK leaves you on the
-## desktop, pointed at Instructions.
-const WELCOME_TITLE := "Welcome"
-const WELCOME := "Time to collect all the cards!"
+## The message box a New Game opens on. Clicking OK closes the laptop and
+## starts the game.
+const WELCOME_TITLE := "Welcome, collector!"
+const WELCOME := "This installation of CollectOS 93 has been successfully validated and configured for your use! Open Instructions.txt to get started."
 
 ## Instructions: what to do, for a first game.
 const README_TITLE := "Instructions.txt"
