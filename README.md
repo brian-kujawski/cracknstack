@@ -23,7 +23,7 @@ Controls:
 |---|---|
 | WASD, mouse | Walk, look |
 | Ctrl or C | Crouch (hold). You shrink enough to get under the work tables, and stay down until there's room to stand |
-| Left-click | Context sensitive. Empty-handed: pick up the card under the crosshair (from the floor, a table, or a misplaced card in an open binder), or pick up a closed binder (from the floor, a table or a shelf). Holding a card: file it into the pocket you're looking at, or put it down where you're looking (on the floor it rejoins the pile). Carrying a binder: put it down where you're looking, or stand it in the shelf space you're looking at. |
+| Left-click | Context sensitive. Empty-handed: pick up the card under the crosshair (from the floor or a table), or pick up a closed binder (from the floor, a table or a shelf). Holding a card: file it into its own pocket if that is the one you're looking at (any other pocket refuses it), or put it down where you're looking (on the floor it rejoins the pile). Carrying a binder: put it down where you're looking, or stand it in the shelf space you're looking at. |
 | Left-click and hold | When putting something down: a ghost shows where it will go and follows your aim; let go to put it there. Holding cards with room for more (Harmonize), a quick click on another card picks it up too, and holding puts the top card down |
 | Right-click | Toss the held card back onto the pile, or the carried binder, which tumbles past other binders and lands on its cover or its back. Empty-handed, aimed at the pile: flip it, tossing a few of the top cards there up so they land face up or down at random |
 | E | Open or close the binder you're looking at. Aimed at the laptop, or with it in hand: open the laptop |

@@ -147,8 +147,8 @@ static func make_summary(state: Dictionary, times: Dictionary) -> Dictionary:
 	var organized := 0
 	var pockets := 0
 	for entry in state.get("binders", {}).values():
-		organized += Array(entry.locked).count(1)
-		pockets += entry.locked.size()
+		pockets += entry.pockets.size()
+		organized += entry.pockets.size() - Array(entry.pockets).count(-1)
 	var made := times.duplicate()
 	made.merge({"organized": organized, "total": pockets, "mana": state.get("progression", {}).get("mana", 0)})
 	return made

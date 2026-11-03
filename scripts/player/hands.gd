@@ -541,8 +541,8 @@ func _use_hand() -> void:
 	_pick_up_aimed()
 
 
-## Takes the card under the crosshair into your hand, on top: off the floor,
-## a table, or out of an open binder's pocket (unless it's locked in).
+## Takes the card under the crosshair into your hand, on top: off the floor
+## or a table. Cards in binder pockets are locked in for good.
 func _pick_up_aimed() -> bool:
 	if not has_room():
 		return false
@@ -563,18 +563,13 @@ func _pick_up_aimed() -> bool:
 				card.queue_free() # Hovering (Demonic Consultation).
 			_take_in_hand(card.card_id, from)
 			return true
-		Aim.BINDER:
-			if _aim_binder.is_open() and _aim_pocket >= 0:
-				var from := _aim_binder.pocket_pose(_aim_pocket)
-				var id := _aim_binder.take(_aim_pocket)
-				if id >= 0:
-					_take_in_hand(id, from)
-					return true
 	return false
 
 
-## Files the held card into the binder pocket under the crosshair. Returns
-## false if there's no pocket there (so the click does something else).
+## Files the held card into the binder pocket under the crosshair. Only its
+## own pocket takes it: anywhere else nothing happens and it stays in hand.
+## Returns false if there's no pocket there (so the click does something
+## else).
 func _try_file_held_card() -> bool:
 	if _aim != Aim.BINDER:
 		return false
@@ -594,9 +589,8 @@ func _try_file_held_card() -> bool:
 		pocket = _aim_pocket
 	if pocket < 0:
 		return false
-	if binder.contents.card_at(pocket) >= 0:
-		_pick_up_aimed() # With room in hand, a misplaced card comes out.
-		return true # The pocket's taken; the card stays in hand.
+	if not binder.contents.belongs(held_card_id, pocket) or binder.contents.card_at(pocket) >= 0:
+		return true # Not its pocket, or taken: the card stays in hand.
 	var id := held_card_id
 	_put_down_card(binder.pocket_pose(pocket), func() -> void: _file(binder, pocket, id),
 		binder.pocket_entry_pose(pocket)).set_meta("pocket", [binder, pocket])
@@ -662,7 +656,10 @@ func shunt_pocket(binder: Binder) -> int:
 func _file(binder: Binder, pocket: int, id: int) -> void:
 	var result := binder.insert(pocket, id)
 	if result != BinderContents.Result.LOCKED:
-		return # Misplaced: it stays in the pocket glowing red, with no chime.
+		# Its pocket filled on the way: it falls beside the binder.
+		pile.land(id, binder.global_position + binder.global_basis.y * binder.thickness, binder.rotation.y,
+			true, [binder.get_rid()])
+		return
 	Progression.card_filed_by_hand()
 	_locked_in(binder, pocket)
 	if binder.contents.is_page_complete(pocket / BinderLayout.POCKETS_PER_PAGE):
@@ -832,8 +829,8 @@ func cast_abundance() -> Array[int]:
 
 ## Teleport: the top card in hand flies to its own binder, wherever it is
 ## (buried, closed, on a shelf, across the room), and files itself; at rank
-## II, so does every card in hand. A card with a wrong card sitting in its
-## pocket stays in hand. Returns whether it was cast.
+## II, so does every card in hand. A card whose pocket is already filled
+## stays in hand. Returns whether it was cast.
 func cast_teleport() -> bool:
 	if not Progression.can_cast("Teleport") or held_card_id < 0 or _gliding():
 		return false
@@ -1287,7 +1284,7 @@ func _update_hint() -> void:
 
 ## The card whose details to show: the one in hand, or else, with Remember
 ## the Fallen, one you're looking at that you've held before, lying about
-## (on the floor or a table) or misplaced in a pocket. -1 for none.
+## (on the floor or a table). -1 for none.
 func shown_card_id() -> int:
 	if _viewed_id >= 0:
 		return _viewed_id
@@ -1304,8 +1301,6 @@ func shown_card_id() -> int:
 		return -1
 	if lying >= 0:
 		id = lying
-	elif _aim == Aim.BINDER and _aim_binder.is_open() and not _aim_binder.contents.is_locked(_aim_pocket):
-		id = _aim_binder.contents.card_at(_aim_pocket)
 	return id if seen_cards.has(id) else -1
 
 
@@ -1374,7 +1369,7 @@ static func _radio_hint() -> String:
 
 
 ## A pocket shows its number, and the card's name once its own card is locked
-## in. Until then (empty, or holding the wrong card) the card is a mystery.
+## in. Until then the card is a mystery.
 func _pocket_hint(binder: Binder, pocket: int) -> String:
 	var set_data := CardDatabase.get_set(binder.binder.set_code)
 	var number := "%s #%s" % [set_data.code, set_data.number_text(binder.binder.first + pocket)]

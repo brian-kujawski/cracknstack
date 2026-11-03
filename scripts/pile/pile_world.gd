@@ -470,7 +470,7 @@ func lying_copy(card_id: int, near: Vector3) -> int:
 
 
 ## A copy of card `card_id` that take_from_anywhere() can have: the nearest
-## lying about, or else one hovering or misplaced in a binder; -1 if none.
+## lying about, or else one hovering; -1 if none.
 func copy_to_take(card_id: int, near: Vector3) -> int:
 	var lying := lying_copy(card_id, near)
 	if lying >= 0:
@@ -481,18 +481,12 @@ func copy_to_take(card_id: int, near: Vector3) -> int:
 	for child in get_children():
 		if child is LooseCard and child.card_id in copies and not child.is_queued_for_deletion():
 			return child.card_id
-	for binder in binders:
-		for pocket in binder.contents.capacity():
-			var copy := binder.contents.card_at(pocket)
-			if copy >= 0 and copy in copies and not binder.contents.is_locked(pocket):
-				return copy
 	return -1
 
 
-## Takes card `id` from wherever it lies: the floor, a table, hovering, or
-## another binder's pocket it was misplaced in. Returns the global card pose
-## it left (see Glide), or null if it can't be had (in hand, in flight, or
-## locked into its own pocket).
+## Takes card `id` from wherever it lies: the floor, a table, or hovering.
+## Returns the global card pose it left (see Glide), or null if it can't be
+## had (in hand, in flight, or locked into its own pocket).
 func take_from_anywhere(id: int):
 	if is_lying(id):
 		var from := card_pose(id)
@@ -503,12 +497,6 @@ func take_from_anywhere(id: int):
 			var from: Transform3D = child.card_pose()
 			child.queue_free()
 			return from
-	for binder in binders:
-		for pocket in binder.contents.capacity():
-			if binder.contents.card_at(pocket) == id and not binder.contents.is_locked(pocket):
-				var from := binder.pocket_pose(pocket)
-				binder.take(pocket)
-				return from
 	return null
 
 
