@@ -2,7 +2,7 @@ class_name LaptopIcon
 extends Control
 ## A little picture on the laptop, drawn in flat blocks like an old 32 x 32
 ## icon (scaled up): a booster pack for the Card Shop, a binder for My
-## Collection, a notepad for Story, a page for Read Me, an "i" for a
+## Collection, a notepad for To Do, a page for Instructions, an "i" for a
 ## message box, and the Start button's mark (a card back's oval).
 
 const SIZE := 64.0

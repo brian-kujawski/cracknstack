@@ -3,13 +3,13 @@ extends RefCounted
 ## Every word the laptop shows that's story or help, in one place to
 ## rewrite. All of it is placeholder until the story is written.
 
-## The message box a New Game opens on. Clicking OK closes the laptop and
-## starts the game.
+## The message box a New Game opens on. Clicking OK leaves you on the
+## desktop, pointed at Instructions.
 const WELCOME_TITLE := "Welcome"
 const WELCOME := "Time to collect all the cards!"
 
-## Read Me: what to do, for a first game.
-const README_TITLE := "Read Me.txt"
+## Instructions: what to do, for a first game.
+const README_TITLE := "Instructions.txt"
 const README := """HOW THIS WORKS
 
 1. Buy cards here, in the Card Shop: booster packs, booster boxes, and bulk boxes of a thousand cards. Your orders turn up inside the door.
@@ -26,7 +26,7 @@ The laptop goes wherever you like: pick it up and put it down like anything else
 
 ## The story so far: entries in order, each shown once Cards Organized
 ## reaches its "after". The first is there from the start.
-const STORY_TITLE := "Story.txt"
+const STORY_TITLE := "To Do.txt"
 const STORY := [
 	{"after": 0, "title": "Day one",
 		"text": "(Placeholder) The room is finally finished: shelves along the back wall, a binder for every set ever printed, and not a single card in any of them. Time to change that."},

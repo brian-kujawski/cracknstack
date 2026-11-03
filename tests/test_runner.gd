@@ -3530,11 +3530,17 @@ func _test_laptop() -> void:
 	_check(not screen.windows.has("shop"), "closing a window closes the program")
 	screen.close()
 
-	# A New Game opens on the welcome, whose OK starts the game.
+	# A New Game opens on the welcome; its OK leaves you on the desktop,
+	# pointed at the Read Me, and closing the laptop starts the game.
 	screen.open(true)
 	_check(screen.message_box != null and get_tree().paused, "the welcome message box is up, the game stopped")
 	screen.press_ok()
-	_check(not screen.is_open() and not get_tree().paused, "OK drops you into the room")
+	_check(screen.is_open() and screen.message_box == null and get_tree().paused and screen.readme_nudge,
+		"OK leaves you on the desktop, the Read Me picked out")
+	screen.open_app("readme")
+	_check(not screen.readme_nudge, "opening the Read Me stops pointing at it")
+	screen.close()
+	_check(not screen.is_open() and not get_tree().paused, "closing the laptop drops you into the room")
 	_check(not SceneFlow.take_opening_request(), "only New Game asks for the welcome")
 	main.free()
 	get_tree().paused = false
