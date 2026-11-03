@@ -71,6 +71,11 @@ const COVER_BOARD := 0.004
 const PAGE_INSET := Vector2(0.007, 0.008) # page edge to cover edge (x, y)
 const RING_X := -COVER.x / 2 + 0.021
 const RING_ZS := [-0.1, 0.0, 0.1]
+const RING_WIRE := 0.0018
+## How far the rounded spine bulges out past the covers' edge.
+const SPINE_DEPTH := 0.008
+## Leather left between a closed binder's rings and the outside of its spine.
+const RING_CLEARANCE := 0.0015
 ## How far away the pages, rings and stitching stop being drawn; 0 draws
 ## them at any distance. A cut-off (around 3 m) saves a draw call per binder
 ## out of range but pops visibly as you walk, so it's off by default. It
@@ -769,10 +774,9 @@ static func _closed_meshes_for(thickness: float) -> Array:
 	for y in [COVER_BOARD / 2, thickness - COVER_BOARD / 2]:
 		_append_box(leather, Vector3(COVER.x, COVER_BOARD, COVER.y), Vector3(0, y, 0))
 	# A rounded spine along -x, with a raised band near each end.
-	var spine_depth := 0.008
-	_append_spine(leather, spine_depth, thickness / 2, COVER.y, thickness / 2, 0.0)
+	_append_spine(leather, SPINE_DEPTH, thickness / 2, COVER.y, thickness / 2, 0.0)
 	for z in [-half.y + 0.035, half.y - 0.035]:
-		_append_spine(leather, spine_depth + 0.0015, thickness / 2 + 0.0008, 0.008, thickness / 2, z)
+		_append_spine(leather, SPINE_DEPTH + 0.0015, thickness / 2 + 0.0008, 0.008, thickness / 2, z)
 	var leather_mesh := leather.commit()
 
 	var pages := SurfaceTool.new()
@@ -792,7 +796,7 @@ static func _closed_meshes_for(thickness: float) -> Array:
 	# The ring mechanism on the back cover, and three rings through the pages.
 	_append_box(metal, Vector3(0.014, 0.003, COVER.y - 0.05), Vector3(RING_X, COVER_BOARD + 0.0015, 0))
 	for z in RING_ZS:
-		_append_ring(metal, inside / 2 - 0.001, 0.0018, Vector3(RING_X, thickness / 2, z))
+		_append_ring(metal, inside / 2 - 0.001, RING_WIRE, Vector3(RING_X, thickness / 2, z), ring_reach())
 	var thread := SurfaceTool.new()
 	thread.begin(Mesh.PRIMITIVE_TRIANGLES)
 	# Stitching just inside the edge of both covers.
@@ -853,14 +857,42 @@ static func _append_spine(tool: SurfaceTool, depth: float, radius: float, length
 	tool.append_from(cylinder, 0, Transform3D(basis, Vector3(-COVER.x / 2 + depth, y, z)))
 
 
-## A metal ring standing across the spine (its loop in the x-y plane).
-static func _append_ring(tool: SurfaceTool, radius: float, wire: float, center: Vector3) -> void:
+## How far a closed binder's rings may reach toward the spine (-x) from
+## their centre, wire included, and stay inside its leather. A ring as tall
+## as a thick binder is wider than that, so it's squashed into a D. (The
+## spine's outside is furthest out, at the covers' edge, level with the
+## rings' centre; rings no taller than the spine fit everywhere else then.)
+static func ring_reach() -> float:
+	return RING_X + COVER.x / 2 - RING_CLEARANCE
+
+
+## A metal ring standing across the spine (its loop in the x-y plane). With
+## `reach`, a ring wider than that (wire included) is flattened toward -x to
+## fit, like a binder's D-ring.
+static func _append_ring(tool: SurfaceTool, radius: float, wire: float, center: Vector3, reach := INF) -> void:
 	var torus := TorusMesh.new()
 	torus.inner_radius = radius - wire
 	torus.outer_radius = radius + wire
 	torus.rings = 24
 	torus.ring_segments = 8
-	tool.append_from(torus, 0, Transform3D(Basis(Vector3(1, 0, 0), PI / 2), center))
+	var squash := minf(1.0, (reach - wire) / radius)
+	var basis := Basis(Vector3(1, 0, 0), PI / 2)
+	if squash < 1.0:
+		# Flatten only the spine side (-x): the far side, among the pages,
+		# keeps its round.
+		var arrays := torus.get_mesh_arrays()
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		for i in verts.size():
+			var v := basis * verts[i]
+			if v.x < 0.0:
+				v.x *= squash
+			verts[i] = basis.inverse() * v
+		arrays[Mesh.ARRAY_VERTEX] = verts
+		var squashed := ArrayMesh.new()
+		squashed.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		tool.append_from(squashed, 0, Transform3D(basis, center))
+		return
+	tool.append_from(torus, 0, Transform3D(basis, center))
 
 
 ## Four thin strips of thread round a rectangle (x, z) at height y.

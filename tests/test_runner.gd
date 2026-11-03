@@ -354,6 +354,15 @@ func _test_binder_layout() -> void:
 	binder.last = 449
 	_check(BinderLayout.page_count(binder) == 50, "449 cards fill 50 pages, the last one partly")
 
+	# A closed binder's rings stay inside its spine, at every size.
+	for thickness in BinderLayout.SIZE_THICKNESSES:
+		var details: ArrayMesh = Binder._closed_meshes_for(thickness)[1]
+		var metal: PackedVector3Array = details.surface_get_arrays(1)[Mesh.ARRAY_VERTEX]
+		var furthest := INF
+		for v in metal:
+			furthest = minf(furthest, v.x)
+		_check(furthest >= -Binder.COVER.x / 2 + 0.001, "a %.1f cm binder's rings stay inside its spine (reach %.4f)" % [thickness * 100, furthest])
+
 
 func _test_card_sort() -> void:
 	var first_set := CardDatabase.sets_in_shelf_order()[0]
