@@ -21,6 +21,12 @@ var face_index: int = -1
 var image_large: String = ""
 ## Path to the card's near face (NearFaces), or "" if it has none.
 var image_near: String = ""
+## Real market price in US dollars when imported (Scryfall), -1 for none;
+## and the foil price.
+var price: float = -1.0
+var foil_price: float = -1.0
+## What it's worth in the game, in game dollars (CardValues, from the price).
+var value: float = 0.0
 
 
 ## Alpha (LEA) was cut with a die that rounded the corners deeper than every
