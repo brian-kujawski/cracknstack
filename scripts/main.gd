@@ -125,7 +125,7 @@ func _ready() -> void:
 	_hands.rare_card_found.connect(func() -> void: add_child(RareCardNote.new()))
 	_on_shown_card_changed(null, false)
 	Progression.mana_changed.connect(func(_mana: int) -> void: _update_stats())
-	Progression.money_changed.connect(func(_cents: int) -> void: _update_stats())
+	Progression.money_changed.connect(_update_stats.unbind(1))
 	_hands.sale_confirm_requested.connect(func(box: ShippingBox) -> void:
 		add_child(SellConfirm.new(func() -> void: _hands.sell_held_card(box, true))))
 	_hands.end_day_requested.connect(end_day)
