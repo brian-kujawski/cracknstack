@@ -813,8 +813,8 @@ func _set_stat(key: String, number: String, what: String) -> void:
 func _input(event: InputEvent) -> void:
 	if not morning.visible:
 		return
-	var key := event is InputEventKey and event.pressed and not event.echo
-	var click := event is InputEventMouseButton and event.pressed
+	var key: bool = event is InputEventKey and event.pressed and not event.echo
+	var click: bool = event is InputEventMouseButton and event.pressed
 	if key or click:
 		morning.visible = false
 		get_viewport().set_input_as_handled()
