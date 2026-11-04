@@ -65,7 +65,7 @@ All game code reads cards through the `CardDatabase` autoload (`scripts/data/car
 
 ### Real cards from Scryfall
 
-Card data and images come from [Scryfall](https://scryfall.com) and stay out of git (`data/real/` is ignored). The importer adds one set at a time, so a metered connection can take it in steps:
+Card data and images come from [Scryfall](https://scryfall.com). The card metadata is in git: each set's trimmed Scryfall data (`data/real/sets/`) and the `data/real/cards.json` built from it, so any clone has every imported set and the game plays them with placeholder faces. The images (`data/real/images/`, `faces/`, `near/`, `back.jpg`, several GB) stay out of git: copy them between machines by hand. Import on the machine that has the images: elsewhere the importer leaves out sets whose images are missing, and committing that cards.json would drop them. The tests always run on the placeholder sets (CI passes `-- --placeholder`). The importer adds one set at a time, so a metered connection can take it in steps:
 
 ```sh
 python3 -m pip install pillow numpy             # once, for packing the card faces
@@ -85,7 +85,7 @@ Only each set's main run is kept: one printing per collector number, from 1 to t
 
 The importer puts a `.gdignore` in `data/real/`, so the Godot editor doesn't import the ~34,000 images (the game reads them straight from disk). If the editor imported them before, delete `.godot/imported/` once to get the space back.
 
-To play with the placeholders again, delete `data/real/` or run with `-- --placeholder`.
+To play with the placeholders again, run with `-- --placeholder`.
 
 ### Placeholder cards
 
@@ -110,7 +110,7 @@ Exits non-zero if any check fails, and prints how long each group took. CI runs 
 
 ```
 data/placeholder/   generated placeholder card data
-data/real/          imported Scryfall data and images (not in git)
+data/real/          imported Scryfall data (in git) and images (not in git)
 scenes/             main scene, player
 scripts/binders/    Binder (open, turn pages, file, carry, shelve), BinderContents, LooseCard (a card set down on a table)
 scripts/data/       CardData, SetData, BinderRange, BinderLayout, CardSort, CardDatabase, CardFileLoader

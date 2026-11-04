@@ -4,8 +4,14 @@
 export_presets.cfg
 builds/
 
-# Real card data and images are downloaded by tools/import_scryfall.py and kept out of git
-data/real/
+# Real card data comes from tools/import_scryfall.py. The card metadata is
+# tracked (each set's trimmed Scryfall data and the built cards.json, a few MB
+# of text), so any clone has every imported set; the images (several GB) stay
+# out of git and are copied between machines by hand.
+data/real/*
+!data/real/sets/
+!data/real/cards.json
+!data/real/.gdignore
 
 # OS / editor
 .DS_Store

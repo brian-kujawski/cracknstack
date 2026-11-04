@@ -53,7 +53,7 @@ jobs:
       - name: Run tests (${{ env.FULL_SUITE == 'true' && 'full suite' || 'smoke batch' }})
         run: |
           if [ "$FULL_SUITE" = true ]; then
-            $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn
+            $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn -- --placeholder
           else
-            $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn -- --smoke
+            $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn -- --smoke --placeholder
           fi
