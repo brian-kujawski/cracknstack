@@ -77,10 +77,10 @@ func build(fill := 0, shut := false) -> void:
 		_add_part(Vector3(0.001, SIZE.y * 0.22, SIZE.z + 0.001), Vector3(side * (half.x + 0.0005), SIZE.y * 0.11, 0), blue)
 		_add_part(Vector3(SIZE.x + 0.0012, 0.005, 0.0012), Vector3(0, SIZE.y * 0.22 + 0.0025, side * (half.z + 0.0006)), _material(RED, 0.7))
 	for face in [[Vector3(0, SIZE.y * 0.6, half.z), Basis()], [Vector3(0, SIZE.y * 0.6, -half.z), Basis(Vector3.UP, PI)]]:
-		_print("PRIORITY", face[0], face[1], SIZE.x * 0.8, 0.9, BLUE)
-		_print("PARCEL POST", face[0] - Vector3(0, SIZE.y * 0.2, 0), face[1], SIZE.x * 0.5, 0.6, BLUE)
+		_print("PRIORITY", face[0], face[1], SIZE.x * 0.8, 2.2, BLUE)
+		_print("PARCEL POST", face[0] - Vector3(0, SIZE.y * 0.22, 0), face[1], SIZE.x * 0.5, 1.4, BLUE)
 	for side in [-1, 1]:
-		_print("PRIORITY", Vector3(side * half.x, SIZE.y * 0.6, 0), Basis(Vector3.UP, side * PI / 2), SIZE.z * 0.8, 0.9, BLUE)
+		_print("PRIORITY", Vector3(side * half.x, SIZE.y * 0.6, 0), Basis(Vector3.UP, side * PI / 2), SIZE.z * 0.8, 2.2, BLUE)
 
 	# The cards inside: a stack of sleeves, and the last one sold on top.
 	_stack = MeshInstance3D.new()
