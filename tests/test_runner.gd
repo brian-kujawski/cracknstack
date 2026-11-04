@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_chapters"]
 
 var _failures := 0
 var _checks := 0
@@ -36,6 +36,7 @@ func _ready() -> void:
 	await _run(_test_database_loaded)
 	await _run(_test_card_copies)
 	await _run(_test_set_locks)
+	await _run(_test_chapters)
 	await _run(_test_set_unlock_delivery)
 	await _run(_test_collector_numbers_are_contiguous)
 	await _run(_test_shelf_order)
@@ -222,6 +223,22 @@ func _test_set_locks() -> void:
 
 ## A new game's shelf is bare; unlocking a set in the Card Shop delivers its
 ## binder and starter packs inside the door and puts up its plate.
+func _test_chapters() -> void:
+	var parsed := Chapters.parse("# a comment\n\nChapter 1: The start\nfra  # Reality Fracture\n\nChapter 2\nAAA\nbbb\nFRA\n")
+	_check(parsed.size() == 2 and parsed[0].name == "Chapter 1: The start" and parsed[0].sets == PackedStringArray(["FRA"]),
+		"a chapter is its Chapter line and the codes under it, upper-cased, comments dropped")
+	_check(parsed[1].sets == PackedStringArray(["AAA", "BBB"]), "a set listed twice keeps its first place")
+	Chapters.use_text("Chapter 1\nFRA\nChapter 2\nAAA\nBBB")
+	_check(Chapters.chapter_of("FRA") == 1 and Chapters.chapter_of("bbb") == 2 and Chapters.chapter_of("ZZZ") == 0,
+		"chapter_of counts from 1, 0 when a set's in none")
+	_check(Chapters.opens_chapter("FRA") and Chapters.opens_chapter("AAA") and not Chapters.opens_chapter("BBB")
+		and not Chapters.opens_chapter("ZZZ"), "only the first set of each chapter opens it")
+	Chapters.reload()
+	var chapters := Chapters.all()
+	_check(not chapters.is_empty() and chapters[0].sets.size() >= 1 and chapters[0].sets[0] == "FRA",
+		"data/chapters.txt starts Chapter 1 with Reality Fracture")
+
+
 func _test_set_unlock_delivery() -> void:
 	Progression.reset()
 	Progression.locks_sets = true
@@ -273,6 +290,7 @@ func _test_set_unlock_delivery() -> void:
 		"unlocking again delivers nothing more")
 	_check(main._store.pack_stand.pack_count() > 0 and main._store.pack_stand.columns.all(
 		func(c: Array) -> bool: return c.all(func(p: BoosterPack) -> bool: return p.set_code == code)), "the pack stand stocks the unlocked set")
+
 	screen.close()
 
 	# Ripping a pack of another (locked) set doesn't unlock it.
@@ -296,6 +314,28 @@ func _test_set_unlock_delivery() -> void:
 	_check(unit.nameplates.is_shown(unit.space_for(code)) and plates_up.call(units) == 1, "a save keeps the plate up")
 	_check(pile.binders.all(func(b: Binder) -> bool: return b.visible == (b.binder.set_code == code)),
 		"and only the unlocked set's binder is out")
+
+	# The first set of a chapter comes with a sealed booster box instead.
+	screen = main.laptop_screen
+	screen.open()
+	screen.open_app("shop")
+	var opener: String = LaptopScreen.shop_sets()[1].code
+	Chapters.use_text("Chapter 1\n%s\n%s" % [opener, LaptopScreen.shop_sets()[2].code])
+	_check(LaptopScreen.starter_product(opener) == "a sealed booster box"
+		and LaptopScreen.starter_product(LaptopScreen.shop_sets()[2].code) == "%d booster packs" % LaptopScreen.STARTER_PACKS,
+		"the shop says what comes with each set")
+	screen.unlock_set(opener)
+	var boxes := pile.get_children().filter(func(n: Node) -> bool: return n is ProductBox and n.set_code == opener)
+	_check(boxes.size() == 1 and boxes[0].kind == ProductBox.Kind.BOOSTER, "a chapter's first set comes with a booster box")
+	_check(pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.set_code == opener).is_empty(),
+		"and no loose packs")
+	_check(screen.shop_status.text.contains("a sealed booster box"), "and the shop says so")
+	var second: String = LaptopScreen.shop_sets()[2].code
+	screen.unlock_set(second)
+	var second_packs := pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.set_code == second)
+	_check(second_packs.size() == LaptopScreen.STARTER_PACKS, "the chapter's next set brings packs")
+	Chapters.reload()
+	screen.close()
 	main.free()
 	get_tree().paused = false
 	Collection.reset()

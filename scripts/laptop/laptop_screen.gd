@@ -46,7 +46,8 @@ const APPS := [
 ]
 ## What the Card Shop sells: [kind, name, what's in it].
 ## Booster packs that come with a set's binder when it unlocks (Main
-## delivers them).
+## delivers them). The first set of a chapter comes with a sealed booster
+## box instead (Chapters).
 const STARTER_PACKS := 3
 const PRODUCTS := [
 	["pack", "Booster Pack", "%d cards" % PackContents.SIZE],
@@ -609,7 +610,7 @@ func _show_set(detail: Control, code: String) -> void:
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		words.add_theme_constant_override("separation", 0)
 		words.add_child(Win95.label("Locked", 22))
-		var note := Win95.label("Unlocking brings its binder and %d booster packs. Free for now: levels will unlock sets." % STARTER_PACKS, 18, Win95.SHADOW.darkened(0.3))
+		var note := Win95.label("Unlocking brings its binder and %s. Free for now: levels will unlock sets." % starter_product(code), 18, Win95.SHADOW.darkened(0.3))
 		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		words.add_child(note)
 		row.add_child(words)
@@ -639,13 +640,20 @@ func _show_set(detail: Control, code: String) -> void:
 		detail.add_child(panel)
 
 
+## What comes with set `code`'s binder when it unlocks, in words.
+static func starter_product(code: String) -> String:
+	if Chapters.opens_chapter(code):
+		return "a sealed booster box"
+	return "%d booster packs" % STARTER_PACKS
+
+
 ## Unlocks set `code` (for now, until levels do): the shop delivers its
 ## binder and starter packs, and the shop's list and side show it unlocked.
 func unlock_set(code: String) -> void:
 	if not Progression.unlock_set(code):
 		return
 	if shop_status != null:
-		shop_status.text = "Unlocked: %s. Its binder and %d packs are waiting inside the door." % [CardDatabase.get_set(code).name, STARTER_PACKS]
+		shop_status.text = "Unlocked: %s. Its binder and %s are waiting inside the door." % [CardDatabase.get_set(code).name, starter_product(code)]
 	var window: Control = windows.get("shop")
 	if window == null:
 		return

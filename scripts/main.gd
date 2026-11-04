@@ -1,8 +1,9 @@
 extends Node3D
 ## Main scene: the graybox store, its empty floor, a bare shelf, and the
 ## player. Every binder waits out of sight in its shelf space until its set
-## unlocks; then it's delivered inside the door with STARTER_PACKS packs, and
-## its plate appears on the shelf. Cards come only from product (the Card
+## unlocks; then it's delivered inside the door with STARTER_PACKS packs (a
+## sealed booster box instead for the first set of a chapter, see Chapters),
+## and its plate appears on the shelf. Cards come only from product (the Card
 ## Shop, and the stand by the door for now; see PackContents). A
 ## loaded game builds it all from the save instead (ShopSave), and Saves
 ## asks it for capture_save().
@@ -213,7 +214,8 @@ func _delivery_yaw() -> float:
 
 
 ## A set unlocked: its binder comes off the shelf (where it waited out of
-## sight) and turns up inside the door, closed, with STARTER_PACKS packs;
+## sight) and turns up inside the door, closed, with STARTER_PACKS packs, or
+## a sealed booster box when it's the first set of its chapter (Chapters);
 ## its plate arrives on the shelf. Returns what was delivered.
 func _on_set_unlocked(code: String) -> Array[Node3D]:
 	var delivered: Array[Node3D] = []
@@ -227,8 +229,11 @@ func _on_set_unlocked(code: String) -> Array[Node3D]:
 			var at := Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, _pile.height_under(p, half, yaw) + 0.01, p.y))
 			binder.place(_pile, _pile.global_transform * at)
 			delivered.append(binder)
-	for i in STARTER_PACKS:
-		delivered.append(deliver("pack", code))
+	if Chapters.opens_chapter(code):
+		delivered.append(deliver("booster_box", code))
+	else:
+		for i in STARTER_PACKS:
+			delivered.append(deliver("pack", code))
 	if _store.pack_stand.pack_count() == 0:
 		_store.pack_stand.stock()
 	return delivered
