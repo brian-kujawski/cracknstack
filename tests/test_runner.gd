@@ -414,8 +414,7 @@ func _test_set_unlock_delivery() -> void:
 	_check(plates_up.call(units) == 0, "a new game's shelf has no plates")
 	_check(pile.binders.all(func(b: Binder) -> bool: return b.state == Binder.State.SHELVED and not b.visible),
 		"and every binder waits out of sight in its space")
-	_check(PackContents.pick_set(RandomNumberGenerator.new()) == "" and main._store.pack_stand.pack_count() == 0,
-		"nothing's unlocked, so the pack stand is empty")
+	_check(PackContents.pick_set(RandomNumberGenerator.new()) == "", "nothing's unlocked, so there's nothing to make product of")
 
 	var screen: LaptopScreen = main.laptop_screen
 	var code: String = LaptopScreen.shop_sets()[0].code
@@ -443,8 +442,6 @@ func _test_set_unlock_delivery() -> void:
 	screen.unlock_set(code)
 	_check(pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.set_code == code).size() == packs.size(),
 		"unlocking again delivers nothing more")
-	_check(main._store.pack_stand.pack_count() > 0 and main._store.pack_stand.columns.all(
-		func(c: Array) -> bool: return c.all(func(p: BoosterPack) -> bool: return p.set_code == code)), "the pack stand stocks the unlocked set")
 
 	screen.close()
 
@@ -3671,13 +3668,10 @@ func _test_booster_packs() -> void:
 		if Vector2(pile.card_position(copy).x, pile.card_position(copy).z).distance_to(Vector2(6, 4)) < 1.5:
 			near_spot += 1
 	_check(near_spot > bulk.size() * 0.7, "most of it around where it was tipped (%d)" % near_spot)
-	var stand := PackDisplay.new()
-	stand.build(StandardMaterial3D.new(), 2)
-	pile.add_child(stand)
-	stand.stock()
-	_check(stand.pack_count() == PackDisplay.COLUMNS * PackDisplay.PER_COLUMN, "the stand is stocked full")
-	_check(stand.columns.all(func(column: Array) -> bool:
-		return column.all(func(p: BoosterPack) -> bool: return p.set_code == column[0].set_code)), "one set to a column")
+	var front := BoosterPack.new()
+	front.setup(picked)
+	front.lie(pile, Vector3(5, 0, 5), 0.0)
+	_check(front.is_lying(), "a pack lies on the floor")
 
 	var hands := Hands.new()
 	var camera := Camera3D.new()
@@ -3687,23 +3681,17 @@ func _test_booster_packs() -> void:
 	camera.name = "Camera3D"
 	add_child(holder)
 	hands.pile = pile
-	hands.pack_stand = stand
-	hands._aim = Hands.Aim.PACKS
-	hands._aim_point = stand.to_global(Vector3(PackDisplay.COLUMN_STEP, 1.0, 0))
-	var front: BoosterPack = stand.columns[2][0]
+	hands._aim = Hands.Aim.LOOSE_PACK
+	hands._aim_pack = front
 	hands._use_hand()
-	_check(hands.held_pack == front and stand.pack_count() == PackDisplay.COLUMNS * PackDisplay.PER_COLUMN - 1,
-		"clicking the stand takes the front pack of the column aimed at")
+	_check(hands.held_pack == front and not front.is_lying(), "clicking a pack lying about takes it")
 	_check(not hands.has_room() and not hands._hands_empty(), "a pack fills your hands")
 	hands._glide.custom_step(10.0)
-	hands._use_hand()
-	_check(hands.held_pack == null and stand.columns[2][0] == front, "clicking the stand again puts the pack back")
-	hands._glide.custom_step(10.0)
-	hands._use_hand()
-	hands._glide.custom_step(10.0)
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_point = Vector3(5, 0, 5)
 	front.set_tear(0.2)
 	hands._use_hand()
-	_check(hands.held_pack == front, "a pack that's started to tear can't go back")
+	_check(hands.held_pack == front, "a pack that's started to tear can't be put down")
 	var ids := hands.rip_pack()
 	_check(ids.size() == PackContents.SIZE and hands.hand_count() == ids.size(), "ripping puts the pack's cards in your hand")
 	_check(ids.all(func(id: int) -> bool: return not pile.is_lying(id) and Collection.card(id).set_code == front.set_code),

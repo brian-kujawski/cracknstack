@@ -4,7 +4,7 @@ extends Node3D
 ## unlocks; then it's delivered inside the door with STARTER_PACKS packs (a
 ## sealed booster box instead for the first set of a chapter, see Chapters),
 ## and its plate appears on the shelf. Cards come only from product (the Card
-## Shop, and the stand by the door for now; see PackContents). A
+## Shop; see PackContents). A
 ## loaded game builds it all from the save instead (ShopSave), and Saves
 ## asks it for capture_save().
 ##
@@ -97,11 +97,9 @@ func _ready() -> void:
 		unit.refresh_locks()
 	Progression.set_unlocked.connect(_on_set_unlocked)
 	laptop = place_laptop(_pile, saved.get("laptop"))
-	_hands.pack_stand = _store.pack_stand
 	_hands.shipping_station = _store.shipping_station
 	orders = saved.get("orders", []).duplicate(true)
 	day_number = int(saved.get("day", 1))
-	_store.pack_stand.stock()
 	print("Shop %s: %d cards in %d ms" % ["built" if saved.is_empty() else "loaded", Collection.count(),
 		Time.get_ticks_msec() - started])
 	_day = DayCycle.new()
@@ -321,8 +319,6 @@ func _on_set_unlocked(code: String) -> Array[Node3D]:
 	else:
 		for i in STARTER_PACKS:
 			delivered.append(deliver("pack", code))
-	if _store.pack_stand.pack_count() == 0:
-		_store.pack_stand.stock()
 	return delivered
 
 

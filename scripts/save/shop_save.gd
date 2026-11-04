@@ -314,7 +314,7 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 ## ("booster_box", "bulk_box") and loose packs ("pack"). Shipping boxes are
 ## saved as ["shipping", cards in it, global pose, sealed]. A box or an untorn
 ## pack in hand is saved lying at your feet; a pack you've started to tear
-## is lost with the rest of its rip, as on the stand.
+## is lost with the rest of its rip.
 static func snapshot_products(pile: PileWorld, hands: Hands, player_node: Node) -> Array:
 	var player := player_node as Node3D
 	var products := []

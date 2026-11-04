@@ -62,9 +62,8 @@ extends Node
 ## While a card is up close, the view holds still and the mouse tilts the card
 ## instead, directly and within a narrow range, like turning it in your hand.
 ##
-## Booster packs (a prototype): click the pack stand by the door with empty
-## hands to take the front pack of the column you're aiming at (click it
-## again to put the pack back). F brings the pack up close like a card, and
+## Booster packs: click a pack lying about with empty hands to take it, and
+## click again to put it down where you're aiming. F brings the pack up close like a card, and
 ## R turns it over. Hold Space (Controls.RIP) to rip it open: the pack
 ## trembles, the foil tears slowly across the top, the room behind it goes
 ## dark, and with a flash it bursts open and its cards are in your hand, up
@@ -108,7 +107,7 @@ signal card_sold(id: int, cents: int)
 ## E on the shop door: the shop ends the day.
 signal end_day_requested
 
-enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACKS, BOX, LOOSE_PACK, SHIPPING, DOOR }
+enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX, LOOSE_PACK, SHIPPING, DOOR }
 
 ## How far from the eye the player can reach, and with Spider Climb.
 @export var reach := 2.6
@@ -259,8 +258,6 @@ var carried_binder: Binder
 var held_pack: BoosterPack
 ## A box of product in hand (ProductBox), or null.
 var held_box: ProductBox
-## The pack stand (the shop sets it).
-var pack_stand: PackDisplay
 ## The shipping corner by the door, with its crate of new boxes (the shop
 ## sets it).
 var shipping_station: ShippingStation
@@ -537,12 +534,6 @@ func _use_hand() -> void:
 	if _aim == Aim.RADIO:
 		radio_used.emit()
 		return
-	if _aim == Aim.PACKS and pack_stand != null:
-		if held_pack != null:
-			_return_pack()
-		elif _hands_empty():
-			_take_pack()
-		return
 	if held_box != null:
 		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
 			put_down_box()
@@ -550,7 +541,7 @@ func _use_hand() -> void:
 	if held_pack != null:
 		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD, Aim.LOOSE_PACK]:
 			put_down_pack()
-		return # Otherwise a pack goes back on the stand or gets ripped.
+		return # Otherwise a pack gets ripped.
 	if _hands_empty() and _aim == Aim.BOX:
 		take_box(_aim_box)
 		return
@@ -1277,8 +1268,6 @@ func _update_aim() -> void:
 		_aim_slot = _aim_cabinet.slot_on_ray(from, to)
 	elif collider is ShopRadio:
 		_aim = Aim.RADIO
-	elif collider is PackDisplay:
-		_aim = Aim.PACKS
 	elif collider is Node and (collider as Node).is_in_group(ReadingCorner.FURNITURE):
 		return # Nothing to do with the armchair, the side table or the lamp.
 	elif collider is ShelfUnit:
@@ -1610,15 +1599,7 @@ func _pose_pack() -> void:
 		PACK_HELD_POSITION.lerp(zoomed_position, _zoom_amount)) * _shake
 
 
-## Takes the front pack of the column you're aiming at off the stand.
-func _take_pack() -> void:
-	var pack := pack_stand.take(_aim_point)
-	if pack == null:
-		return
-	_take_pack_node(pack)
-
-
-## Takes a pack into your hand, from the stand or from where it lies.
+## Takes a pack into your hand from where it lies.
 func _take_pack_node(pack: BoosterPack) -> void:
 	pack.stop_lying()
 	var from := pack.global_transform
@@ -1635,21 +1616,6 @@ func _take_pack_node(pack: BoosterPack) -> void:
 	_glide = Glide.start(pack, from, func() -> Transform3D: return _camera.global_transform * held,
 		glide_seconds(card_glide_seconds))
 	held_pack_changed.emit(pack.set_code)
-
-
-## Puts the pack in hand back on the stand, unless it's started to tear.
-func _return_pack() -> void:
-	var pack := held_pack
-	if pack.tear > 0.0:
-		return
-	var from := pack.global_transform
-	held_pack = null
-	_hold(-1)
-	pack_stand.give_back(pack, _aim_point)
-	var slot := pack.global_transform
-	pack.global_transform = from
-	_glide = Glide.start(pack, from, func() -> Transform3D: return slot, glide_seconds(card_glide_seconds))
-	held_pack_changed.emit("")
 
 
 ## Space: with a pack in hand, start ripping it; once a pack's cards have
