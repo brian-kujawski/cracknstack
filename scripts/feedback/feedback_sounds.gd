@@ -24,6 +24,7 @@ enum Kind {
 	PACK_RIP, ## A booster pack tears open (noise, not a chime).
 	RARE_REVEALED, ## A rare comes up while revealing a pack.
 	MYTHIC_REVEALED, ## A mythic comes up while revealing a pack.
+	CARD_SOLD, ## A sold card drops into a shipping box.
 }
 
 const MIX_RATE := 22050
@@ -37,6 +38,7 @@ const NOTES := {
 	Kind.SECTION_COMPLETE: [[[392.0, 0.0, 0.3], [493.9, 0.12, 0.3], [587.3, 0.24, 0.3], [784.0, 0.36, 0.4]], 1.0],
 	Kind.RARE_REVEALED: [[[784.0, 0.0, 0.35], [1174.7, 0.06, 0.35], [1568.0, 0.12, 0.4]], 0.6],
 	Kind.MYTHIC_REVEALED: [[[587.3, 0.0, 0.35], [880.0, 0.06, 0.35], [1174.7, 0.12, 0.35], [1760.0, 0.18, 0.45]], 0.9],
+	Kind.CARD_SOLD: [[[1567.98, 0.0, 0.3], [2093.0, 0.05, 0.35]], 0.22],
 }
 ## The tear: this long, a burst of noise shaped to crackle.
 const RIP_SECONDS := 0.32

@@ -7,6 +7,11 @@ extends Node3D
 ## Shop, and the stand by the door for now; see PackContents). A
 ## loaded game builds it all from the save instead (ShopSave), and Saves
 ## asks it for capture_save().
+##
+## Selling: cards go into shipping boxes (ShippingBox) for money at once,
+## and E on the door ends the day (end_day): sealed boxes on the OUTGOING
+## mat by the door are collected overnight, and the Card Shop's orders
+## turn up inside the door in the morning.
 
 const PILE_SEED := 1993
 ## How long "Achievement: Tithe" stays up in the top right, and its fade.
@@ -23,10 +28,16 @@ const SAVING_ICON := "res://assets/ui/saving_icon.png"
 const SAVING_ICON_SIZE := Vector2(36, 50)
 const SAVING_SHOWN := 1.0
 const SAVING_TURN := 0.6
-## Where Card Shop orders turn up for now (until deliveries come in the
-## morning): floor spots just inside the door, on its left, filled in turn.
+## Where Card Shop orders and new sets' binders turn up: floor spots just
+## inside the door, on its left, filled in turn.
 const DELIVERY_SPOTS := [Vector2(5.25, 7.15), Vector2(4.85, 7.15), Vector2(5.25, 6.75), Vector2(4.85, 6.75),
 	Vector2(4.45, 7.15), Vector2(4.45, 6.75)]
+## Ending the day: the fade to black, how long it stays black, the fade
+## back in, and the hour the new day starts at.
+const END_DAY_FADE_OUT := 0.8
+const END_DAY_HOLD := 0.8
+const END_DAY_FADE_IN := 1.2
+const MORNING_HOUR := 8.0
 ## Booster packs that come with a set's binder when the set unlocks.
 const STARTER_PACKS := LaptopScreen.STARTER_PACKS
 const SORCERIES := [
@@ -61,6 +72,11 @@ var _debug_rng := RandomNumberGenerator.new()
 var laptop: Laptop
 var laptop_screen: LaptopScreen
 var _deliveries := 0
+## Card Shop orders waiting for the morning: [kind, set code] each.
+var orders: Array = []
+## Which day it is: the first is day 1, and each End Day adds one.
+var day_number := 1
+var _ending_day := false
 
 
 func _ready() -> void:
@@ -82,6 +98,9 @@ func _ready() -> void:
 	Progression.set_unlocked.connect(_on_set_unlocked)
 	laptop = place_laptop(_pile, saved.get("laptop"))
 	_hands.pack_stand = _store.pack_stand
+	_hands.shipping_station = _store.shipping_station
+	orders = saved.get("orders", []).duplicate(true)
+	day_number = int(saved.get("day", 1))
 	_store.pack_stand.stock()
 	print("Shop %s: %d cards in %d ms" % ["built" if saved.is_empty() else "loaded", Collection.count(),
 		Time.get_ticks_msec() - started])
@@ -106,6 +125,10 @@ func _ready() -> void:
 	_hands.rare_card_found.connect(func() -> void: add_child(RareCardNote.new()))
 	_on_shown_card_changed(null, false)
 	Progression.mana_changed.connect(func(_mana: int) -> void: _update_stats())
+	Progression.money_changed.connect(func(_cents: int) -> void: _update_stats())
+	_hands.sale_confirm_requested.connect(func(box: ShippingBox) -> void:
+		add_child(SellConfirm.new(func() -> void: _hands.sell_held_card(box, true))))
+	_hands.end_day_requested.connect(end_day)
 	Progression.unlocked.connect(func(_colour: int, _step: int) -> void: _update_stats())
 	Progression.sorceries_changed.connect(_update_stats)
 	_update_stats()
@@ -124,7 +147,7 @@ func _ready() -> void:
 	add_child(laptop_screen)
 	laptop_screen.day = _day
 	laptop_screen.stats = laptop_stats
-	laptop_screen.ordered.connect(deliver)
+	laptop_screen.ordered.connect(place_order)
 	_hands.laptop_used.connect(laptop_screen.open.bind(false))
 	if SceneFlow.take_opening_request():
 		laptop_screen.open(true)
@@ -138,12 +161,16 @@ func _exit_tree() -> void:
 
 ## Everything in the shop worth saving (see ShopSave).
 func capture_save() -> Dictionary:
-	return ShopSave.capture(_pile, _hands, $Player, _day, _falling)
+	return ShopSave.finish(snapshot_save())
 
 
 ## The shop as it is now, quickly, for Saves to finish off the main thread.
+## The day and the orders waiting for the morning go in with it.
 func snapshot_save() -> Dictionary:
-	return ShopSave.snapshot(_pile, _hands, $Player, _day, _falling)
+	var taken := ShopSave.snapshot(_pile, _hands, $Player, _day, _falling)
+	taken["orders"] = orders.duplicate(true)
+	taken["day"] = day_number
+	return taken
 
 
 func _shelves() -> Array:
@@ -186,9 +213,69 @@ func laptop_stats() -> Dictionary:
 		"mana": Progression.mana, "binders": binders}
 
 
-## A Card Shop order (LaptopScreen.ordered) turns up inside the door at
-## once, for now: kind "pack", "booster_box" or "bulk_box", of set `code`.
-## Returns what arrived.
+## A Card Shop order (LaptopScreen.ordered, already paid for): kind
+## "pack", "booster_box" or "bulk_box", of set `code`. It turns up inside
+## the door the next morning.
+func place_order(kind: String, code: String) -> void:
+	orders.append([kind, code])
+
+
+## E on the door: the screen fades to black, the night passes
+## (start_new_day) and it fades back in on the next morning.
+func end_day() -> void:
+	if _ending_day or SceneFlow.is_busy():
+		return
+	_ending_day = true
+	var layer := CanvasLayer.new()
+	layer.name = "EndDay"
+	layer.layer = 9
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	var black := ColorRect.new()
+	black.color = Color.BLACK
+	black.modulate.a = 0.0
+	black.set_anchors_preset(Control.PRESET_FULL_RECT)
+	black.mouse_filter = Control.MOUSE_FILTER_STOP
+	layer.add_child(black)
+	add_child(layer)
+	get_tree().paused = true
+	var tween := layer.create_tween()
+	tween.tween_property(black, "modulate:a", 1.0, END_DAY_FADE_OUT)
+	await tween.finished
+	var shipped := start_new_day()
+	await get_tree().create_timer(END_DAY_HOLD, true).timeout
+	get_tree().paused = false
+	tween = layer.create_tween()
+	tween.tween_property(black, "modulate:a", 0.0, END_DAY_FADE_IN)
+	await tween.finished
+	layer.queue_free()
+	_ending_day = false
+	if shipped > 0:
+		_show_notice("%d %s shipped" % [shipped, "box" if shipped == 1 else "boxes"])
+
+
+## The night: sealed shipping boxes on the OUTGOING mat are collected, the
+## orders waiting arrive inside the door, and it's morning (if the clock
+## is running). Returns how many boxes were collected.
+func start_new_day() -> int:
+	var shipped := 0
+	for child in _pile.get_children():
+		if child is ShippingBox and child.sealed and not child.is_queued_for_deletion() \
+				and _store.shipping_station.on_mat(child.global_position):
+			_pile.remove_child(child)
+			child.queue_free()
+			shipped += 1
+	for order: Array in orders:
+		if CardDatabase.get_set(order[1]) != null:
+			deliver(order[0], order[1])
+	orders.clear()
+	day_number += 1
+	if Settings.day_seconds() > 0.0:
+		_day.set_hour(MORNING_HOUR)
+	return shipped
+
+
+## Product turns up inside the door: kind "pack", "booster_box" or
+## "bulk_box", of set `code`. Returns what arrived.
 func deliver(kind: String, code: String) -> Node3D:
 	var spot := _next_delivery_spot()
 	var yaw := _delivery_yaw()
@@ -362,8 +449,9 @@ func _hang_wall_art(fade: bool) -> void:
 ## testing: they show when running from the editor or a debug export, and are
 ## left out of release exports.
 func _update_stats() -> void:
-	var text := "Cards Organized: %d/%d\nMana: %d" % [
-		cards_organized(_pile.binders, _store.cabinets), pockets(_pile.binders), Progression.mana]
+	var text := "Cards Organized: %d/%d\nMoney: %s\nMana: %d" % [
+		cards_organized(_pile.binders, _store.cabinets), pockets(_pile.binders),
+		Progression.money_text(Progression.money), Progression.mana]
 	for line in sorcery_lines():
 		text += "\n" + line
 	if OS.is_debug_build():
@@ -474,9 +562,11 @@ static func set_details(card: CardData) -> String:
 	return "%s\n%s #???" % [set_data.name, set_data.code]
 
 
-## A card's details as shown in the corner: name, set, number and rarity.
+## A card's details as shown in the corner: name, set, number, and rarity
+## with what it sells for.
 static func card_details(card: CardData) -> String:
 	var set_data := CardDatabase.get_set(card.set_code)
-	return "%s\n%s\n%s #%s/%s\n%s" % [
+	return "%s\n%s\n%s #%s/%s\n%s · %s" % [
 		card.name, set_data.name, set_data.code, set_data.number_text(card.collector_number),
-		set_data.number_text(set_data.card_count), CardData.Rarity.keys()[card.rarity].capitalize()]
+		set_data.number_text(set_data.card_count), CardData.Rarity.keys()[card.rarity].capitalize(),
+		Progression.money_text(Prices.sale_cents(card))]

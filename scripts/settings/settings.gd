@@ -5,7 +5,7 @@ extends Node
 ## Settings that belong to the engine as a whole (window, frame rate, render
 ## scale, shadows, anti-aliasing, volumes, interface size) are applied here;
 ## the rest (look, crouch, field of view, brightness, day length, autosave,
-## card detail) are read by the player, the main scene, DayCycle, Saves and
+## the sale confirmation, card detail) are read by the player, the main scene, DayCycle, Saves and
 ## CardDatabase. Kept in user://settings.cfg,
 ## which New Game and saves never touch.
 
@@ -77,6 +77,7 @@ const DEFAULTS := {
 	"day_length": 1,
 	"stopped_at": 1,
 	"autosave_every": 2,
+	"confirm_new_sales": true,
 	"interface_size": 1.0,
 	"fullscreen": false,
 	"vsync": true,
@@ -94,7 +95,7 @@ const DEFAULTS := {
 const TABS := {
 	"Audio": ["master_volume", "effects_volume", "ambience_volume", "music_volume", "mute_in_background"],
 	"Controls": ["mouse_sensitivity", "invert_y", "crouch_toggle"],
-	"Gameplay": ["day_length", "stopped_at", "autosave_every", "interface_size"],
+	"Gameplay": ["day_length", "stopped_at", "autosave_every", "confirm_new_sales", "interface_size"],
 	"Graphics": ["fullscreen", "vsync", "frame_limit", "field_of_view", "brightness", "quality", "render_scale", "shadows", "anti_aliasing", "card_detail"],
 }
 

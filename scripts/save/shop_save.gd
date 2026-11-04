@@ -43,7 +43,7 @@ static func copy_table(card_ids: PackedInt32Array, flags: PackedByteArray) -> Di
 
 ## Makes the copies a save lists (copy_table) again, in order, in an emptied
 ## Collection. Returns, for each saved copy, its copy id now, or -1 if its
-## card is gone from the data.
+## card is gone from the data or the copy was sold.
 static func make_copies(table: Dictionary) -> PackedInt32Array:
 	Collection.reset()
 	var codes: PackedStringArray = table.get("sets", PackedStringArray())
@@ -54,7 +54,9 @@ static func make_copies(table: Dictionary) -> PackedInt32Array:
 	ids.resize(mini(sets.size(), numbers.size()))
 	for i in ids.size():
 		var card := CardDatabase.find_card(codes[sets[i]], numbers[i]) if sets[i] >= 0 and sets[i] < codes.size() else null
-		ids[i] = Collection.add(card.id, flags[i] if i < flags.size() else 0) if card != null else -1
+		var copy_flags: int = flags[i] if i < flags.size() else 0
+		# A sold copy is gone: it isn't made again.
+		ids[i] = Collection.add(card.id, copy_flags) if card != null and copy_flags & Collection.SOLD == 0 else -1
 	return ids
 
 
@@ -199,6 +201,8 @@ static func finish(taken: Dictionary) -> Dictionary:
 		"copies": copy_table(card_ids, taken.copies[1]),
 		"products": taken.get("products", []),
 		"laptop": taken.get("laptop"),
+		"orders": taken.get("orders", []),
+		"day": taken.get("day", 1),
 		"cards": {"where": where, "positions": positions, "rotations": rotations, "face_up": face_up},
 		"falling": falling,
 		"binders": binders,
@@ -307,7 +311,8 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 
 
 ## Unopened product lying about, as [kind, set code, global pose]: boxes
-## ("booster_box", "bulk_box") and loose packs ("pack"). A box or an untorn
+## ("booster_box", "bulk_box") and loose packs ("pack"). Shipping boxes are
+## saved as ["shipping", cards in it, global pose, sealed]. A box or an untorn
 ## pack in hand is saved lying at your feet; a pack you've started to tear
 ## is lost with the rest of its rip, as on the stand.
 static func snapshot_products(pile: PileWorld, hands: Hands, player_node: Node) -> Array:
@@ -318,13 +323,17 @@ static func snapshot_products(pile: PileWorld, hands: Hands, player_node: Node) 
 			continue
 		if child is Laptop:
 			continue
-		if child is ProductBox:
+		if child is ShippingBox:
+			products.append(["shipping", child.cards, child.global_transform, child.sealed])
+		elif child is ProductBox:
 			products.append([_box_kind(child), child.set_code, child.global_transform])
 		elif child is BoosterPack and child.is_lying():
 			products.append(["pack", child.set_code, child.global_transform])
 	var feet := player.global_position - player.global_basis.z * 0.5
 	feet.y = 0.0
-	if hands.held_box != null and not hands.held_box is Laptop:
+	if hands.held_box is ShippingBox:
+		products.append(["shipping", hands.held_box.cards, Transform3D(player.global_basis, feet), hands.held_box.sealed])
+	elif hands.held_box != null and not hands.held_box is Laptop:
 		products.append([_box_kind(hands.held_box), hands.held_box.set_code, Transform3D(player.global_basis, feet)])
 	if hands.held_pack != null and hands.held_pack.tear <= 0.0:
 		products.append(["pack", hands.held_pack.set_code, BoosterPack.lying_pose(feet, player.global_rotation.y)])
@@ -353,6 +362,12 @@ static func _box_kind(box: ProductBox) -> String:
 ## set no longer in the data is dropped.
 static func restore_products(saved: Array, pile: PileWorld) -> void:
 	for entry in saved:
+		if entry[0] == "shipping":
+			var shipping := ShippingBox.new()
+			shipping.build(int(entry[1]), entry.size() > 3 and entry[3])
+			pile.add_child(shipping)
+			shipping.global_transform = entry[2]
+			continue
 		var code: String = entry[1]
 		if CardDatabase.get_set(code) == null or code == RareCards.SET_CODE:
 			continue

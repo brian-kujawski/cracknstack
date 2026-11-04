@@ -2,7 +2,11 @@ extends Node
 ## Mana and the upgrades it buys (autoload: Progression). Every card locked
 ## into its own pocket pays 1 Mana; finishing a binder, standing a binder in
 ## its own shelf space and lighting up a shelf pay bonuses, each once. Mana
-## is spent on the upgrade tree in /mnt/project-files/plan/m7-upgrade-tree.md:
+## Money is kept here too, in cents: it comes from selling cards (ShippingBox)
+## and goes on product from the Card Shop (Prices). It's a separate currency
+## from Mana, which is never spent on product.
+##
+## Mana is spent on the upgrade tree in /mnt/project-files/plan/m7-upgrade-tree.md:
 ## five colours, each a row of seven unlocks bought in order. Code that an
 ## unlock changes asks rank() for it. Unlocks get built a step at a time
 ## across the colours; ones not built yet are bought but do nothing.
@@ -12,6 +16,8 @@ extends Node
 ## share of the cooldown, so sorceries can't feed each other into a spiral.
 
 signal mana_changed(mana: int)
+## Money went up or down; `cents` is the new balance.
+signal money_changed(cents: int)
 signal unlocked(colour: int, step: int)
 ## A sorcery was cast or finished recharging.
 signal sorceries_changed
@@ -89,6 +95,8 @@ const FILING_SPEEDUP := 2.0
 const MIN_RECHARGE_SHARE := 0.5
 
 var mana := 0
+## Money, in cents.
+var money := 0
 ## Debug builds can buy past what they can afford, into negative Mana, so
 ## every unlock can be tried while testing.
 var allow_debt := OS.is_debug_build()
@@ -109,6 +117,9 @@ var _armed := {}
 ## unlocking delivers it with a few packs (Main). Until levels unlock sets,
 ## the Card Shop's Unlock button does.
 var _unlocked_sets := {}
+## One-time messages already shown in this game: key -> true (the sale
+## confirmation's first, shorter wording).
+var _notes := {}
 ## Whether sets lock at all. Checks written before set locking turn it off.
 var locks_sets := true
 
@@ -120,13 +131,51 @@ func _init() -> void:
 ## Back to a new game: no Mana, nothing bought.
 func reset() -> void:
 	mana = 0
+	money = 0
 	_bought.assign(COLOURS.map(func(_c) -> int: return 0))
 	_paid.clear()
 	_recharging.clear()
 	_armed.clear()
 	_unlocked_sets.clear()
+	_notes.clear()
 	mana_changed.emit(mana)
+	money_changed.emit(money)
 	sorceries_changed.emit()
+
+
+## Adds `cents` to the money (a sale).
+func earn_money(cents: int) -> void:
+	money += maxi(cents, 0)
+	money_changed.emit(money)
+
+
+## Takes `cents` off the money, if there's enough. Returns whether it paid.
+func spend_money(cents: int) -> bool:
+	if cents < 0 or cents > money:
+		return false
+	money -= cents
+	money_changed.emit(money)
+	return true
+
+
+## Money as it's written everywhere: "$1,234.56".
+static func money_text(cents: int) -> String:
+	var dollars := str(absi(cents) / 100)
+	var grouped := ""
+	while dollars.length() > 3:
+		grouped = "," + dollars.right(3) + grouped
+		dollars = dollars.left(dollars.length() - 3)
+	return "%s$%s%s.%02d" % ["-" if cents < 0 else "", dollars, grouped, absi(cents) % 100]
+
+
+## Whether one-time message `key` has been shown in this game.
+func has_note(key: String) -> bool:
+	return _notes.has(key)
+
+
+## Remembers that one-time message `key` has been shown.
+func mark_note(key: String) -> void:
+	_notes[key] = true
 
 
 ## Whether a set's binder can be taken down and used.
@@ -155,9 +204,9 @@ func save_state() -> Dictionary:
 	var recharging := {}
 	for node in _recharging:
 		recharging[node] = PackedFloat32Array(_recharging[node])
-	return {"mana": mana, "bought": bought, "paid": PackedStringArray(_paid.keys()),
+	return {"mana": mana, "money": money, "bought": bought, "paid": PackedStringArray(_paid.keys()),
 		"recharging": recharging, "armed": PackedStringArray(_armed.keys()),
-		"sets": PackedStringArray(_unlocked_sets.keys())}
+		"sets": PackedStringArray(_unlocked_sets.keys()), "notes": PackedStringArray(_notes.keys())}
 
 
 ## Puts back what save_state() kept. Each colour keeps the steps bought, in
@@ -166,6 +215,7 @@ func save_state() -> Dictionary:
 func restore_state(saved: Dictionary) -> void:
 	reset()
 	mana = int(saved.get("mana", 0))
+	money = int(saved.get("money", 0))
 	var bought: Array = saved.get("bought", [])
 	for colour in mini(bought.size(), COLOURS.size()):
 		var names: PackedStringArray = bought[colour]
@@ -187,7 +237,10 @@ func restore_state(saved: Dictionary) -> void:
 			_armed[node] = true
 	for code in saved.get("sets", PackedStringArray()):
 		_unlocked_sets[code] = true
+	for key in saved.get("notes", PackedStringArray()):
+		_notes[key] = true
 	mana_changed.emit(mana)
+	money_changed.emit(money)
 	sorceries_changed.emit()
 
 

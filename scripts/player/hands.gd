@@ -76,6 +76,14 @@ extends Node
 ## stack back into your hand. Let go of Space before the end and the tear stays where it
 ## got to, but the room comes back and the pack stops shaking. The cards
 ## are new copies (see PackContents), so they can be cards you already have.
+##
+## Selling (ShippingBox): with a card in hand, click a shipping box that
+## stands on the floor or a table and the card is sold: it's sleeved,
+## labelled with its price and drops in, and the money comes at once. A card
+## your collection doesn't have yet asks first (sale_confirm_requested),
+## unless that's turned off in Settings. E on a shipping box (aimed at, or
+## in hand) seals it. Click the crate at the shipping corner by the door
+## with empty hands for a new box, and E on the door ends the day.
 
 signal held_changed(card: CardData, binder: BinderRange)
 ## The card whose details to show: the one in hand, or else a card you're
@@ -92,8 +100,15 @@ signal radio_used
 signal held_pack_changed(set_code: String)
 ## E aimed at the laptop, or with it in hand: open the laptop screen.
 signal laptop_used
+## Selling the card in hand into `box` needs a yes first: the collection
+## doesn't have it yet. The shop asks, and calls sell_held_card(box, true).
+signal sale_confirm_requested(box: ShippingBox)
+## A card was sold: copy `id`, for `cents`.
+signal card_sold(id: int, cents: int)
+## E on the shop door: the shop ends the day.
+signal end_day_requested
 
-enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACKS, BOX, LOOSE_PACK }
+enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACKS, BOX, LOOSE_PACK, SHIPPING, DOOR }
 
 ## How far from the eye the player can reach, and with Spider Climb.
 @export var reach := 2.6
@@ -173,6 +188,11 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, PACK
 ## full size up close, and how long they wait first.
 @export var emerge_seconds := 0.3
 @export var emerge_delay := 0.06
+## Selling: how long a sold card takes from the hand to just over the
+## shipping box (sleeved and labelled on the way), and then to drop in.
+## Snap speeds both up; later unlocks can shorten them.
+@export var sell_seconds := 0.3
+@export var sell_drop_seconds := 0.18
 
 ## Where the held card sits relative to the camera: low and to the right,
 ## or close up and square to your face (see zoomed_distance).
@@ -241,6 +261,9 @@ var held_pack: BoosterPack
 var held_box: ProductBox
 ## The pack stand (the shop sets it).
 var pack_stand: PackDisplay
+## The shipping corner by the door, with its crate of new boxes (the shop
+## sets it).
+var shipping_station: ShippingStation
 ## Cards of the pack just ripped still to be shown (after the one on top).
 var revealing := 0
 ## Seconds the room stays dim after the last card of a pack is shown, so
@@ -437,8 +460,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		toss_binder()
 	elif event.is_action_pressed(Controls.TOSS):
 		flip_pile()
+	elif event.is_action_pressed(Controls.INTERACT) and _shipping_box_at_hand() != null:
+		_shipping_box_at_hand().seal()
 	elif event.is_action_pressed(Controls.INTERACT) and _laptop_at_hand() != null:
 		laptop_used.emit()
+	elif event.is_action_pressed(Controls.INTERACT) and _aim == Aim.DOOR:
+		end_day_requested.emit()
 	elif event.is_action_pressed(Controls.INTERACT):
 		_toggle_binder()
 	elif event.is_action_pressed(Controls.INSPECT) and (held_card_id >= 0 or held_pack != null):
@@ -470,6 +497,16 @@ func _laptop_at_hand() -> Laptop:
 	if held_box is Laptop:
 		return held_box
 	if _aim == Aim.BOX and _aim_box is Laptop:
+		return _aim_box
+	return null
+
+
+## The shipping box in hand, or else the one you're aiming at (with no
+## other box in hand); null if neither.
+func _shipping_box_at_hand() -> ShippingBox:
+	if held_box is ShippingBox:
+		return held_box
+	if held_box == null and _aim == Aim.BOX and _aim_box is ShippingBox:
 		return _aim_box
 	return null
 
@@ -517,6 +554,9 @@ func _use_hand() -> void:
 	if _hands_empty() and _aim == Aim.BOX:
 		take_box(_aim_box)
 		return
+	if _hands_empty() and _aim == Aim.SHIPPING and shipping_station != null:
+		take_new_shipping_box()
+		return
 	if _hands_empty() and _aim == Aim.LOOSE_PACK:
 		_take_pack_node(_aim_pack)
 		return
@@ -527,6 +567,9 @@ func _use_hand() -> void:
 			_placing = 0.0
 		return
 	if held_card_id >= 0:
+		if _aim == Aim.BOX and _aim_box is ShippingBox:
+			sell_held_card(_aim_box)
+			return
 		if _try_display_held_card() or _try_file_held_card():
 			return
 		# With room in hand, a quick click on a card picks it up as well;
@@ -1211,6 +1254,12 @@ func _update_aim() -> void:
 		_aim = Aim.BOX
 		_aim_box = collider
 		return
+	if collider is ShippingStation:
+		_aim = Aim.SHIPPING
+		return
+	if collider is ShopDoor:
+		_aim = Aim.DOOR
+		return
 	if collider is StaticBody3D and (collider as Node).get_parent() is BoosterPack:
 		_aim = Aim.LOOSE_PACK
 		_aim_pack = (collider as Node).get_parent()
@@ -1266,6 +1315,13 @@ func _update_hint() -> void:
 			text = _cabinet_hint()
 		Aim.RADIO:
 			text = _radio_hint()
+		Aim.DOOR:
+			text = "%s: End Day" % _key(Controls.INTERACT)
+		Aim.BOX:
+			if _aim_box is ShippingBox and held_box == null:
+				text = _shipping_box_hint(_aim_box)
+	if held_box is ShippingBox:
+		text = _shipping_box_hint(held_box)
 	if _laptop_at_hand() != null:
 		text = "%s: Use Laptop" % _key(Controls.INTERACT)
 	if text != _hint:
@@ -1359,6 +1415,16 @@ func _cabinet_hint() -> String:
 		shown += cabinet.displayed_count()
 		total += cabinet.slots.size()
 	return "Rare Cards Displayed: %d/%d" % [shown, total]
+
+
+## How full a shipping box is, and E to seal it once it has cards in.
+func _shipping_box_hint(box: ShippingBox) -> String:
+	if box.sealed:
+		return "Sealed: %d Cards" % box.cards
+	var lines := PackedStringArray(["Shipping Box: %d/%d Cards" % [box.cards, ShippingBox.CAPACITY]])
+	if box.can_seal():
+		lines.append("%s: Seal Box" % _key(Controls.INTERACT))
+	return "\n".join(lines)
 
 
 ## What's on the radio, or that it's off.
@@ -1590,12 +1656,13 @@ func _return_pack() -> void:
 ## all been shown, lower the stack into your hand; otherwise show the next
 ## card.
 func press_rip() -> void:
-	if held_box is Laptop:
+	if held_box is Laptop or held_box is ShippingBox:
 		return
 	if held_box != null:
 		open_box(held_box)
-	elif _hands_empty() and _aim == Aim.BOX and not _aim_box is Laptop:
-		open_box(_aim_box)
+	elif _hands_empty() and _aim == Aim.BOX:
+		if not (_aim_box is Laptop or _aim_box is ShippingBox):
+			open_box(_aim_box)
 	elif held_pack != null:
 		_start_ripping()
 	elif _revealed_all and _zoomed:
@@ -1603,6 +1670,110 @@ func press_rip() -> void:
 		_set_zoomed(false)
 	else:
 		reveal_next()
+
+
+## A new, empty shipping box from the crate by the door, into your hand.
+## Returns it.
+func take_new_shipping_box() -> ShippingBox:
+	var box := ShippingBox.new()
+	box.build()
+	pile.add_child(box)
+	box.global_transform = shipping_station.new_box_pose()
+	take_box(box)
+	return box
+
+
+## Whether the collection still needs copy `id`: its own binder pocket is
+## empty (or, for a rare card, its shadow box).
+func collection_needs(id: int) -> bool:
+	if Collection.is_rare(id):
+		var number := Collection.card(id).collector_number
+		for cabinet in cabinets:
+			var slot := cabinet.slot_for(number)
+			if slot >= 0:
+				return cabinet.displayed[slot] < 0
+		return false
+	var binder := pile.binder_for(id)
+	if binder == null:
+		return false
+	var pocket := Collection.card(id).collector_number - binder.binder.first
+	return binder.contents.card_at(pocket) < 0
+
+
+## Sells the card in hand into `box` (ShippingBox): the money comes now and
+## the card is gone for good; it's sleeved and labelled on its way over and
+## drops in. A card the collection doesn't have yet needs `confirmed` (the
+## shop asks; Settings "confirm_new_sales" turns that off). Returns whether
+## it was sold.
+func sell_held_card(box: ShippingBox, confirmed := false) -> bool:
+	if held_card_id < 0 or box == null or not box.has_room() or box == held_box or _gliding():
+		return false
+	var id := held_card_id
+	if not confirmed and Settings.value("confirm_new_sales") and collection_needs(id):
+		sale_confirm_requested.emit(box)
+		return false
+	var cents := Prices.sale_cents(Collection.card(id))
+	var card := _card_copy(id)
+	card.remove_meta("card_id") # Sold: nothing for a save to put back.
+	_sleeve(card, cents)
+	var from := _held_view.global_transform
+	_release_top()
+	var via := box.card_entry_pose()
+	var to := box.card_slot_pose()
+	_glide = Glide.start(card, from, func() -> Transform3D: return via, glide_seconds(sell_seconds), put_down_lift)
+	Glide.then(_glide, card, via, to, glide_seconds(sell_drop_seconds))
+	_glide.tween_callback(func() -> void:
+		if is_instance_valid(box):
+			box.add_card(id)
+		FeedbackSounds.play(pile, to.origin, FeedbackSounds.Kind.CARD_SOLD)
+		card.queue_free())
+	Collection.mark_sold(id)
+	seen_cards.erase(id)
+	Progression.earn_money(cents)
+	card_sold.emit(id, cents)
+	return true
+
+
+## A card on its way to a shipping box: in a clear sleeve, with a little
+## white label showing its price.
+static func _sleeve(card: MeshInstance3D, cents: int) -> void:
+	var sleeve := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = ShippingBox.SLEEVE
+	sleeve.mesh = quad
+	var clear := StandardMaterial3D.new()
+	clear.albedo_color = Color(0.92, 0.95, 1.0, 0.22)
+	clear.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	clear.roughness = 0.1
+	clear.cull_mode = BaseMaterial3D.CULL_DISABLED
+	sleeve.material_override = clear
+	sleeve.position.z = 0.0006
+	sleeve.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	card.add_child(sleeve)
+	var label := MeshInstance3D.new()
+	var paper := QuadMesh.new()
+	paper.size = Vector2(0.036, 0.016)
+	label.mesh = paper
+	var white := StandardMaterial3D.new()
+	white.albedo_color = ProductBox.LABEL_PAPER
+	label.material_override = white
+	label.position = Vector3(0.0, -0.03, 0.0012)
+	label.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	card.add_child(label)
+	var price := Label3D.new()
+	price.text = Progression.money_text(cents)
+	price.font = BinderLettering.FONT
+	price.font_size = 48
+	price.outline_size = 0
+	price.modulate = ProductBox.INK
+	price.pixel_size = 0.00022
+	price.position = Vector3(0.0, -0.03, 0.0016)
+	card.add_child(price)
+	sleeve.scale = Vector3.ONE * 1.25
+	label.scale = Vector3.ONE * 1.6
+	var tween := card.create_tween().set_parallel()
+	tween.tween_property(sleeve, "scale", Vector3.ONE, 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "scale", Vector3.ONE, 0.12).set_delay(0.08).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 ## Picks a box of product up off the floor or a table.
@@ -1681,8 +1852,8 @@ func put_down_pack() -> void:
 ## table or the floor. Opening a set's product unlocks the set (for now).
 ## Returns the packs tipped out, or the copies made.
 func open_box(box: ProductBox) -> Array:
-	if box is Laptop:
-		return [] # The laptop isn't product; E uses it.
+	if box is Laptop or box is ShippingBox:
+		return [] # Not product: E uses the laptop, and seals a shipping box.
 	var at := box.global_position
 	if box == held_box:
 		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:

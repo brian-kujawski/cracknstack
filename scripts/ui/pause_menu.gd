@@ -93,6 +93,7 @@ func _add_time_buttons(column: VBoxContainer) -> void:
 			if Saves.shop != null:
 				Saves.shop.call(method)
 				resume())
+	_add_debug_button(row, "+$100").pressed.connect(func() -> void: Progression.earn_money(10000))
 	var faces := _add_debug_button(row, FACE_VIEWS[NearFaces.debug_view])
 	faces.pressed.connect(func() -> void:
 		NearFaces.debug_view = (NearFaces.debug_view + 1) % FACE_VIEWS.size() as NearFaces.DebugView

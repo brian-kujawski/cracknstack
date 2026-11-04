@@ -9,9 +9,9 @@ extends CanvasLayer
 ##
 ## Its programs, as desktop icons and in the Start menu:
 ## - Card Shop: buy booster packs, booster boxes and bulk boxes of any
-##   unlocked set. For now it's free and an order turns up inside the door
-##   at once (`ordered`, handled by the shop); money and next-morning
-##   deliveries come later. A locked set has an Unlock button instead (a
+##   unlocked set, with money from selling cards (Prices, Progression
+##   .money). An order is paid for at once and turns up inside the door the
+##   next morning (`ordered`, handled by the shop). A locked set has an Unlock button instead (a
 ##   stand-in until levels unlock sets): its binder and starter packs turn
 ##   up inside the door (Progression.set_unlocked, handled by the shop).
 ## - My Collection: Mana, Cards Organized and each unlocked set's binder.
@@ -22,7 +22,7 @@ extends CanvasLayer
 ## The game stops while it's open. Esc, or Start > Close Laptop, closes it.
 ## Mouse only, like every menu.
 
-## An order from the Card Shop: kind is "pack", "booster_box" or
+## An order from the Card Shop, paid for: kind is "pack", "booster_box" or
 ## "bulk_box" (as ShopSave names them), for set `code`.
 signal ordered(kind: String, code: String)
 ## The laptop closed (and the game is running again).
@@ -555,7 +555,7 @@ func _build_shop(into: Control) -> void:
 	detail.add_theme_constant_override("separation", 12)
 	body.add_child(detail)
 
-	shop_status = Win95.label("Free for now: money isn't in yet. Orders turn up inside the door.", 18)
+	shop_status = Win95.label(money_line(), 18)
 	shop_status.name = "Status"
 	column.add_child(Win95.well(shop_status, Win95.FACE))
 
@@ -629,10 +629,12 @@ func _show_set(detail: Control, code: String) -> void:
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		words.add_theme_constant_override("separation", 0)
 		words.add_child(Win95.label(product[1], 22))
-		words.add_child(Win95.label(product[2], 18, Win95.SHADOW.darkened(0.3)))
+		var cents := Prices.product_cents(product[0], code)
+		words.add_child(Win95.label("%s  ·  %s" % [product[2], Progression.money_text(cents)], 18, Win95.SHADOW.darkened(0.3)))
 		row.add_child(words)
 		var order := Win95.button("Order", order_product.bind(product[0], code), 130)
 		order.name = "Order_" + product[0]
+		order.disabled = cents > Progression.money
 		order.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(order)
 		var panel := Win95.well(row, Win95.FACE)
@@ -665,15 +667,31 @@ func unlock_set(code: String) -> void:
 		_show_set(detail, code)
 
 
-## Orders one of `kind` ("pack", "booster_box", "bulk_box") of set `code`.
-## A locked set can't be ordered.
-func order_product(kind: String, code: String) -> void:
+## The Card Shop's money line: what you have, and when orders come.
+static func money_line() -> String:
+	return "You have %s. Orders arrive inside the door the next morning." % Progression.money_text(Progression.money)
+
+
+## Orders one of `kind` ("pack", "booster_box", "bulk_box") of set `code`,
+## paying for it now. A locked set can't be ordered, nor anything you can't
+## afford. Returns whether it was ordered.
+func order_product(kind: String, code: String) -> bool:
 	if not Progression.is_set_unlocked(code):
-		return
-	ordered.emit(kind, code)
+		return false
 	var product: Array = PRODUCTS.filter(func(p: Array) -> bool: return p[0] == kind).front()
+	if not Progression.spend_money(Prices.product_cents(kind, code)):
+		if shop_status != null:
+			shop_status.text = "Not enough money for a %s %s. %s" % [CardDatabase.get_set(code).name, product[1], money_line()]
+		return false
+	ordered.emit(kind, code)
 	if shop_status != null:
-		shop_status.text = "Ordered: %s %s. It's waiting inside the door." % [CardDatabase.get_set(code).name, product[1]]
+		shop_status.text = "Ordered: %s %s. It arrives tomorrow morning. You have %s left." % [
+			CardDatabase.get_set(code).name, product[1], Progression.money_text(Progression.money)]
+	var window: Control = windows.get("shop")
+	var detail: Control = window.find_child("Detail", true, false) if window != null else null
+	if detail != null and shop_set == code:
+		_show_set(detail, code)
+	return true
 
 
 # --- My Collection ----------------------------------------------------------
