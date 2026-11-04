@@ -3658,7 +3658,8 @@ func _test_booster_packs() -> void:
 		var sheets: Array[int] = draw_era.call("sheets", alpha_era)
 		_check(sheets.size() == 15 and unique_but_basics.call(sheets), "an Alpha-to-Revised booster is 15 cards, only basics can repeat")
 		var sheet_counts: Array = counts_of.call(sheets)
-		_check(sheet_counts[2] == 1 and sheet_counts[0] + sheet_counts[1] + sheet_counts[PackContents.BASIC] == 14, "with one rare: %s" % [sheet_counts])
+		# 117 rares run from 300 into the 400s, so they count under mythic too.
+		_check(sheet_counts[2] + sheet_counts[3] == 1 and sheet_counts[0] + sheet_counts[1] + sheet_counts[PackContents.BASIC] == 14, "with one rare: %s" % [sheet_counts])
 		common_slots += 11
 		lands_in_commons += 11 - sheet_counts[0]
 		lands_in_uncommons += 3 - sheet_counts[1]
