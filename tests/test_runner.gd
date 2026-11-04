@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
 
 var _failures := 0
 var _checks := 0
@@ -97,6 +97,7 @@ func _ready() -> void:
 	await _run(_test_shop_clock)
 	await _run(_test_booster_packs)
 	await _run(_test_laptop)
+	await _run(_test_selling)
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
 	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
@@ -223,6 +224,158 @@ func _test_set_locks() -> void:
 	Progression.locks_sets = false
 
 
+## Selling cards into shipping boxes, the money, and the end of the day.
+func _test_selling() -> void:
+	_check(Progression.money_text(0) == "$0.00" and Progression.money_text(5) == "$0.05"
+		and Progression.money_text(123456789) == "$1,234,567.89" and Progression.money_text(-250) == "-$2.50",
+		"money reads like money")
+	Progression.reset()
+	_check(Progression.money == 0 and not Progression.spend_money(1), "a new game has no money, and can't spend any")
+	Progression.earn_money(500)
+	_check(Progression.spend_money(200) and Progression.money == 300 and not Progression.spend_money(301),
+		"money is earned and spent, never below zero")
+	_check(Progression.save_state().money == 300, "and saved")
+	var code: String = LaptopScreen.shop_sets()[0].code
+	var pack := Prices.pack_cents(code)
+	_check(pack > 0 and pack % Prices.PACK_ROUNDING == 0 and Prices.product_cents("booster_box", code) == pack * PackContents.BOX_PACKS,
+		"a pack costs a round price, a box %d of them" % PackContents.BOX_PACKS)
+	_check(absf(pack / 100.0 - Prices.pack_worth(code) / Prices.MARGIN) <= Prices.PACK_ROUNDING / 200.0 + 0.001,
+		"a pack costs its average worth over %.1f" % Prices.MARGIN)
+	_check(Prices.product_cents("bulk_box", code) % Prices.BULK_ROUNDING == 0 and Prices.product_cents("bulk_box", code) > pack,
+		"a bulk box costs whole dollars")
+	var cheap := CardData.new()
+	cheap.value = 0.0
+	_check(Prices.sale_cents(cheap) == 1, "nothing sells for less than a cent")
+
+	Progression.reset()
+	Collection.reset()
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	var hands: Hands = main.get_node("Player/Hands")
+	var pile: PileWorld = main.get_node("Pile")
+	var station: ShippingStation = main._store.shipping_station
+	_check(station != null and station.global_position.z > 7.0 and station.on_mat(station.global_position),
+		"the shipping corner is just inside the door")
+
+	# A new box from the crate, put down on the floor.
+	var box := hands.take_new_shipping_box()
+	hands._glide.custom_step(10.0)
+	_check(hands.held_box == box and box.cards == 0 and not box.sealed and box.details().contains("0/%d" % ShippingBox.CAPACITY),
+		"the crate hands over an empty shipping box")
+	hands.press_rip()
+	_check(hands.held_box == box and is_instance_valid(box) and not box.is_queued_for_deletion(), "Space doesn't open it like product")
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_point = Vector3(4.0, 0.0, 4.0)
+	hands.put_down_box()
+	hands._glide.custom_step(10.0)
+	_check(hands.held_box == null and box.get_parent() == pile, "it goes down like any box")
+
+	# A card the collection doesn't have yet asks first.
+	var card := CardDatabase.get_card(_first_binder_cards()[0])
+	var first := Collection.add(card.id)
+	hands.restore_hand([first])
+	var asked := []
+	hands.sale_confirm_requested.connect(func(b: ShippingBox) -> void: asked.append(b))
+	_check(hands.collection_needs(first), "a card with an empty pocket is still needed")
+	_check(not hands.sell_held_card(box) and asked == [box] and hands.held_card_id == first and Progression.money == 0,
+		"selling it asks first, and nothing's sold yet")
+	var confirm: SellConfirm = main.get_node_or_null("SellConfirm")
+	_check(confirm != null and confirm.text == SellConfirm.QUESTION, "the shop asks; the first time, it just asks")
+	var again := SellConfirm.new(func() -> void: pass)
+	_check(again.text == SellConfirm.QUESTION + SellConfirm.TURN_OFF, "after that, it says where to turn it off")
+	again.free()
+	_check(get_tree().paused and confirm.sell_button != null and confirm.keep_button != null, "the question stops the game")
+	confirm.answer(true)
+	hands._glide.custom_step(10.0)
+	var cents := Prices.sale_cents(card)
+	_check(not get_tree().paused and Collection.is_sold(first) and hands.held_card_id < 0 and Progression.money == cents,
+		"Sell sells it: the card's gone and %s is paid at once" % Progression.money_text(cents))
+	_check(box.cards == 1 and box.has_room(), "it drops into the box")
+
+	# One the collection already has sells with no question.
+	var filed := Collection.add(card.id)
+	var binder := pile.binder_for(filed)
+	binder.contents.insert(card.collector_number - binder.binder.first, filed)
+	var spare := Collection.add(card.id)
+	hands.restore_hand([spare])
+	asked.clear()
+	_check(not hands.collection_needs(spare) and hands.sell_held_card(box) and asked.is_empty(), "a duplicate sells straight away")
+	hands._glide.custom_step(10.0)
+	_check(Progression.money == 2 * cents and box.cards == 2, "and pays the same")
+	# With the question turned off, a needed card sells too.
+	Settings.change("confirm_new_sales", false)
+	var other := CardDatabase.get_card(_first_binder_cards()[1])
+	var needed := Collection.add(other.id)
+	hands.restore_hand([needed])
+	_check(hands.sell_held_card(box) and asked.is_empty(), "with the confirmation off, it doesn't ask")
+	hands._glide.custom_step(10.0)
+	Settings.change("confirm_new_sales", true)
+
+	# Full, sealed.
+	box.cards = ShippingBox.CAPACITY
+	var more := Collection.add(card.id)
+	hands.restore_hand([more])
+	_check(not box.has_room() and not hands.sell_held_card(box) and hands.held_card_id == more, "a full box takes no more")
+	hands.restore_hand([])
+	var empty := hands.take_new_shipping_box()
+	hands._glide.custom_step(10.0)
+	_check(not empty.can_seal() and not empty.seal(), "an empty box can't be sealed")
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_point = station.global_position
+	hands.put_down_box()
+	hands._glide.custom_step(10.0)
+	_check(box.seal() and box.sealed and not box.has_room() and box.details().begins_with("Shipping Box\nSealed"),
+		"a box with cards in seals shut")
+
+	# Saved: boxes keep their cards and seals, and sold cards are gone.
+	var saved: Dictionary = main.capture_save()
+	var entries: Array = saved.products.filter(func(e: Array) -> bool: return e[0] == "shipping")
+	_check(entries.size() == 2 and entries.any(func(e: Array) -> bool: return e[1] == ShippingBox.CAPACITY and e[3]),
+		"both shipping boxes are saved, with their cards and seal")
+	var restored := PileWorld.new()
+	add_child(restored)
+	ShopSave.restore_products(saved.products, restored)
+	var back := restored.get_children().filter(func(n: Node) -> bool: return n is ShippingBox)
+	_check(back.size() == 2 and back.any(func(b: ShippingBox) -> bool: return b.sealed and b.cards == ShippingBox.CAPACITY),
+		"and come back the same")
+	restored.free()
+	var ids := ShopSave.make_copies(saved.copies)
+	_check(ids[first] == -1 and ids[spare] == -1 and ids[filed] >= 0 and ids[more] >= 0, "sold copies aren't made again")
+	main.free()
+
+	# The end of the day: sealed boxes on the mat go; the rest stay.
+	Progression.reset()
+	Collection.reset()
+	main = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	pile = main.get_node("Pile")
+	station = main._store.shipping_station
+	var make := func(cards: int, sealed: bool, at: Vector3) -> ShippingBox:
+		var b := ShippingBox.new()
+		b.build(cards, sealed)
+		pile.add_child(b)
+		b.global_position = at
+		return b
+	var on_mat: ShippingBox = make.call(10, true, station.global_position)
+	var open_on_mat: ShippingBox = make.call(10, false, station.global_position + Vector3(0.3, 0, 0))
+	var sealed_away: ShippingBox = make.call(10, true, Vector3(4.0, 0.0, 4.0))
+	var day: int = main.day_number
+	_check(main.start_new_day() == 1, "one box ships")
+	_check(on_mat.is_queued_for_deletion() and not open_on_mat.is_queued_for_deletion() and not sealed_away.is_queued_for_deletion(),
+		"only a sealed box on the OUTGOING mat is collected")
+	_check(main.day_number == day + 1, "and it's the next day")
+	var hint := [""]
+	var door_hands: Hands = main.get_node("Player/Hands")
+	door_hands.hint_changed.connect(func(text: String) -> void: hint[0] = text)
+	door_hands._aim = Hands.Aim.DOOR
+	door_hands._update_hint()
+	_check(hint[0] == "E: End Day", "the door's hint is E: End Day, got " + hint[0])
+	main.free()
+	Progression.reset()
+
+
 ## A new game's shelf is bare; unlocking a set in the Card Shop delivers its
 ## binder and starter packs inside the door and puts up its plate.
 func _test_chapters() -> void:
@@ -261,8 +414,7 @@ func _test_set_unlock_delivery() -> void:
 	_check(plates_up.call(units) == 0, "a new game's shelf has no plates")
 	_check(pile.binders.all(func(b: Binder) -> bool: return b.state == Binder.State.SHELVED and not b.visible),
 		"and every binder waits out of sight in its space")
-	_check(PackContents.pick_set(RandomNumberGenerator.new()) == "" and main._store.pack_stand.pack_count() == 0,
-		"nothing's unlocked, so the pack stand is empty")
+	_check(PackContents.pick_set(RandomNumberGenerator.new()) == "", "nothing's unlocked, so there's nothing to make product of")
 
 	var screen: LaptopScreen = main.laptop_screen
 	var code: String = LaptopScreen.shop_sets()[0].code
@@ -290,8 +442,6 @@ func _test_set_unlock_delivery() -> void:
 	screen.unlock_set(code)
 	_check(pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.set_code == code).size() == packs.size(),
 		"unlocking again delivers nothing more")
-	_check(main._store.pack_stand.pack_count() > 0 and main._store.pack_stand.columns.all(
-		func(c: Array) -> bool: return c.all(func(p: BoosterPack) -> bool: return p.set_code == code)), "the pack stand stocks the unlocked set")
 
 	screen.close()
 
@@ -1545,8 +1695,9 @@ func _test_onscreen_text() -> void:
 	var main := preload("res://scripts/main.gd")
 	var ids := _first_binder_cards()
 	var card := CardDatabase.get_card(ids[3])
-	_check(main.card_details(card) == "%s\n%s\n%s #004/%s\n%s" % [card.name, set_data.name, set_data.code,
-		set_data.number_text(set_data.card_count), CardData.Rarity.keys()[card.rarity].capitalize()],
+	_check(main.card_details(card) == "%s\n%s\n%s #004/%s\n%s · %s" % [card.name, set_data.name, set_data.code,
+		set_data.number_text(set_data.card_count), CardData.Rarity.keys()[card.rarity].capitalize(),
+		Progression.money_text(Prices.sale_cents(card))],
 		"held card details: name, set, padded number of total, rarity; got " + main.card_details(card))
 
 	var binder := Binder.new()
@@ -3517,13 +3668,10 @@ func _test_booster_packs() -> void:
 		if Vector2(pile.card_position(copy).x, pile.card_position(copy).z).distance_to(Vector2(6, 4)) < 1.5:
 			near_spot += 1
 	_check(near_spot > bulk.size() * 0.7, "most of it around where it was tipped (%d)" % near_spot)
-	var stand := PackDisplay.new()
-	stand.build(StandardMaterial3D.new(), 2)
-	pile.add_child(stand)
-	stand.stock()
-	_check(stand.pack_count() == PackDisplay.COLUMNS * PackDisplay.PER_COLUMN, "the stand is stocked full")
-	_check(stand.columns.all(func(column: Array) -> bool:
-		return column.all(func(p: BoosterPack) -> bool: return p.set_code == column[0].set_code)), "one set to a column")
+	var front := BoosterPack.new()
+	front.setup(picked)
+	front.lie(pile, Vector3(5, 0, 5), 0.0)
+	_check(front.is_lying(), "a pack lies on the floor")
 
 	var hands := Hands.new()
 	var camera := Camera3D.new()
@@ -3533,23 +3681,17 @@ func _test_booster_packs() -> void:
 	camera.name = "Camera3D"
 	add_child(holder)
 	hands.pile = pile
-	hands.pack_stand = stand
-	hands._aim = Hands.Aim.PACKS
-	hands._aim_point = stand.to_global(Vector3(PackDisplay.COLUMN_STEP, 1.0, 0))
-	var front: BoosterPack = stand.columns[2][0]
+	hands._aim = Hands.Aim.LOOSE_PACK
+	hands._aim_pack = front
 	hands._use_hand()
-	_check(hands.held_pack == front and stand.pack_count() == PackDisplay.COLUMNS * PackDisplay.PER_COLUMN - 1,
-		"clicking the stand takes the front pack of the column aimed at")
+	_check(hands.held_pack == front and not front.is_lying(), "clicking a pack lying about takes it")
 	_check(not hands.has_room() and not hands._hands_empty(), "a pack fills your hands")
 	hands._glide.custom_step(10.0)
-	hands._use_hand()
-	_check(hands.held_pack == null and stand.columns[2][0] == front, "clicking the stand again puts the pack back")
-	hands._glide.custom_step(10.0)
-	hands._use_hand()
-	hands._glide.custom_step(10.0)
+	hands._aim = Hands.Aim.FLOOR
+	hands._aim_point = Vector3(5, 0, 5)
 	front.set_tear(0.2)
 	hands._use_hand()
-	_check(hands.held_pack == front, "a pack that's started to tear can't go back")
+	_check(hands.held_pack == front, "a pack that's started to tear can't be put down")
 	var ids := hands.rip_pack()
 	_check(ids.size() == PackContents.SIZE and hands.hand_count() == ids.size(), "ripping puts the pack's cards in your hand")
 	_check(ids.all(func(id: int) -> bool: return not pile.is_lying(id) and Collection.card(id).set_code == front.set_code),
@@ -3709,16 +3851,31 @@ func _test_laptop() -> void:
 	_check(back.global_transform.is_equal_approx(pose), "and loads it back there")
 	other_pile.free()
 
-	# The Card Shop: an order of each kind turns up inside the door.
+	# The Card Shop: an order of each kind is paid for, and turns up inside
+	# the door the next morning.
+	Progression.money = 0
 	screen.open()
 	var shop := screen.open_app("shop")
 	_check(screen.windows.has("shop") and shop.find_child("Order_bulk_box", true, false) != null, "the Card Shop opens with an Order button per product")
 	_check(screen.shop_set == sets[0].code, "the newest set is chosen first")
 	var code := sets[0].code
+	var order_pack: Button = shop.find_child("Order_pack", true, false)
+	_check(order_pack.disabled, "with no money, Order is greyed out")
 	var before := pile.get_child_count()
+	_check(not screen.order_product("pack", code) and main.orders.is_empty() and screen.shop_status.text.begins_with("Not enough money"),
+		"and nothing can be ordered")
+	var cost := Prices.product_cents("pack", code) + Prices.product_cents("booster_box", code) + Prices.product_cents("bulk_box", code)
+	Progression.earn_money(cost + 123)
 	screen.order_product("pack", code)
 	screen.order_product("booster_box", code)
 	screen.order_product("bulk_box", code)
+	_check(Progression.money == 123 and main.orders.size() == 3, "each order is paid for at once, %d left" % Progression.money)
+	_check(pile.get_child_count() == before, "and nothing arrives until the morning")
+	_check(screen.shop_status.text.begins_with("Ordered: ") and screen.shop_status.text.contains("tomorrow morning"), "the shop says it's on its way")
+	_check((shop.find_child("Order_pack", true, false) as Button).disabled, "Order greys out again once you can't afford it")
+	var day: int = main.day_number
+	main.start_new_day()
+	_check(main.orders.is_empty() and main.day_number == day + 1, "a new day empties the orders")
 	var arrived := pile.get_children().slice(before)
 	var pack: BoosterPack = arrived.filter(func(n: Node) -> bool: return n is BoosterPack).front()
 	var boxes := arrived.filter(func(n: Node) -> bool: return n is ProductBox)
@@ -3726,7 +3883,6 @@ func _test_laptop() -> void:
 	_check(boxes.size() == 2 and boxes.all(func(b: ProductBox) -> bool: return b.set_code == code)
 		and boxes.any(func(b: ProductBox) -> bool: return b.kind == ProductBox.Kind.BULK), "and a booster box and a bulk box")
 	_check(boxes.all(func(b: ProductBox) -> bool: return b.global_position.z > 6.0 and b.global_position.z < 8.0), "by the door")
-	_check(screen.shop_status.text.begins_with("Ordered: "), "the shop says it's on its way")
 	screen.open_app("collection")
 	screen.open_app("story")
 	screen.open_app("readme")

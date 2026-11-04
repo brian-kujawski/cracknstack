@@ -63,11 +63,10 @@ const ARMCHAIR_YAW := deg_to_rad(116.0)
 ## The radio sits across the side table, facing out into the room.
 const RADIO_ON_TABLE := Vector2(0.0, -0.05)
 const RADIO_YAW := deg_to_rad(70.0)
-## The booster pack stand (PackDisplay) by the door, a little in toward the
-## front right table, turned to greet you as you come in: its floor centre
-## and its turn (yaw) from facing the door.
-const PACK_STAND_AT := Vector2(6.85, 6.5)
-const PACK_STAND_YAW := deg_to_rad(-42.0)
+## The shipping corner (ShippingStation) just inside the door, on the
+## window side of it, away from where deliveries turn up: the middle of its
+## OUTGOING mat. It faces into the room.
+const SHIPPING_AT := Vector2(7.35, 7.5)
 ## The longcase clock stands at the shelf end of the left-hand wall,
 ## balancing the low reading corner with something tall: its floor
 ## centre along z.
@@ -144,8 +143,9 @@ var display_slots: Array[Marker3D] = []
 var cabinets: Array[DisplayCabinet] = []
 ## The radio on the reading corner's side table.
 var radio: ShopRadio
-## The booster pack stand; the shop stocks it once the pile is down.
-var pack_stand: PackDisplay
+## The shipping corner by the door: the OUTGOING mat and the crate of
+## flat-packed shipping boxes.
+var shipping_station: ShippingStation
 ## The longcase clock; the shop gives it the DayCycle to show.
 var clock: ShopClock
 ## The wall art's frames, in WallArt's order.
@@ -175,7 +175,7 @@ func _ready() -> void:
 	_build_tables()
 	_build_display_cabinets()
 	_build_reading_corner()
-	_build_pack_stand()
+	_build_shipping_station()
 	_build_wall_art()
 	_build_clock()
 	_build_windows()
@@ -414,11 +414,13 @@ func _build_reading_corner() -> void:
 	add_child(radio)
 
 
-func _build_pack_stand() -> void:
-	pack_stand = PackDisplay.new()
-	pack_stand.name = "PackStand"
-	pack_stand.build(_table_material)
-	_place(pack_stand, PACK_STAND_AT, PACK_STAND_YAW, Vector2(PackDisplay.PLINTH.x, PackDisplay.PLINTH.z))
+func _build_shipping_station() -> void:
+	shipping_station = ShippingStation.new()
+	shipping_station.build(_table_material)
+	shipping_station.position = Vector3(SHIPPING_AT.x, 0, SHIPPING_AT.y)
+	shipping_station.rotation.y = PI
+	add_child(shipping_station)
+	obstacles.append(shipping_station.crate_footprint())
 
 
 ## Adds a piece standing on the floor at `at`, turned by `yaw`, and keeps the

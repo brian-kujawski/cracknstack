@@ -57,6 +57,8 @@ const ROWS := {
 		["dropdown", "stopped_at", "Stopped at", ["Morning", "Noon", "Evening", "Night"]],
 		["heading", "SAVING"],
 		["dropdown", "autosave_every", "Autosave every", ["Off", "2 min", "5 min", "10 min"]],
+		["heading", "SELLING"],
+		["check", "confirm_new_sales", "Ask before selling a card you haven't collected"],
 		["heading", "INTERFACE"],
 		["slider", "interface_size", "Interface size", 0.75, 1.25, 0.05, "percent"],
 	],

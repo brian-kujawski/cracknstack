@@ -125,7 +125,7 @@ func lie(parent: Node, at: Vector3, yaw: float) -> void:
 		add_child(body)
 
 
-## Whether it's lying about (lie) rather than on the stand or in hand.
+## Whether it's lying about (lie) rather than in hand.
 func is_lying() -> bool:
 	return get_node_or_null("Grab") != null
 

@@ -13,6 +13,9 @@ extends Node
 ## Per-copy flags (one byte each). Foil is for later: nothing makes a foil
 ## copy yet.
 const FOIL := 1
+## Sold (put in a shipping box, ShippingBox): gone for good. Its id stays
+## taken, but it's nowhere, and a save drops it (ShopSave.make_copies).
+const SOLD := 2
 
 var _cards := PackedInt32Array()
 var _flags := PackedByteArray()
@@ -75,6 +78,16 @@ func flags(copy: int) -> int:
 
 func is_foil(copy: int) -> bool:
 	return _flags[copy] & FOIL != 0
+
+
+func is_sold(copy: int) -> bool:
+	return _flags[copy] & SOLD != 0
+
+
+## Marks a copy sold. It must already be out of the world (in nobody's
+## hand, lying nowhere).
+func mark_sold(copy: int) -> void:
+	_flags[copy] |= SOLD
 
 
 ## Whether a copy is one of the rare cabinet cards (RareCards).
