@@ -120,6 +120,7 @@ func load_file(path: String) -> Error:
 	for code in _cards_by_set:
 		_cards_by_set[code].sort_custom(func(a: CardData, b: CardData) -> bool:
 			return a.collector_number < b.collector_number)
+	CardValues.assign(_cards_by_set)
 	_sets_in_shelf_order.assign(_sets.values().filter(func(set_data: SetData) -> bool: return set_data != _rare_set))
 	_sets_in_shelf_order.sort_custom(CardSort.compare_sets)
 	return OK

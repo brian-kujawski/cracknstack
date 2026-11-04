@@ -80,6 +80,11 @@ static func load_file(path: String) -> Result:
 		card.type_line = row[5]
 		if row.size() > 6 and not str(row[6]).is_empty():
 			card.image_large = folder.path_join(row[6])
+		# Then the real prices, US dollars, null for none (tools/import_scryfall.py).
+		if row.size() > 7 and row[7] != null:
+			card.price = float(row[7])
+		if row.size() > 8 and row[8] != null:
+			card.foil_price = float(row[8])
 		if has_faces:
 			card.face_index = card.id
 			if result.faces.has("near"):

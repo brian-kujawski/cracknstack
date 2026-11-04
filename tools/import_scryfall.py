@@ -38,6 +38,7 @@ Usage, from the project root:
   python3 tools/import_scryfall.py ktk frf dtk   # import several sets in one go (asks once)
   python3 tools/import_scryfall.py --all         # import every set --list shows (asks once)
   python3 tools/import_scryfall.py               # rebuild cards.json and the atlas, no network
+  python3 tools/import_scryfall.py --prices      # today's prices for every set already added (card data only)
 
 Built for a metered connection: nothing is downloaded twice (card data is
 cached per set, images are skipped when already on disk, an interrupted
@@ -125,6 +126,9 @@ CARD_FIELDS = ("set", "collector_number", "name", "lang", "digital", "games", "p
                "oversized", "border_color", "frame_effects", "promo_types", "rarity", "colors", "type_line", "artist")
 CACHE_VERSION = 2  # bumped when the cached fields change; older set files are fetched again
 FACE_FIELDS = ("type_line", "colors", "artist")
+# Scryfall's market prices kept per card (US dollars, as strings): the game
+# turns them into card values (scripts/economy/card_values.gd).
+PRICE_FIELDS = ("usd", "usd_foil")
 
 
 def main(argv=None):
@@ -145,6 +149,9 @@ def main(argv=None):
     parser.add_argument("--dry-run", action="store_true", help="fetch card data only and say what the images would cost")
     parser.add_argument("--yes", action="store_true", help="download without asking first")
     parser.add_argument("--refetch", action="store_true", help="fetch card data again even if it is cached")
+    parser.add_argument("--prices", action="store_true",
+                        help="fetch card data again (no images) for every set already added, or the ones named,"
+                             " for today's prices")
     parser.add_argument("--bulk", type=Path, help="card data from a downloaded Scryfall Default Cards bulk file instead")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT,
                         help="output folder (default: the project's data/real, wherever this is run from)")
@@ -158,6 +165,11 @@ def main(argv=None):
         codes += [s["code"] for s in released_sets(client, out, args.types, args.refetch)
                   if set_status(out, s["code"]) != "in game" and s["code"] not in codes]
         print(f"Adding {len(codes)} sets: {', '.join(codes)}" if codes else "Every set is already in the game.")
+
+    if args.prices and not args.listing:
+        codes = codes or cached_codes(out)
+        args.refetch = True
+        print(f"Fetching today's prices for {len(codes)} sets (card data only, no images)")
 
     if args.listing:
         list_sets(client, out, args.types, args.refetch, args.listing)
@@ -341,8 +353,12 @@ def fetch_other_languages(client, code, printings, printed_size):
 
 
 def trim_card(card):
-    """Just the fields the importer reads, so the cache stays small."""
+    """Just the fields the importer reads, so the cache stays small. Of the
+    prices only the US dollar ones are kept (plain and foil)."""
     trimmed = {k: card[k] for k in CARD_FIELDS if k in card}
+    prices = {k: v for k, v in (card.get("prices") or {}).items() if k in PRICE_FIELDS and v is not None}
+    if prices:
+        trimmed["prices"] = prices
     if card.get("image_uris"):
         trimmed["image_uris"] = {"normal": card["image_uris"]["normal"]}
     if card.get("card_faces"):
@@ -466,6 +482,12 @@ def card_row(card):
     return [card["set"].upper(), card_number(card)[0], card["name"], card["rarity"], card_colors(card), type_line]
 
 
+def card_prices(card):
+    """[usd, usd_foil] as numbers, None where Scryfall has no price."""
+    prices = card.get("prices") or {}
+    return [float(prices[k]) if prices.get(k) not in (None, "") else None for k in PRICE_FIELDS]
+
+
 def card_artists(card):
     names = [card["artist"]] if card.get("artist") else []
     for face in card.get("card_faces", []):
@@ -529,9 +551,15 @@ def rebuild(client, out, no_images=False):
         data["back"] = download_back(client, out)
         for row, card in zip(data["cards"], cards):
             row.append(image_path(card))
+    # Then the prices, after the image column ("" when there are no images).
+    for row, card in zip(data["cards"], cards):
+        if len(row) == 6:
+            row.append("")
+        row.extend(card_prices(card))
     write_card_file(data, out / "cards.json")
     names = ", ".join(s["code"] for s in sets)
-    print(f"Wrote {len(sets)} sets ({names}), {len(cards)} cards to {out / 'cards.json'}")
+    priced = sum(1 for card in cards if card_prices(card)[0] is not None)
+    print(f"Wrote {len(sets)} sets ({names}), {len(cards)} cards ({priced} with a price) to {out / 'cards.json'}")
 
 
 # --- Images ---

@@ -303,10 +303,37 @@ class Collection(unittest.TestCase):
         card = printing(1, prices={"usd": "1.00"}, oracle_text="Long text", card_faces=[
             {"type_line": "A", "colors": ["W"], "artist": "X", "image_uris": {"normal": "u", "large": "v"}, "flavor_text": "f"}])
         trimmed = importer.trim_card(card)
-        self.assertNotIn("prices", trimmed)
+        self.assertEqual(trimmed["prices"], {"usd": "1.00"})
         self.assertEqual(trimmed["card_faces"], [{"type_line": "A", "colors": ["W"], "artist": "X", "image_uris": {"normal": "u"}}])
         self.assertEqual(importer.card_row(trimmed), importer.card_row(card))
         self.assertEqual(importer.image_url(trimmed), importer.image_url(card))
+
+
+class Prices(unittest.TestCase):
+    def test_only_dollar_prices_are_kept(self):
+        card = printing(1, prices={"usd": "19.77", "usd_foil": None, "eur": "15.00", "tix": "0.10"})
+        self.assertEqual(importer.trim_card(card)["prices"], {"usd": "19.77"})
+        self.assertNotIn("prices", importer.trim_card(printing(2)))
+
+    def test_prices_are_numbers_or_none(self):
+        self.assertEqual(importer.card_prices(printing(1, prices={"usd": "0.25", "usd_foil": "1.50"})), [0.25, 1.5])
+        self.assertEqual(importer.card_prices(printing(1, prices={"usd": None})), [None, None])
+        self.assertEqual(importer.card_prices(printing(1)), [None, None])
+
+    def test_rows_carry_prices_after_the_image_column(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            info = {"code": "tst", "name": "Test Set", "released_at": "2014-09-26"}
+            cached = {"version": importer.CACHE_VERSION, "set": importer.set_entry(info), "printed_size": 2,
+                      "printings": [importer.trim_card(printing(1, prices={"usd": "0.10"})),
+                                    importer.trim_card(printing(2))]}
+            path = importer.set_cache_path(out, "tst")
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(cached), encoding="utf-8")
+            importer.rebuild(None, out, no_images=True)
+            rows = json.loads((out / "cards.json").read_text(encoding="utf-8"))["cards"]
+        self.assertEqual(rows[0][6:], ["", 0.1, None])
+        self.assertEqual(rows[1][6:], ["", None, None])
 
 
 class SetList(unittest.TestCase):

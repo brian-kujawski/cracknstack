@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_chapters"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_chapters", &"_test_card_values"]
 
 var _failures := 0
 var _checks := 0
@@ -37,6 +37,7 @@ func _ready() -> void:
 	await _run(_test_card_copies)
 	await _run(_test_set_locks)
 	await _run(_test_chapters)
+	await _run(_test_card_values)
 	await _run(_test_set_unlock_delivery)
 	await _run(_test_collector_numbers_are_contiguous)
 	await _run(_test_shelf_order)
@@ -967,6 +968,12 @@ func _write_fixture(with_pages := true) -> String:
 		near.compress(Image.COMPRESS_S3TC)
 		near.save_dds("%s/near/tst/%d.dds" % [FIXTURE_DIR, id + 1])
 		rows.append(["TST", id + 1, "Test Card %d" % (id + 1), "rare", ["G"], "Creature — Bear", "images/tst/%d.png" % (id + 1)])
+		# The first two carry prices (dollars, null for none); the rest are
+		# written the way files from before prices were.
+		if id == 0:
+			rows.back().append_array([0.29, 1.5])
+		elif id == 1:
+			rows.back().append_array([1.16, null])
 	for p in 2:
 		var page := Image.create(64, 64, false, Image.FORMAT_RGB8)
 		for slot in 8:
@@ -989,6 +996,40 @@ func _write_fixture(with_pages := true) -> String:
 	file.store_string(JSON.stringify(data))
 	file.close()
 	return path
+
+
+func _test_card_values() -> void:
+	var make := func(rarity: CardData.Rarity, price: float, type_line := "Creature — Bear") -> CardData:
+		var card := CardData.new()
+		card.rarity = rarity
+		card.price = price
+		card.type_line = type_line
+		return card
+	var C := CardData.Rarity.COMMON
+	var R := CardData.Rarity.RARE
+	var M := CardData.Rarity.MYTHIC
+	# A set like Khans: commons at $0.06, rares at $0.29, a $19.77 fetchland.
+	var cards := [make.call(C, 0.05), make.call(C, 0.06), make.call(C, 0.07), make.call(R, 0.25), make.call(R, 0.29),
+		make.call(R, 19.77), make.call(M, 0.65), make.call(C, -1.0), make.call(C, 0.30, "Basic Land — Forest"),
+		make.call(CardData.Rarity.UNCOMMON, -1.0)]
+	CardValues.assign_set(cards)
+	_check(is_equal_approx(cards[1].value, 0.10), "a median common is worth $0.10")
+	_check(is_equal_approx(cards[4].value, 0.50) and is_equal_approx(cards[6].value, 2.50),
+		"a median rare 5 commons, a median mythic 25")
+	_check(absf(cards[5].value - 0.5 * sqrt(19.77 / 0.29)) < 1e-6, "a pricey rare: the square root of its lead")
+	_check(is_equal_approx(cards[7].value, 0.10), "a card with no price is worth its rarity's median")
+	_check(is_equal_approx(cards[8].value, 0.10), "basic lands are priced against each other, not the commons")
+	_check(is_equal_approx(cards[9].value, 0.20), "a rarity with no prices gets its baseline")
+	# An older set whose commons go for four times as much: every card x2.
+	var old := [make.call(C, 0.24), make.call(R, 1.0)]
+	CardValues.assign_set(old)
+	_check(is_equal_approx(old[0].value, 0.20) and is_equal_approx(old[1].value, 1.0), "the era scale prices whole sets")
+	var unpriced := [make.call(C, -1.0), make.call(M, -1.0)]
+	CardValues.assign_set(unpriced)
+	_check(is_equal_approx(unpriced[0].value, 0.10) and is_equal_approx(unpriced[1].value, 2.50),
+		"a set with no prices (the placeholders) gets plain baselines")
+	_check(CardDatabase.cards_in_set(CardDatabase.sets_in_shelf_order()[0].code).all(
+		func(c: CardData) -> bool: return c.value > 0.0), "loaded cards all have a value")
 
 
 func _test_card_corners() -> void:
@@ -1036,6 +1077,11 @@ func _test_real_data_format() -> void:
 	_check(atlas.texture.get_width() == 64 and atlas.texture.get_height() == 64, "atlas pages keep their size")
 	var large := CardView.large_face(card)
 	_check(large != null and large.get_size() == Vector2(48, 66), "the large face loads for the held card")
+	var priced := CardDatabase.get_card(0)
+	_check(is_equal_approx(priced.price, 0.29) and is_equal_approx(priced.foil_price, 1.5)
+		and is_equal_approx(CardDatabase.get_card(1).price, 1.16) and CardDatabase.get_card(1).foil_price < 0.0
+		and card.price < 0.0, "prices load from the file, and a card without one has none")
+	_check(card.value > 0.0 and priced.value < CardDatabase.get_card(1).value, "and cards get values from them")
 	var material := ShaderMaterial.new()
 	material.shader = preload("res://shaders/held_card.gdshader")
 	CardView.apply(material, 9)
