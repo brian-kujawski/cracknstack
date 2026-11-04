@@ -51,9 +51,19 @@ jobs:
           git diff --exit-code -- data/placeholder
 
       - name: Run tests (${{ env.FULL_SUITE == 'true' && 'full suite' || 'smoke batch' }})
+        # A script that fails to compile, or a runtime error that stops a test
+        # group early, isn't counted by the runner as a failed check, so the
+        # log is searched for Godot's "SCRIPT ERROR" lines too. Plain ERROR
+        # lines (push_error, the engine's own) don't fail the run.
         run: |
+          set -o pipefail
           if [ "$FULL_SUITE" = true ]; then
-            $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn -- --placeholder
+            $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn -- --placeholder 2>&1 | tee "$RUNNER_TEMP/tests.log"
           else
-            $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn -- --smoke --placeholder
+            $RUNNER_TEMP/godot --headless res://tests/test_runner.tscn -- --smoke --placeholder 2>&1 | tee "$RUNNER_TEMP/tests.log"
+          fi
+          if grep -q "SCRIPT ERROR" "$RUNNER_TEMP/tests.log"; then
+            echo "::error::A script failed to compile or a test group stopped on a script error:"
+            grep -A 3 "SCRIPT ERROR" "$RUNNER_TEMP/tests.log"
+            exit 1
           fi

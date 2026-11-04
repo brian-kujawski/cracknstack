@@ -23,6 +23,8 @@ signal unlocked(colour: int, step: int)
 signal sorceries_changed
 ## A set was unlocked: the shop delivers its binder and starter packs.
 signal set_unlocked(code: String)
+## The level went up (placeholder levels: LEVEL_MANA Mana earned each).
+signal level_changed(level: int)
 
 const CARD_LOCKED := 1
 ## Finishing a binder pays this share of its card count (rounded up).
@@ -93,8 +95,14 @@ const FILING_SPEEDUP := 2.0
 ## No recharge, however much you file, finishes sooner than this share of
 ## its cooldown.
 const MIN_RECHARGE_SHARE := 0.5
+## Placeholder levels until the real levelling exists: every LEVEL_MANA
+## Mana earned (ever; spending it doesn't count against it) is a level. The
+## HUD shows Level 1 with "X / 100" toward Level 2.
+const LEVEL_MANA := 100
 
 var mana := 0
+## All the Mana ever earned, which levels count (spending doesn't lower it).
+var mana_earned := 0
 ## Money, in cents.
 var money := 0
 ## Debug builds can buy past what they can afford, into negative Mana, so
@@ -131,6 +139,7 @@ func _init() -> void:
 ## Back to a new game: no Mana, nothing bought.
 func reset() -> void:
 	mana = 0
+	mana_earned = 0
 	money = 0
 	_bought.assign(COLOURS.map(func(_c) -> int: return 0))
 	_paid.clear()
@@ -204,7 +213,7 @@ func save_state() -> Dictionary:
 	var recharging := {}
 	for node in _recharging:
 		recharging[node] = PackedFloat32Array(_recharging[node])
-	return {"mana": mana, "money": money, "bought": bought, "paid": PackedStringArray(_paid.keys()),
+	return {"mana": mana, "mana_earned": mana_earned, "money": money, "bought": bought, "paid": PackedStringArray(_paid.keys()),
 		"recharging": recharging, "armed": PackedStringArray(_armed.keys()),
 		"sets": PackedStringArray(_unlocked_sets.keys()), "notes": PackedStringArray(_notes.keys())}
 
@@ -215,6 +224,8 @@ func save_state() -> Dictionary:
 func restore_state(saved: Dictionary) -> void:
 	reset()
 	mana = int(saved.get("mana", 0))
+	# Saves from before levels: what's left is the best guess at what was earned.
+	mana_earned = maxi(int(saved.get("mana_earned", mana)), 0)
 	money = int(saved.get("money", 0))
 	var bought: Array = saved.get("bought", [])
 	for colour in mini(bought.size(), COLOURS.size()):
@@ -262,8 +273,23 @@ func tick(seconds: float) -> void:
 
 
 func earn(amount: int) -> void:
+	var before := level()
 	mana += amount
+	if amount > 0:
+		mana_earned += amount
 	mana_changed.emit(mana)
+	if level() > before:
+		level_changed.emit(level())
+
+
+## The placeholder level: 1, then one more every LEVEL_MANA Mana earned.
+func level() -> int:
+	return 1 + mana_earned / LEVEL_MANA
+
+
+## Mana earned toward the next level, out of LEVEL_MANA.
+func level_progress() -> int:
+	return mana_earned % LEVEL_MANA
 
 
 ## Pays a bonus the first time `key` earns it; later calls do nothing.

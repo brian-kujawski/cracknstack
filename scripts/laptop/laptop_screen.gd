@@ -715,15 +715,15 @@ func _build_collection(into: Control) -> void:
 	var level := HBoxContainer.new()
 	level.add_theme_constant_override("separation", 16)
 	column.add_child(level)
-	var level_name := Win95.label("Level 1", 28)
+	var level_name := Win95.label("Level %d" % Progression.level(), 28)
 	level_name.autowrap_mode = TextServer.AUTOWRAP_OFF
 	level.add_child(level_name)
-	var level_note := Win95.label("(Placeholder) Levels come with the shop's money. Mana will fill this bar and unlock sets and tools.", 18)
+	var level_note := Win95.label("(Placeholder) Every %d Mana is a level for now. Levels will unlock sets and tools." % Progression.LEVEL_MANA, 18)
 	level_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	level.add_child(level_note)
 	var organized: int = s.get("organized", 0)
 	var pockets: int = s.get("pockets", 0)
-	column.add_child(Win95.label("Mana: %d" % s.get("mana", 0), 22))
+	column.add_child(Win95.label("Mana: %d / %d to the next level" % [Progression.level_progress(), Progression.LEVEL_MANA], 22))
 	column.add_child(Win95.label("Cards Organized: %d/%d" % [organized, pockets], 22))
 	var bar := ProgressBar.new()
 	bar.name = "Organized"

@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_hud", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
 
 var _failures := 0
 var _checks := 0
@@ -98,6 +98,7 @@ func _ready() -> void:
 	await _run(_test_booster_packs)
 	await _run(_test_laptop)
 	await _run(_test_selling)
+	await _run(_test_hud)
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
 	DirAccess.remove_absolute(SETTINGS_TEST_PATH)
@@ -374,6 +375,139 @@ func _test_selling() -> void:
 	_check(hint[0] == "E: End Day", "the door's hint is E: End Day, got " + hint[0])
 	main.free()
 	Progression.reset()
+
+
+## The HUD (Hud): placeholder levels, how hint lines are drawn, the card
+## plate's chip, the chapter count, the shipping box pop-up, the End Day
+## preview and the morning report.
+func _test_hud() -> void:
+	# Placeholder levels: every LEVEL_MANA Mana earned, spent or not.
+	Progression.reset()
+	var levels := []
+	Progression.level_changed.connect(func(level: int) -> void: levels.append(level))
+	Progression.earn(40)
+	_check(Progression.level() == 1 and Progression.level_progress() == 40, "40 Mana is Level 1, 40 / 100")
+	Progression.earn(70)
+	_check(Progression.level() == 2 and Progression.level_progress() == 10 and levels == [2],
+		"110 Mana dings Level 2 once, got %s" % [levels])
+	Progression.mana -= 100
+	_check(Progression.level() == 2, "spending Mana doesn't lose a level")
+	var kept := Progression.save_state()
+	Progression.restore_state(kept)
+	_check(Progression.mana_earned == 110, "a save keeps the Mana earned")
+	kept.erase("mana_earned")
+	Progression.restore_state(kept)
+	_check(Progression.mana_earned == Progression.mana, "an older save counts what's left")
+	Progression.reset()
+
+	# Hint lines: keys become keycaps, counts get a bar, the rest is text.
+	var key := Controls.label(Controls.INTERACT)
+	var line := Hud.parse_line("%s: Open Binder" % key)
+	_check(line.kind == "key" and line.key == key and line.text == "Open Binder", "a key prompt, got %s" % line)
+	line = Hud.parse_line("Cards Filled: 12/269 (4%)")
+	_check(line.kind == "count" and line.text == "Cards Filled" and line.done == 12 and line.total == 269 and line.percent == 4,
+		"a count with its share, got %s" % line)
+	line = Hud.parse_line("Shipping Box: 13/50 Cards")
+	_check(line.kind == "count" and line.done == 13 and line.total == 50 and line.percent == -1, "a count, got %s" % line)
+	_check(Hud.parse_line("KTK #004: ???").kind == "text" and Hud.parse_line("Pages 2–3 of 30").kind == "text",
+		"a pocket and the pages are plain text")
+	_check(Hud.value_tier(Hud.RARE_TAG_CENTS - 1) == 0 and Hud.value_tier(Hud.RARE_TAG_CENTS) == 1
+		and Hud.value_tier(Hud.HIGH_VALUE_CENTS) == 2, "value tags come in three tiers")
+
+	Progression.reset()
+	Collection.reset()
+	Progression.locks_sets = true
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	var hud: Hud = main.hud
+	var hands: Hands = main.get_node("Player/Hands")
+	var pile: PileWorld = main.get_node("Pile")
+	_check(hud != null and hud.get_parent() == main.get_node("HUD"), "the shop has its HUD")
+	_check(main.current_chapter(pile.binders).is_empty(), "no set unlocked, no chapter to count")
+	main._update_stats()
+	_check(not hud.chapter_block.visible and hud.money_label.text == "$0.00" and hud.level_label.text == "1",
+		"the status plate: money, no chapter yet, Level 1")
+
+	# A chapter counts only its unlocked sets; so does the laptop.
+	var code: String = pile.binders[0].binder.set_code
+	Chapters.use_text("Chapter 1\n%s\nChapter 2\n%s" % [code, pile.binders[1].binder.set_code])
+	Progression.unlock_set(code)
+	var chapter: Dictionary = main.current_chapter(pile.binders)
+	_check(chapter.get("pockets", 0) == pile.binders[0].contents.capacity() and chapter.organized == 0,
+		"the chapter counts the unlocked set's pockets, got %s" % [chapter])
+	_check(main.laptop_stats().pockets == pile.binders[0].contents.capacity(), "the laptop counts unlocked sets only")
+	main._update_stats()
+	_check(hud.chapter_block.visible, "and the chapter line shows")
+
+	# The card plate's chip.
+	var card := CardDatabase.get_card(_first_binder_cards()[0])
+	var needed := Collection.add(card.id)
+	_check(hands.copy_status(needed) == Hud.CopyStatus.NEEDED, "a card with an empty pocket is Needed")
+	var binder := pile.binder_for(needed)
+	binder.contents.insert(card.collector_number - binder.binder.first, needed)
+	var spare := Collection.add(card.id)
+	_check(hands.copy_status(spare) == Hud.CopyStatus.DUPLICATE and hands.copy_status(needed) == Hud.CopyStatus.NONE,
+		"another copy is a Duplicate; the filed one has no chip")
+	hud.show_card(card, Hud.CopyStatus.DUPLICATE)
+	var chip: Control = hud.card_plate.find_child("Chip", true, false)
+	_check(hud.card_plate.visible and (chip != null) == Hud.needed_tag_unlocked(), "the plate shows the chip when it's unlocked")
+	hud.clear_card()
+	_check(not hud.card_plate.visible, "and hides with nothing in hand")
+
+	# A shipping box: no hint line; its fill floats over it after a look.
+	var box := ShippingBox.new()
+	box.build(13)
+	pile.add_child(box)
+	box.global_position = Vector3(4.0, 0.0, 4.0)
+	hands._aim = Hands.Aim.BOX
+	hands._aim_box = box
+	var hint := ["unset"]
+	hands.hint_changed.connect(func(text: String) -> void: hint[0] = text)
+	hands._hint = "x"
+	hands._update_hint()
+	_check(hint[0] == "", "a shipping box puts nothing on the prompt plate, got " + hint[0])
+	_check(hands.aimed_shipping_box() == box and hands.aim_usable(), "but the HUD knows it's aimed at")
+	hud._update_popup(0.5)
+	_check(not hud.popup.visible, "not straight away")
+	hud._update_popup(Hud.POPUP_DWELL)
+	_check(String(hud.popup.get_meta("text", "")).begins_with("Shipping Box: 13/"), "after a moment, its fill")
+	hands._aim = Hands.Aim.NONE
+	hands._aim_box = null
+	hud._update_popup(0.1)
+	_check(not hud.popup.visible and not hands.aim_usable(), "and it goes when you look away")
+
+	# The door says what ending the day will do.
+	var sealed := ShippingBox.new()
+	sealed.build(13, true)
+	pile.add_child(sealed)
+	sealed.global_position = main._store.shipping_station.global_position
+	main.orders.append(["pack", code])
+	_check(main.end_day_preview() == PackedStringArray(["Ships 1 box tonight", "1 order arrives"]),
+		"End Day preview, got %s" % main.end_day_preview())
+
+	# The morning report: yesterday's sales and filed cards.
+	main.today_earned = 250
+	main.today_start_organized = main.cards_organized(pile.binders) - 1
+	main.start_new_day()
+	_check(main.last_day_earned == 250 and main.last_day_organized == 1 and main.today_earned == 0,
+		"a new day remembers what yesterday earned and filed")
+	hud.show_morning(main.day_number, main.last_day_earned, main.last_day_organized)
+	_check(hud.morning.visible and (hud.morning.find_child("Day", true, false) as Label).text == "Day %d" % main.day_number,
+		"the morning report shows the day")
+	var ev := InputEventKey.new()
+	ev.pressed = true
+	ev.keycode = KEY_SPACE
+	hud._input(ev)
+	_check(not hud.morning.visible, "any key puts it away")
+	var saved: Dictionary = main.snapshot_save()
+	_check(saved.has("today_earned") and saved.has("today_start_organized"), "today's tally is saved")
+	main.free()
+	Chapters.reload()
+	get_tree().paused = false
+	Collection.reset()
+	Progression.reset()
+	Progression.locks_sets = false
 
 
 ## A new game's shelf is bare; unlocking a set in the Card Shop delivers its
