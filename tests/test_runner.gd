@@ -3720,40 +3720,118 @@ func _test_booster_packs() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 5
 	var code: String = CardDatabase.sets_in_shelf_order()[0].code
-	var pools: Array[Array] = [[], [], [], []]
-	for card in CardDatabase.cards_in_set(code):
-		pools[card.rarity].append(card.id)
-	var pack := PackContents.draw_from(pools, true, rng)
-	var rarities := pack.map(func(id: int) -> int: return CardDatabase.get_card(id).rarity)
-	_check(pack.size() == PackContents.SIZE, "a pack holds %d cards, got %d" % [PackContents.SIZE, pack.size()])
-	_check(rarities.count(CardData.Rarity.COMMON) == PackContents.SIZE - 1 - PackContents.UNCOMMONS
-		and rarities.count(CardData.Rarity.UNCOMMON) == PackContents.UNCOMMONS, "ten commons and three uncommons: %s" % [rarities])
-	_check(rarities[-1] >= CardData.Rarity.RARE, "the rare slot comes last")
-	var sorted := rarities.duplicate()
-	sorted.sort()
-	_check(rarities == sorted, "a pack is handed over commons first, rarest last")
-	var unique := {}
-	for id in pack:
-		unique[id] = true
-	_check(unique.size() == pack.size(), "no card twice in one pack")
-	var full_pools := func() -> Array[Array]:
-		return [range(100, 120), range(200, 210), [300, 301], [400, 401]] as Array[Array]
+	var rarity_of := func(id: int) -> int:
+		return PackContents.BASIC if id >= 500 else id / 100 - 1
+	# Made-up pools: commons 100s, uncommons 200s, rares 300s, mythics 400s,
+	# basic lands 500s.
+	var made_up := func(basics: int) -> Array[Array]:
+		return [range(100, 190), range(200, 260), range(300, 340), range(400, 410), range(500, 500 + basics)] as Array[Array]
+	var sizes_of := func(from: Array[Array]) -> PackedInt32Array:
+		return PackContents.pool_sizes(from)
+	var counts_of := func(pack: Array) -> Array:
+		var counts := [0, 0, 0, 0, 0]
+		for id in pack:
+			counts[rarity_of.call(id)] += 1
+		return counts
+	var unique_but_basics := func(pack: Array) -> bool:
+		var seen := {}
+		for id in pack:
+			if id < 500 and seen.has(id):
+				return false
+			seen[id] = true
+		return true
+	var in_reveal_order := func(pack: Array) -> bool:
+		var order := pack.map(func(id: int) -> int: return PackContents.REVEAL.find(rarity_of.call(id)))
+		var sorted := order.duplicate()
+		sorted.sort()
+		return order == sorted
+	var draw_era := func(kind: String, from: Array[Array]) -> Array[int]:
+		return PackContents.draw_from(from, PackContents.era_slots(kind, sizes_of.call(from)), rng)
+
+	# Every era's booster, as it really was.
+	_check(PackContents.era("LEA") == "sheets" and PackContents.era("3ED") == "sheets" and PackContents.era("ARN") == "eight"
+		and PackContents.era("HML") == "eight" and PackContents.era("ALL") == "twelve" and PackContents.era("10E") == "core_land"
+		and PackContents.era("TSP") == "timeshifted" and PackContents.era("MAT") == "epilogue", "the odd early sets keep their own boosters")
+	var era_by_date := {}
+	for set_data in CardDatabase.sets_in_shelf_order():
+		era_by_date[PackContents.era(set_data.code)] = era_by_date.get(PackContents.era(set_data.code), []) + [set_data.release_date]
+	_check(era_by_date.get("classic", []).all(func(d: String) -> bool: return d < PackContents.DRAFT_FROM)
+		and era_by_date.get("draft", []).all(func(d: String) -> bool: return d >= PackContents.DRAFT_FROM and d < PackContents.PLAY_FROM)
+		and era_by_date.get("play", []).all(func(d: String) -> bool: return d >= PackContents.PLAY_FROM), "otherwise the release date picks the booster")
+
+	var classic: Array[int] = draw_era.call("classic", made_up.call(5))
+	var counts: Array = counts_of.call(classic)
+	_check(classic.size() == 15 and counts == [10, 3, 1, 0, 1], "a 1994-2008 booster: 10 commons, 3 uncommons, a rare and a pretend land slot: %s" % [counts])
+	_check(counts_of.call(draw_era.call("classic", made_up.call(0))) == [11, 3, 1, 0, 0], "a set with no basics keeps its 11th common")
+	_check(in_reveal_order.call(classic) and rarity_of.call(classic[-1]) == CardData.Rarity.RARE, "handed over commons first, the rare last")
+	_check(unique_but_basics.call(classic), "no card twice in one pack")
+	var no_mythic_before_alara := true
+	for i in 100:
+		no_mythic_before_alara = no_mythic_before_alara and counts_of.call(draw_era.call("classic", made_up.call(5)))[CardData.Rarity.MYTHIC] == 0
+	_check(no_mythic_before_alara, "no mythics before Shards of Alara")
+
+	var draft: Array[int] = draw_era.call("draft", made_up.call(5))
+	counts = counts_of.call(draft)
+	_check(draft.size() == 15 and counts[PackContents.BASIC] == 1 and counts[0] == 10 and counts[1] == 3 and counts[2] + counts[3] == 1,
+		"a 2008-2023 booster: a basic land, 10 commons, 3 uncommons, a rare or mythic: %s" % [counts])
+	_check(rarity_of.call(draft[0]) == PackContents.BASIC and in_reveal_order.call(draft), "the basic land comes first")
 	var mythics := 0
 	for i in 400:
-		if PackContents.draw_from(full_pools.call(), true, rng)[-1] >= 400:
-			mythics += 1
+		mythics += counts_of.call(draw_era.call("draft", made_up.call(5)))[CardData.Rarity.MYTHIC]
 	_check(mythics > 20 and mythics < 90, "about one rare slot in %d is a mythic, got %d in 400" % [PackContents.MYTHIC_CHANCE, mythics])
-	var always_rare := true
+	var small_set: Array[int] = draw_era.call("draft", made_up.call(0))
+	_check(small_set.size() == 14 and counts_of.call(small_set)[0] == 10, "a small set with no basics of its own has no land slot: 14 cards")
+	var no_mythics_left: Array[Array] = [range(100, 120), range(200, 210), [300], [], [500]]
+	_check(draw_era.call("draft", no_mythics_left)[-1] == 300, "a mythic slot with no mythics left takes a rare")
+
+	var lands_in_commons := 0
+	var common_slots := 0
+	var lands_in_uncommons := 0
+	for i in 100:
+		var alpha_era: Array[Array] = [range(100, 175), range(200, 295), range(300, 417), [], range(500, 505)]
+		var sheets: Array[int] = draw_era.call("sheets", alpha_era)
+		_check(sheets.size() == 15 and unique_but_basics.call(sheets), "an Alpha-to-Revised booster is 15 cards, only basics can repeat")
+		var sheet_counts: Array = counts_of.call(sheets)
+		# 117 rares run from 300 into the 400s, so they count under mythic too.
+		_check(sheet_counts[2] + sheet_counts[3] == 1 and sheet_counts[0] + sheet_counts[1] + sheet_counts[PackContents.BASIC] == 14, "with one rare: %s" % [sheet_counts])
+		common_slots += 11
+		lands_in_commons += 11 - sheet_counts[0]
+		lands_in_uncommons += 3 - sheet_counts[1]
+	_check(lands_in_commons > common_slots * 0.3 and lands_in_commons < common_slots * 0.46,
+		"basic lands fill the spare places on the common sheet (46 of 121): %d of %d common slots" % [lands_in_commons, common_slots])
+	_check(lands_in_uncommons > 300 * 0.12 and lands_in_uncommons < 300 * 0.32, "and on the uncommon sheet (26 of 121): %d of 300" % lands_in_uncommons)
+
+	var eight_ok := true
 	for i in 50:
-		var last: int = PackContents.draw_from(full_pools.call(), false, rng)[-1]
-		always_rare = always_rare and last >= 300 and last < 400
-	_check(always_rare, "no mythics in a set without them")
-	var no_mythics_left: Array[Array] = [range(100, 120), range(200, 210), [300], []]
-	_check(PackContents.draw_from(no_mythics_left, true, rng)[-1] == 300, "a mythic slot with no mythics left takes a rare")
-	var short: Array[Array] = [[1, 2], [], [], []]
-	_check(PackContents.draw_from(short, true, rng).size() == 2, "a set with fewer cards left than a pack gives a smaller pack")
-	var no_rares: Array[Array] = [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], [], [], []]
-	_check(PackContents.draw_from(no_rares, true, rng).size() == PackContents.SIZE, "slots of a rarity that's run out take another")
+		var eight_counts: Array = counts_of.call(draw_era.call("eight", made_up.call(0)))
+		eight_ok = eight_ok and eight_counts[0] == 6 and eight_counts[1] + eight_counts[2] == 2 and eight_counts[3] == 0
+	_check(eight_ok, "Arabian Nights to Homelands: 8 cards, 6 commons and 2 off the uncommon sheet, no mythics")
+	_check(counts_of.call(draw_era.call("twelve", made_up.call(5))) == [8, 3, 1, 0, 0], "Alliances: 12 cards, 8 commons, 3 uncommons, a rare")
+	_check(counts_of.call(draw_era.call("core_land", made_up.call(5))) == [10, 3, 1, 0, 1], "Tenth Edition: 10 commons and a basic land")
+	_check(counts_of.call(draw_era.call("timeshifted", made_up.call(5))) == [10, 3, 1, 0, 1], "Time Spiral: 10 commons, and a land where the timeshifted card was")
+	var play_ok := true
+	for i in 50:
+		var play: Array[int] = draw_era.call("play", made_up.call(5))
+		var play_counts: Array = counts_of.call(play)
+		play_ok = play_ok and play.size() == 14 and play_counts[PackContents.BASIC] == 1 and play_counts[0] >= 7 and play_counts[1] >= 3 \
+			and play_counts[2] + play_counts[3] >= 1 and unique_but_basics.call(play) and in_reveal_order.call(play)
+	_check(play_ok, "a Play Booster: 14 cards, a land, at least 7 commons, 3 uncommons and a rare or mythic")
+	_check(PackContents.era_slots("play", sizes_of.call(made_up.call(5))).filter(func(slot: Dictionary) -> bool:
+		return slot.weights.size() == 4).reduce(func(n: int, slot: Dictionary) -> int: return n + slot.count, 0) == 2,
+		"the foil slot is a second wildcard: the game has no foils")
+	var epilogue_ok := true
+	for i in 50:
+		var epilogue_counts: Array = counts_of.call(draw_era.call("epilogue", made_up.call(5)))
+		epilogue_ok = epilogue_ok and epilogue_counts[0] == 0 and epilogue_counts[1] >= 3 and epilogue_counts[2] + epilogue_counts[3] >= 1 \
+			and epilogue_counts.reduce(func(a: int, b: int) -> int: return a + b) == 5
+	_check(epilogue_ok, "an Aftermath Epilogue Booster: 5 cards, uncommons and rares, no commons")
+
+	var short: Array[Array] = [[1, 2], [], [], [], []]
+	_check(draw_era.call("classic", short).size() == 2, "a set with fewer cards left than a pack gives a smaller pack")
+	var no_rares: Array[Array] = [range(1, 16), [], [], [], []]
+	_check(draw_era.call("classic", no_rares).size() == 15, "slots of a rarity that's run out take another")
+	_check(PackContents.pack_size(code) == PackContents.slots(code).reduce(func(n: int, slot: Dictionary) -> int: return n + slot.count, 0),
+		"a pack's size is its slots'")
 	_check(Hands.rip_tear(0.0) == 0.0 and Hands.rip_tear(0.5) < 0.5 * Hands.RIP_TEAR_AT_BURST
 		and is_equal_approx(Hands.rip_tear(1.0), Hands.RIP_TEAR_AT_BURST), "the tear starts slowly and the burst finishes it")
 	_check(preload("res://scripts/main.gd").pack_details(code) == "%s\nBooster Pack" % CardDatabase.get_set(code).name, "a pack in hand shows its set")
@@ -3761,9 +3839,9 @@ func _test_booster_packs() -> void:
 	# Product makes new cards: any card of the set, however many copies of
 	# it there are already.
 	var picked := PackContents.pick_set(rng)
-	_check(CardDatabase.cards_in_set(picked).size() >= PackContents.SIZE, "packs are of sets with at least a pack's worth of cards")
+	_check(CardDatabase.cards_in_set(picked).size() >= PackContents.pack_size(picked), "packs are of sets with at least a pack's worth of cards")
 	var drawn := PackContents.draw(picked, rng)
-	_check(drawn.size() == PackContents.SIZE and Array(drawn).all(func(id: int) -> bool: return CardDatabase.get_card(id).set_code == picked),
+	_check(drawn.size() == PackContents.pack_size(picked) and Array(drawn).all(func(id: int) -> bool: return CardDatabase.get_card(id).set_code == picked),
 		"a pack of the set, drawn from all its cards")
 	var box := PackContents.booster_box(picked, rng)
 	var seen_in_box := {}
@@ -3827,7 +3905,7 @@ func _test_booster_packs() -> void:
 	hands._use_hand()
 	_check(hands.held_pack == front, "a pack that's started to tear can't be put down")
 	var ids := hands.rip_pack()
-	_check(ids.size() == PackContents.SIZE and hands.hand_count() == ids.size(), "ripping puts the pack's cards in your hand")
+	_check(ids.size() == PackContents.pack_size(front.set_code) and hands.hand_count() == ids.size(), "ripping puts the pack's cards in your hand")
 	_check(ids.all(func(id: int) -> bool: return not pile.is_lying(id) and Collection.card(id).set_code == front.set_code),
 		"they're new copies, all of the pack's set")
 	_check(ids[0] == tipped.size() and Collection.count() == tipped.size() + ids.size(), "made after the bulk box's copies")

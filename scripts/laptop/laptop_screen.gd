@@ -49,13 +49,14 @@ const APPS := [
 	["story", "To Do", LaptopText.STORY_TITLE, Vector2(820, 640)],
 	["readme", "Instructions", LaptopText.README_TITLE, Vector2(860, 700)],
 ]
-## What the Card Shop sells: [kind, name, what's in it].
+## What the Card Shop sells: [kind, name, what's in it]. A pack's "%d" is
+## how many cards a pack of the set holds (PackContents.pack_size).
 ## Booster packs that come with a set's binder when it unlocks (Main
 ## delivers them). The first set of a chapter comes with a sealed booster
 ## box instead (Chapters).
 const STARTER_PACKS := 3
 const PRODUCTS := [
-	["pack", "Booster Pack", "%d cards" % PackContents.SIZE],
+	["pack", "Booster Pack", "%d cards"],
 	["booster_box", "Booster Box", "%d packs" % PackContents.BOX_PACKS],
 	["bulk_box", "Bulk Box", "1,000 cards" if PackContents.BULK_SIZE == 1000 else "%d cards" % PackContents.BULK_SIZE],
 ]
@@ -521,7 +522,7 @@ func _stats() -> Dictionary:
 static func shop_sets() -> Array[SetData]:
 	var sets: Array[SetData] = []
 	for set_data in CardDatabase.sets_in_shelf_order():
-		if set_data.code != RareCards.SET_CODE and CardDatabase.cards_in_set(set_data.code).size() >= PackContents.SIZE:
+		if set_data.code != RareCards.SET_CODE and PackContents.sells_packs(set_data.code):
 			sets.append(set_data)
 	sets.reverse()
 	return sets
@@ -641,7 +642,8 @@ func _show_set(detail: Control, code: String) -> void:
 		words.add_theme_constant_override("separation", 0)
 		words.add_child(Win95.label(product[1], 22))
 		var cents := Prices.product_cents(product[0], code)
-		words.add_child(Win95.label("%s  ·  %s" % [product[2], Progression.money_text(cents)], 18, Win95.SHADOW.darkened(0.3)))
+		var contents: String = product[2] % PackContents.pack_size(code) if product[0] == "pack" else product[2]
+		words.add_child(Win95.label("%s  ·  %s" % [contents, Progression.money_text(cents)], 18, Win95.SHADOW.darkened(0.3)))
 		row.add_child(words)
 		var order := Win95.button("Order", order_product.bind(product[0], code), 130)
 		order.name = "Order_" + product[0]
