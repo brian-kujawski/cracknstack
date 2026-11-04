@@ -35,6 +35,11 @@ const BEZEL_SIDE := 64
 const BEZEL_TOP := 48
 const BEZEL_BOTTOM := 76
 const TASKBAR_HEIGHT := 48
+## Taskbar showing above and below the Start button, the program buttons
+## and the clock (one more at the ends).
+const TASKBAR_GAP := 5
+## Height of everything in the taskbar.
+const TASK_ROW := TASKBAR_HEIGHT - TASKBAR_GAP * 2
 const ICON_SIZE := Vector2(130, 110)
 ## Each program: its id, its name (desktop and Start menu), its window's
 ## title and size.
@@ -263,19 +268,20 @@ func _build_taskbar() -> void:
 	_screen.add_child(bar)
 	var row := HBoxContainer.new()
 	row.set_anchors_preset(Control.PRESET_FULL_RECT)
-	row.offset_left = 6
-	row.offset_right = -6
-	row.offset_top = 5
-	row.offset_bottom = -5
+	row.offset_left = TASKBAR_GAP + 1
+	row.offset_right = -TASKBAR_GAP - 1
+	row.offset_top = TASKBAR_GAP
+	row.offset_bottom = -TASKBAR_GAP
 	row.add_theme_constant_override("separation", 6)
 	bar.add_child(row)
 	_start_button = Win95.button("  Start", _toggle_start_menu, 110)
 	_start_button.name = "Start"
+	Win95.snug(_start_button, TASK_ROW)
 	_start_button.add_theme_constant_override("outline_size", 1)
 	_start_button.add_theme_color_override("font_outline_color", Win95.TEXT)
 	var mark := LaptopIcon.new()
 	mark.kind = "start"
-	mark.position = Vector2(10, 9)
+	mark.position = Vector2(10, (TASK_ROW - 20) / 2.0)
 	mark.size = Vector2(20, 20)
 	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_start_button.add_child(mark)
@@ -285,7 +291,11 @@ func _build_taskbar() -> void:
 	_taskbar_buttons.add_theme_constant_override("separation", 6)
 	row.add_child(_taskbar_buttons)
 	var clock_well := PanelContainer.new()
-	clock_well.add_theme_stylebox_override("panel", Win95.bevel(Win95.Look.SUNKEN, Win95.FACE, 14))
+	var well_box := Win95.bevel(Win95.Look.SUNKEN, Win95.FACE, 14)
+	well_box.content_margin_top = 0
+	well_box.content_margin_bottom = 0
+	clock_well.add_theme_stylebox_override("panel", well_box)
+	clock_well.custom_minimum_size.y = TASK_ROW
 	_clock = Win95.label("", 18)
 	_clock.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_clock.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -358,6 +368,7 @@ func open_app(app: String) -> LaptopWindow:
 	windows[app] = window
 	var task := Win95.button(entry[1], func() -> void: _focus(window), 200)
 	task.name = "Task_" + app
+	Win95.snug(task, TASK_ROW)
 	task.toggle_mode = true
 	task.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_taskbar_buttons.add_child(task)

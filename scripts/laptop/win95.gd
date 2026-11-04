@@ -132,6 +132,20 @@ static func button(text: String, pressed: Callable = Callable(), min_width := 12
 	return b
 
 
+## Makes `b` exactly `height` tall, its text centred in it. A button's
+## own minimum height is its text's line plus the bevel's margins, which
+## outgrows a short bar and pokes out of its bottom; with no top or bottom
+## margin the text sits centred in whatever height it's given.
+static func snug(b: Button, height: int) -> void:
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		var look := Look.PRESSED if state.ends_with("pressed") else Look.RAISED
+		var box := bevel(look, FACE, 14)
+		box.content_margin_top = 0
+		box.content_margin_bottom = 0
+		b.add_theme_stylebox_override(state, box)
+	b.custom_minimum_size.y = height
+
+
 ## A sunken white well (a list or a page of text) round `content`.
 static func well(content: Control, colour := WHITE) -> PanelContainer:
 	var panel := PanelContainer.new()

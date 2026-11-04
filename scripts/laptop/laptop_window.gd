@@ -9,6 +9,8 @@ signal focused
 
 const TITLE_HEIGHT := 34
 const PADDING := 8
+## Title bar showing above, below and right of the close box.
+const CLOSE_GAP := 4
 
 var app := ""
 var content: MarginContainer
@@ -40,15 +42,29 @@ func _init(app_id: String, title: String, window_size: Vector2) -> void:
 	_title.add_theme_constant_override("outline_size", 1)
 	_title.add_theme_color_override("font_outline_color", Win95.WHITE)
 	_title_bar.add_child(_title)
-	var close_box := Win95.button("×", close, 0)
+	# The close box sits CLOSE_GAP in from the top, bottom and right of the
+	# title bar. Its × is a label laid over it, not the button's own text:
+	# the text's line is taller than the box and would stretch it down
+	# through the bottom of the bar.
+	var close_box := Win95.button("", close, 0)
 	close_box.name = "Close"
-	close_box.custom_minimum_size = Vector2(32, 26)
-	close_box.size = Vector2(32, 26)
-	close_box.position = Vector2(_title_bar.size.x - 36, 4)
-	close_box.add_theme_font_size_override("font_size", 22)
+	var box_size := Vector2(32, TITLE_HEIGHT - CLOSE_GAP * 2)
+	close_box.custom_minimum_size = box_size
+	close_box.size = box_size
+	close_box.position = Vector2(_title_bar.size.x - CLOSE_GAP - box_size.x, CLOSE_GAP)
 	for state in ["normal", "hover", "pressed", "hover_pressed"]:
 		close_box.add_theme_stylebox_override(state, Win95.bevel(
 			Win95.Look.PRESSED if state.ends_with("pressed") else Win95.Look.RAISED, Win95.FACE, 0))
+	var cross := Win95.label("×", 22)
+	cross.name = "Cross"
+	cross.autowrap_mode = TextServer.AUTOWRAP_OFF
+	cross.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cross.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	# Anchored to the whole box and grown both ways, so a line taller than
+	# the box spills evenly above and below and the × stays centred.
+	cross.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cross.grow_vertical = Control.GROW_DIRECTION_BOTH
+	close_box.add_child(cross)
 	_title_bar.add_child(close_box)
 
 	content = MarginContainer.new()
