@@ -106,6 +106,8 @@ signal sale_confirm_requested(box: ShippingBox)
 signal card_sold(id: int, cents: int)
 ## E on the shop door: the shop ends the day.
 signal end_day_requested
+## A card from a pack came up (copy `id`): the HUD tags it with its value.
+signal card_revealed(id: int)
 
 enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX, LOOSE_PACK, SHIPPING, DOOR }
 
@@ -1306,11 +1308,6 @@ func _update_hint() -> void:
 			text = _radio_hint()
 		Aim.DOOR:
 			text = "%s: End Day" % _key(Controls.INTERACT)
-		Aim.BOX:
-			if _aim_box is ShippingBox and held_box == null:
-				text = _shipping_box_hint(_aim_box)
-	if held_box is ShippingBox:
-		text = _shipping_box_hint(held_box)
 	if _laptop_at_hand() != null:
 		text = "%s: Use Laptop" % _key(Controls.INTERACT)
 	if text != _hint:
@@ -1406,8 +1403,35 @@ func _cabinet_hint() -> String:
 	return "Rare Cards Displayed: %d/%d" % [shown, total]
 
 
+## Whether the crosshair is on something you can use: anything but bare
+## air, or a table top while there's something in hand to put down.
+func aim_usable() -> bool:
+	match _aim:
+		Aim.NONE:
+			return false
+		Aim.SURFACE:
+			return not _hands_empty()
+	return true
+
+
+## Whether the crosshair is on the shop door.
+func aiming_at_door() -> bool:
+	return _aim == Aim.DOOR
+
+
+## The shipping box the crosshair is on, or null. The HUD floats its fill
+## over it after a moment's look (it isn't in the hint).
+func aimed_shipping_box() -> ShippingBox:
+	return _aim_box as ShippingBox if _aim == Aim.BOX else null
+
+
+## The shipping box in hand, or null.
+func held_shipping_box() -> ShippingBox:
+	return held_box as ShippingBox
+
+
 ## How full a shipping box is, and E to seal it once it has cards in.
-func _shipping_box_hint(box: ShippingBox) -> String:
+func shipping_box_hint(box: ShippingBox) -> String:
 	if box.sealed:
 		return "Sealed: %d Cards" % box.cards
 	var lines := PackedStringArray(["Shipping Box: %d/%d Cards" % [box.cards, ShippingBox.CAPACITY]])
@@ -1664,6 +1688,28 @@ func collection_needs(id: int) -> bool:
 		return false
 	var pocket := Collection.card(id).collector_number - binder.binder.first
 	return binder.contents.card_at(pocket) < 0
+
+
+## What the card plate's chip says about copy `id` (Hud.CopyStatus):
+## NEEDED while its pocket (or shadow box) is empty, DUPLICATE once another
+## copy fills it, NONE for the copy that fills it or a card with no home.
+func copy_status(id: int) -> int:
+	if id < 0:
+		return Hud.CopyStatus.NONE
+	if collection_needs(id):
+		return Hud.CopyStatus.NEEDED
+	if Collection.is_rare(id):
+		var number := Collection.card(id).collector_number
+		for cabinet in cabinets:
+			var slot := cabinet.slot_for(number)
+			if slot >= 0:
+				return Hud.CopyStatus.NONE if cabinet.displayed[slot] == id else Hud.CopyStatus.DUPLICATE
+		return Hud.CopyStatus.NONE
+	var binder := pile.binder_for(id)
+	if binder == null:
+		return Hud.CopyStatus.NONE
+	var pocket := Collection.card(id).collector_number - binder.binder.first
+	return Hud.CopyStatus.NONE if binder.contents.card_at(pocket) == id else Hud.CopyStatus.DUPLICATE
 
 
 ## Sells the card in hand into `box` (ShippingBox): the money comes now and
@@ -1988,7 +2034,9 @@ func reveal_next() -> void:
 
 
 ## A rare or mythic just revealed glows (gold or orange-red) and chimes.
+## Every revealed card gets its value tag (card_revealed).
 func _reveal_flourish(id: int) -> void:
+	card_revealed.emit(id)
 	match Collection.card(id).rarity:
 		CardData.Rarity.MYTHIC:
 			_pack_effects.glow(PackEffects.MYTHIC_GLOW, _held_view.position)

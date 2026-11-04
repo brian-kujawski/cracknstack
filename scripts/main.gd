@@ -14,11 +14,6 @@ extends Node3D
 ## turn up inside the door in the morning.
 
 const PILE_SEED := 1993
-## How long "Achievement: Tithe" stays up in the top right, and its fade.
-const ACHIEVEMENT_SHOWN := 4.0
-const ACHIEVEMENT_FADE := 0.6
-## Sorceries in key order, each with the action that casts it. Only learned
-## ones show, under the Mana total.
 ## Continuing a finished game puts you back in the finished shop with this
 ## message. Yours to write; until then (empty) nothing pops up.
 const ENDING_RETURN_MESSAGE := ""
@@ -40,6 +35,8 @@ const END_DAY_FADE_IN := 1.2
 const MORNING_HOUR := 8.0
 ## Booster packs that come with a set's binder when the set unlocks.
 const STARTER_PACKS := LaptopScreen.STARTER_PACKS
+## Sorceries in key order, each with the action that casts it. Only learned
+## ones show, in the HUD's sorcery bar.
 const SORCERIES := [
 	["Tithe", Controls.CAST_TITHE],
 	["Teleport", Controls.CAST_TELEPORT],
@@ -51,13 +48,11 @@ const SORCERIES := [
 @onready var _store: Node3D = $Store
 @onready var _pile: PileWorld = $Pile
 @onready var _hands: Hands = $Player/Hands
-@onready var _status: Label = $HUD/Status
-@onready var _held: Label = $HUD/Held
-@onready var _hint: Label = $HUD/Hint
-@onready var _achievement: Label = $HUD/Achievement
+## The HUD (Hud): Money, chapter and level top left, the card in hand
+## bottom left, the aim's prompt bottom right, notices top right.
+var hud: Hud
 
 var _stats_timer := 0.0
-var _achievement_tween: Tween
 ## The game's been finished and the ending has started (or a finished game
 ## was continued).
 var _finished := false
@@ -77,6 +72,16 @@ var orders: Array = []
 ## Which day it is: the first is day 1, and each End Day adds one.
 var day_number := 1
 var _ending_day := false
+## Today so far, for tomorrow's morning report: money from sales, and Cards
+## Organized when the day began.
+var today_earned := 0
+var today_start_organized := 0
+## The day that just ended, for the morning report: money from sales and
+## cards filed.
+var last_day_earned := 0
+var last_day_organized := 0
+## Binders already complete (set codes), so finishing one is announced once.
+var _complete_binders := {}
 
 
 func _ready() -> void:
@@ -100,6 +105,11 @@ func _ready() -> void:
 	_hands.shipping_station = _store.shipping_station
 	orders = saved.get("orders", []).duplicate(true)
 	day_number = int(saved.get("day", 1))
+	today_earned = int(saved.get("today_earned", 0))
+	today_start_organized = int(saved.get("today_start_organized", cards_organized(_pile.binders)))
+	for binder in _pile.binders:
+		if binder.contents.is_complete():
+			_complete_binders[binder.binder.set_code] = true
 	print("Shop %s: %d cards in %d ms" % ["built" if saved.is_empty() else "loaded", Collection.count(),
 		Time.get_ticks_msec() - started])
 	_day = DayCycle.new()
@@ -111,6 +121,7 @@ func _ready() -> void:
 	_store.clock.day = _day
 	_finished = Saves.finished
 	Saves.shop = self
+	_build_hud()
 	_build_saving_icon()
 	if not _falling.is_empty():
 		_land_falling()
@@ -119,7 +130,12 @@ func _ready() -> void:
 		_show_return_message()
 	_hands.shown_card_changed.connect(_on_shown_card_changed)
 	_hands.held_pack_changed.connect(func(_code: String) -> void: _on_shown_card_changed(null, false))
-	_hands.hint_changed.connect(func(text: String) -> void: _hint.text = text)
+	_hands.hint_changed.connect(_on_hint_changed)
+	_hands.card_revealed.connect(func(id: int) -> void:
+		hud.show_value_tag(Collection.card(id), Collection.copies_of(Collection.card_id(id)).size() == 1))
+	_hands.card_sold.connect(func(_id: int, cents: int) -> void:
+		today_earned += cents
+		hud.show_money_delta(cents))
 	_hands.rare_card_found.connect(func() -> void: add_child(RareCardNote.new()))
 	_on_shown_card_changed(null, false)
 	Progression.mana_changed.connect(func(_mana: int) -> void: _update_stats())
@@ -129,15 +145,15 @@ func _ready() -> void:
 	_hands.end_day_requested.connect(end_day)
 	Progression.unlocked.connect(func(_colour: int, _step: int) -> void: _update_stats())
 	Progression.sorceries_changed.connect(_update_stats)
+	Progression.level_changed.connect(func(level: int) -> void: hud.show_banner("Level up", "Level %d" % level))
 	_update_stats()
-	_achievement.text = ""
 	Achievements.unlocked.connect(_on_achievement_unlocked)
 	var radio_menu := RadioMenu.new()
 	add_child(radio_menu)
 	_hands.radio_used.connect(radio_menu.open)
 	Radio.enter_shop(_organized_share())
 	Radio.song_unlocked.connect(func(index: int) -> void:
-		_show_notice("New on the radio: %s" % Radio.songs[index].title))
+		hud.show_toast("New on the radio", Radio.songs[index].title))
 	Settings.changed.connect(_apply_brightness.unbind(1))
 	_apply_brightness()
 	laptop_screen = LaptopScreen.new()
@@ -168,6 +184,8 @@ func snapshot_save() -> Dictionary:
 	var taken := ShopSave.snapshot(_pile, _hands, $Player, _day, _falling)
 	taken["orders"] = orders.duplicate(true)
 	taken["day"] = day_number
+	taken["today_earned"] = today_earned
+	taken["today_start_organized"] = today_start_organized
 	return taken
 
 
@@ -207,8 +225,38 @@ func laptop_stats() -> Dictionary:
 		var code := binder.binder.set_code
 		if Progression.is_set_unlocked(code):
 			binders.append([code, binder.contents.locked_count, binder.contents.capacity()])
-	return {"organized": cards_organized(_pile.binders, _store.cabinets), "pockets": pockets(_pile.binders),
+	return {"organized": cards_organized(_pile.binders, _store.cabinets), "pockets": pockets(unlocked_binders(_pile.binders)),
 		"mana": Progression.mana, "binders": binders}
+
+
+## The binders of unlocked sets: the cards packs can bring so far. Nothing
+## counts the whole collection until every set is open.
+static func unlocked_binders(binders: Array[Binder]) -> Array[Binder]:
+	var open: Array[Binder] = []
+	for binder in binders:
+		if Progression.is_set_unlocked(binder.binder.set_code):
+			open.append(binder)
+	return open
+
+
+## The chapter the HUD counts: the latest one with a set unlocked, as
+## {"name", "number", "organized", "pockets"} over its unlocked sets'
+## binders. Empty before any set is unlocked. Unlocked sets in no chapter
+## (data/chapters.txt doesn't list them) count as "Unlocked sets" when no
+## chaptered set is open.
+static func current_chapter(binders: Array[Binder]) -> Dictionary:
+	var open := unlocked_binders(binders)
+	if open.is_empty():
+		return {}
+	var number := 0
+	for binder in open:
+		number = maxi(number, Chapters.chapter_of(binder.binder.set_code))
+	var counted: Array[Binder] = []
+	for binder in open:
+		if Chapters.chapter_of(binder.binder.set_code) == number:
+			counted.append(binder)
+	return {"name": "Chapter %d" % number if number > 0 else "Unlocked sets", "number": number,
+		"organized": cards_organized(counted), "pockets": pockets(counted)}
 
 
 ## A Card Shop order (LaptopScreen.ordered, already paid for): kind
@@ -240,6 +288,7 @@ func end_day() -> void:
 	tween.tween_property(black, "modulate:a", 1.0, END_DAY_FADE_OUT)
 	await tween.finished
 	var shipped := start_new_day()
+	var yesterday := [last_day_earned, last_day_organized]
 	await get_tree().create_timer(END_DAY_HOLD, true).timeout
 	get_tree().paused = false
 	tween = layer.create_tween()
@@ -248,7 +297,9 @@ func end_day() -> void:
 	layer.queue_free()
 	_ending_day = false
 	if shipped > 0:
-		_show_notice("%d %s shipped" % [shipped, "box" if shipped == 1 else "boxes"])
+		hud.show_toast("Shipped", "%d %s" % [shipped, "box" if shipped == 1 else "boxes"])
+	if day_number >= 2:
+		hud.show_morning(day_number, yesterday[0], yesterday[1])
 
 
 ## The night: sealed shipping boxes on the OUTGOING mat are collected, the
@@ -267,6 +318,11 @@ func start_new_day() -> int:
 			deliver(order[0], order[1])
 	orders.clear()
 	day_number += 1
+	var organized := cards_organized(_pile.binders)
+	last_day_earned = today_earned
+	last_day_organized = maxi(organized - today_start_organized, 0)
+	today_earned = 0
+	today_start_organized = organized
 	if Settings.day_seconds() > 0.0:
 		_day.set_hour(MORNING_HOUR)
 	return shipped
@@ -304,6 +360,8 @@ func _delivery_yaw() -> float:
 ## its plate arrives on the shelf. Returns what was delivered.
 func _on_set_unlocked(code: String) -> Array[Node3D]:
 	var delivered: Array[Node3D] = []
+	if hud != null:
+		hud.show_banner("New set", CardDatabase.get_set(code).name)
 	for unit: ShelfUnit in _shelves():
 		var binder := unit.deliver_binder(code)
 		if binder != null:
@@ -370,7 +428,15 @@ func _land_falling() -> void:
 ## Placeholder for the message shown when a finished game is continued
 ## (ENDING_RETURN_MESSAGE): how it pops up is to be designed with it.
 func _show_return_message() -> void:
-	_hint.text = ENDING_RETURN_MESSAGE
+	hud.show_prompt(ENDING_RETURN_MESSAGE)
+
+
+## The HUD, on the HUD layer in place of the old corner text.
+func _build_hud() -> void:
+	hud = Hud.new()
+	hud.hands = _hands
+	hud.sorceries = SORCERIES
+	$HUD.add_child(hud)
 
 
 ## The small icon in the bottom-right corner that turns while a save is
@@ -392,6 +458,8 @@ func _build_saving_icon() -> void:
 	_saving_icon.process_mode = Node.PROCESS_MODE_ALWAYS
 	_saving_icon.visible = false
 	$HUD.add_child(_saving_icon)
+	_saving_icon.size = SAVING_ICON_SIZE
+	hud.saving_icon = _saving_icon
 	Saves.saving_started.connect(_show_saving)
 
 
@@ -421,6 +489,7 @@ func _process(delta: float) -> void:
 	if _stats_timer >= 0.5:
 		_stats_timer = 0.0
 		_update_stats()
+		_announce_complete_binders()
 		_hang_wall_art(true)
 		if not _finished and is_finished(_pile.binders, _shelves()):
 			_finished = true
@@ -445,20 +514,45 @@ func _hang_wall_art(fade: bool) -> void:
 ## testing: they show when running from the editor or a debug export, and are
 ## left out of release exports.
 func _update_stats() -> void:
-	var text := "Cards Organized: %d/%d\nMoney: %s\nMana: %d" % [
-		cards_organized(_pile.binders, _store.cabinets), pockets(_pile.binders),
-		Progression.money_text(Progression.money), Progression.mana]
-	for line in sorcery_lines():
-		text += "\n" + line
+	hud.set_status(Progression.money, current_chapter(_pile.binders), Progression.level(),
+		Progression.level_progress(), Progression.LEVEL_MANA)
+	hud.debug_label.visible = OS.is_debug_build()
 	if OS.is_debug_build():
 		var debug := "%d fps · %d draw calls" % [
 			Engine.get_frames_per_second(),
 			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)]
 		if not CardDatabase.is_real_data():
-			debug += "\nPlaceholder cards: run tools/import_scryfall.py for Khans of Tarkir"
-		text = debug + "\n" + text
-	_status.text = text
+			debug += " · Placeholder cards: run tools/import_scryfall.py for Khans of Tarkir"
+		hud.debug_label.text = debug
 	Radio.set_progress(_organized_share())
+
+
+## A binder just filled its last pocket: a banner (or, when that finishes
+## the chapter's unlocked sets and the chapter has no more to unlock, a
+## chapter banner).
+func _announce_complete_binders() -> void:
+	for binder in _pile.binders:
+		var code := binder.binder.set_code
+		if _complete_binders.has(code) or not binder.contents.is_complete():
+			continue
+		_complete_binders[code] = true
+		var chapter := Chapters.chapter_of(code)
+		if chapter > 0 and _chapter_complete(chapter):
+			hud.show_banner("Chapter complete", "Chapter %d" % chapter)
+		else:
+			hud.show_banner("Binder complete", CardDatabase.get_set(code).name)
+
+
+## Every set of chapter `number` is unlocked and its binder complete.
+func _chapter_complete(number: int) -> bool:
+	var sets: PackedStringArray = Chapters.all()[number - 1].sets
+	for binder in _pile.binders:
+		if binder.binder.set_code in sets and not binder.contents.is_complete():
+			return false
+	for code in sets:
+		if not Progression.is_set_unlocked(code):
+			return false
+	return true
 
 
 ## Cards Organized as a share of every card, for the radio's unlocks.
@@ -517,33 +611,56 @@ static func sorcery_lines() -> PackedStringArray:
 	return lines
 
 
-## "Achievement: Tithe" in the top right for a few seconds. A newer one
-## takes its place.
+## An achievement's notice in the top right for a few seconds, with its
+## icon. A newer notice takes its place.
 func _on_achievement_unlocked(index: int) -> void:
-	_show_notice("Achievement: %s" % Achievements.card_name(index))
+	hud.show_toast("Achievement", Achievements.card_name(index), Achievements.icon(index))
 
 
-## A line in the top right for a few seconds (an achievement, a new song on
-## the radio). A newer one takes its place.
-func _show_notice(text: String) -> void:
-	_achievement.text = text
-	_achievement.modulate.a = 1.0
-	if _achievement_tween != null:
-		_achievement_tween.kill()
-	_achievement_tween = create_tween()
-	_achievement_tween.tween_interval(ACHIEVEMENT_SHOWN)
-	_achievement_tween.tween_property(_achievement, "modulate:a", 0.0, ACHIEVEMENT_FADE)
-
-
+## The card plate: the box or pack in hand, or the card shown (with its
+## Needed / Duplicate chip). A shipping box shows nothing here; its fill
+## floats over it (Hud).
 func _on_shown_card_changed(card: CardData, set_only: bool) -> void:
-	if _hands.held_box != null:
-		_held.text = _hands.held_box.details()
+	hud.card_changed(card)
+	if _hands.held_box is ShippingBox:
+		hud.clear_card()
+	elif _hands.held_box != null:
+		hud.show_product(_hands.held_box.details())
 	elif _hands.held_pack != null:
-		_held.text = pack_details(_hands.held_pack.set_code)
+		hud.show_product(pack_details(_hands.held_pack.set_code))
 	elif card == null:
-		_held.text = ""
+		hud.clear_card()
+	elif set_only:
+		hud.show_set_only(card)
 	else:
-		_held.text = set_details(card) if set_only else card_details(card)
+		hud.show_card(card, _hands.copy_status(_hands.shown_card_id()))
+
+
+## The prompt plate. At the door, what ending the day will do sits above
+## "E: End Day".
+func _on_hint_changed(text: String) -> void:
+	if _hands.aiming_at_door():
+		var lines := end_day_preview()
+		if not lines.is_empty():
+			text = "\n".join(lines) + "\n" + text
+	hud.show_prompt(text)
+
+
+## What ending the day would do, one line each: sealed boxes on the mat
+## ship, orders arrive. Nothing to say, no lines.
+func end_day_preview() -> PackedStringArray:
+	var lines := PackedStringArray()
+	var boxes := 0
+	for child in _pile.get_children():
+		if child is ShippingBox and child.sealed and not child.is_queued_for_deletion() \
+				and _store.shipping_station.on_mat(child.global_position):
+			boxes += 1
+	if boxes > 0:
+		lines.append("Ships %d %s tonight" % [boxes, "box" if boxes == 1 else "boxes"])
+	if not orders.is_empty():
+		lines.append("%d %s arrive%s" % [orders.size(), "order" if orders.size() == 1 else "orders",
+			"s" if orders.size() == 1 else ""])
+	return lines
 
 
 ## A booster pack in hand: its set's name, then what it is.
