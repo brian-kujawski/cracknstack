@@ -309,6 +309,38 @@ class Collection(unittest.TestCase):
         self.assertEqual(importer.image_url(trimmed), importer.image_url(card))
 
 
+class ReservedNames(unittest.TestCase):
+    def test_windows_device_names_get_an_underscore(self):
+        self.assertEqual(importer.folder_name("CON"), "con_")
+        self.assertEqual(importer.folder_name("ktk"), "ktk")
+        self.assertEqual(importer.folder_name("lpt1"), "lpt1_")
+        self.assertEqual(importer.code_of_folder("con_"), "con")
+        self.assertEqual(importer.code_of_folder("ktk"), "ktk")
+        self.assertEqual(importer.image_path(printing(4, set="con")), "images/con_/4.jpg")
+        self.assertEqual(importer.near_path(printing(4, set="con")), "near/con_/4.dds.gz")
+
+    def test_cache_round_trips_under_the_safe_name(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            self.assertEqual(importer.set_cache_path(out, "con").name, "con_.json")
+            importer.set_cache_path(out, "con").parent.mkdir(parents=True)
+            importer.set_cache_path(out, "con").write_text("{}", encoding="utf-8")
+            self.assertEqual(importer.cached_codes(out), ["con"])
+
+    def test_old_files_move_to_the_safe_name(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            (out / "sets").mkdir()
+            (out / "sets" / "con.json").write_text("{}", encoding="utf-8")
+            (out / "images" / "con").mkdir(parents=True)
+            (out / "images" / "con" / "1.jpg").write_bytes(b"jpeg")
+            moved = importer.move_reserved_names(out)
+            self.assertEqual(moved, ["sets/con.json", "images/con"])
+            self.assertTrue((out / "sets" / "con_.json").exists())
+            self.assertTrue((out / "images" / "con_" / "1.jpg").exists())
+            self.assertEqual(importer.move_reserved_names(out), [])
+
+
 class Prices(unittest.TestCase):
     def test_only_dollar_prices_are_kept(self):
         card = printing(1, prices={"usd": "19.77", "usd_foil": None, "eur": "15.00", "tix": "0.10"})

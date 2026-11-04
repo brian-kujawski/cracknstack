@@ -88,6 +88,11 @@ ATLAS_VERSION = 2
 # crouched, even at 4K. {set} is the lower-case set code.
 NEAR_SIZE = (256, 356)
 NEAR_PATH = "near/{set}/{number}.dds.gz"
+# Names Windows keeps for devices: a file or folder called con.json or con
+# can't be opened there (Conflux's code is CON). A set with one of these
+# codes keeps its files under the code plus "_" (con_.json, images/con_/);
+# the game knows the same rule (CardFileLoader.folder_name).
+RESERVED_NAMES = {"con", "prn", "aux", "nul"} | {f"com{i}" for i in range(10)} | {f"lpt{i}" for i in range(10)}
 
 # The standard Magic card back (Scryfall's card_back_id for every normal
 # card), at the same "normal" size as the faces.
@@ -159,6 +164,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     codes = [code.lower() for code in args.sets]
     out = args.out
+    move_reserved_names(out)
     client = Scryfall()
     started = time.monotonic()
     if args.all and not args.listing:
@@ -290,8 +296,47 @@ def load_bulk(path, codes):
 
 # --- Card data, cached per set ---
 
+def folder_name(code):
+    """A set's name on disk: its code, lower case, with "_" after a name
+    Windows reserves (see RESERVED_NAMES)."""
+    code = code.lower()
+    return code + "_" if code in RESERVED_NAMES else code
+
+
+def code_of_folder(name):
+    """The set code a file or folder name stands for (undoes folder_name)."""
+    return name[:-1] if name.endswith("_") and name[:-1] in RESERVED_NAMES else name
+
+
+def move_reserved_names(out):
+    """Moves files an older importer wrote under a Windows-reserved name
+    (sets/con.json, images/con/, near/con/) to their safe names. Windows only
+    reaches such a name through its extended path prefix, so that's used
+    there."""
+    moved = []
+    for code in sorted(RESERVED_NAMES):
+        for old, new in ((f"sets/{code}.json", f"sets/{folder_name(code)}.json"),
+                         (f"images/{code}", f"images/{folder_name(code)}"),
+                         (f"near/{code}", f"near/{folder_name(code)}")):
+            source, target = raw_path(out / old), raw_path(out / new)
+            if os.path.lexists(source) and not os.path.lexists(target):
+                os.replace(source, target)
+                moved.append(old)
+    if moved:
+        print(f"Moved {', '.join(moved)} to names Windows can open (a set code it reserves)")
+    return moved
+
+
+def raw_path(path):
+    """`path` as a string the OS opens as it is: on Windows with the \\?\
+    prefix, which skips the reserved-name rules."""
+    if os.name != "nt":
+        return str(path)
+    return "\\\\?\\" + os.path.abspath(str(path.parent)) + "\\" + path.name
+
+
 def set_cache_path(out, code):
-    return out / "sets" / f"{code}.json"
+    return out / "sets" / f"{folder_name(code)}.json"
 
 
 def load_cached_set(out, code):
@@ -301,7 +346,7 @@ def load_cached_set(out, code):
 
 def cached_codes(out):
     folder = out / "sets"
-    return sorted(p.stem for p in folder.glob("*.json")) if folder.is_dir() else []
+    return sorted(code_of_folder(p.stem) for p in folder.glob("*.json")) if folder.is_dir() else []
 
 
 def fetch_set(client, code, out, bulk=None, refetch=False):
@@ -565,7 +610,7 @@ def rebuild(client, out, no_images=False):
 # --- Images ---
 
 def image_path(card):
-    return f"images/{card['set']}/{card_number(card)[0]}.jpg"
+    return f"images/{folder_name(card['set'])}/{card_number(card)[0]}.jpg"
 
 
 def image_url(card):
@@ -703,7 +748,7 @@ def pack_page(job):
 
 
 def near_path(card):
-    return NEAR_PATH.format(set=card["set"], number=card_number(card)[0])
+    return NEAR_PATH.format(set=folder_name(card["set"]), number=card_number(card)[0])
 
 
 def write_near_faces(cards, out):
