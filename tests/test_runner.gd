@@ -3627,7 +3627,8 @@ func _test_booster_packs() -> void:
 
 	var classic: Array[int] = draw_era.call("classic", made_up.call(5))
 	var counts: Array = counts_of.call(classic)
-	_check(classic.size() == 15 and counts == [11, 3, 1, 0, 0], "a 1994-2008 booster: 11 commons, 3 uncommons, a rare, no basic land: %s" % [counts])
+	_check(classic.size() == 15 and counts == [10, 3, 1, 0, 1], "a 1994-2008 booster: 10 commons, 3 uncommons, a rare and a pretend land slot: %s" % [counts])
+	_check(counts_of.call(draw_era.call("classic", made_up.call(0))) == [11, 3, 1, 0, 0], "a set with no basics keeps its 11th common")
 	_check(in_reveal_order.call(classic) and rarity_of.call(classic[-1]) == CardData.Rarity.RARE, "handed over commons first, the rare last")
 	_check(unique_but_basics.call(classic), "no card twice in one pack")
 	var no_mythic_before_alara := true
@@ -3672,7 +3673,7 @@ func _test_booster_packs() -> void:
 	_check(eight_ok, "Arabian Nights to Homelands: 8 cards, 6 commons and 2 off the uncommon sheet, no mythics")
 	_check(counts_of.call(draw_era.call("twelve", made_up.call(5))) == [8, 3, 1, 0, 0], "Alliances: 12 cards, 8 commons, 3 uncommons, a rare")
 	_check(counts_of.call(draw_era.call("core_land", made_up.call(5))) == [10, 3, 1, 0, 1], "Tenth Edition: 10 commons and a basic land")
-	_check(counts_of.call(draw_era.call("timeshifted", made_up.call(5))) == [10, 3, 1, 0, 0], "Time Spiral: 10 commons, the timeshifted card is the TSB binder's")
+	_check(counts_of.call(draw_era.call("timeshifted", made_up.call(5))) == [10, 3, 1, 0, 1], "Time Spiral: 10 commons, and a land where the timeshifted card was")
 	var play_ok := true
 	for i in 50:
 		var play: Array[int] = draw_era.call("play", made_up.call(5))
@@ -3680,6 +3681,9 @@ func _test_booster_packs() -> void:
 		play_ok = play_ok and play.size() == 14 and play_counts[PackContents.BASIC] == 1 and play_counts[0] >= 7 and play_counts[1] >= 3 \
 			and play_counts[2] + play_counts[3] >= 1 and unique_but_basics.call(play) and in_reveal_order.call(play)
 	_check(play_ok, "a Play Booster: 14 cards, a land, at least 7 commons, 3 uncommons and a rare or mythic")
+	_check(PackContents.era_slots("play", sizes_of.call(made_up.call(5))).filter(func(slot: Dictionary) -> bool:
+		return slot.weights.size() == 4).reduce(func(n: int, slot: Dictionary) -> int: return n + slot.count, 0) == 2,
+		"the foil slot is a second wildcard: the game has no foils")
 	var epilogue_ok := true
 	for i in 50:
 		var epilogue_counts: Array = counts_of.call(draw_era.call("epilogue", made_up.call(5)))

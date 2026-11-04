@@ -20,12 +20,14 @@ extends RefCounted
 ##   as often as the others).
 ## - "twelve", Alliances: 12 cards, 8 commons, 3 uncommons, 1 rare.
 ## - "classic", Legends and Fourth Edition up to Eventide (1994-2008):
-##   15 cards, 11 commons, 3 uncommons, 1 rare, and no basic lands (from
-##   Fourth Edition basics had their own print sheet and went in starter
-##   decks, not boosters).
-## - "timeshifted", Time Spiral: 10 commons, 3 uncommons, 1 rare; the 15th
-##   card was a timeshifted one, which belongs in the Timeshifted (TSB)
-##   binder and so isn't part of a Time Spiral pack here.
+##   15 cards, 11 commons, 3 uncommons, 1 rare. Real boosters had no basic
+##   lands then (from Fourth Edition basics had their own print sheet and
+##   went in starter decks), but their binders still need them, so here a
+##   set with basics has a land slot in place of one common, as if it had
+##   one (user's call, 2026-11-04). A set without basics keeps the common.
+## - "timeshifted", Time Spiral: 10 commons, 3 uncommons, 1 rare, and the
+##   pretend land slot (as "classic") where the timeshifted card was: that
+##   card belongs in the Timeshifted (TSB) binder.
 ## - "core_land", Tenth Edition: 10 commons, 3 uncommons, 1 rare, 1 basic.
 ## - "un", Unglued and Unhinged: 10 cards, 6 commons, 2 uncommons, 1 rare,
 ##   1 basic.
@@ -39,8 +41,8 @@ extends RefCounted
 ## - "play", Play Boosters, Murders at Karlov Manor (2024) on: 14 cards,
 ##   7 commons, 3 uncommons, a rare (a mythic one time in
 ##   PLAY_MYTHIC_CHANCE), a land, a wildcard of any rarity and a foil of any
-##   rarity (PLAY_WILDCARD, PLAY_FOIL). Nothing makes foil copies yet, so the
-##   foil slot's card comes plain.
+##   rarity. The game has no foils, so the foil slot is a second wildcard
+##   (PLAY_WILDCARD), plain.
 ##
 ## No card comes twice in a pack, except basic lands, which were printed
 ## many times over on a sheet. A slot whose rarity the set doesn't have
@@ -65,11 +67,10 @@ const PLAY_MYTHIC_CHANCE := 7
 ## Cards on an early print sheet (11 x 11). Basic lands filled what the
 ## set's commons or uncommons left over.
 const SHEET := 121
-## A Play Booster's wildcard and foil slots: the chance of each rarity
-## (common, uncommon, rare, mythic). Rough figures from published pull rates;
-## tune here.
+## A Play Booster's two wildcard slots (the second is the foil slot, plain
+## here): the chance of each rarity (common, uncommon, rare, mythic). Rough
+## figures from published pull rates; tune here.
 const PLAY_WILDCARD: Array[float] = [0.5, 0.42, 0.067, 0.011]
-const PLAY_FOIL: Array[float] = [0.58, 0.33, 0.067, 0.011]
 ## The first set with mythic rares and a basic land in every pack (Shards
 ## of Alara), and the first with Play Boosters (Murders at Karlov Manor).
 const DRAFT_FROM := "2008-10-03"
@@ -158,6 +159,7 @@ static func era_slots(kind: String, sizes: PackedInt32Array) -> Array[Dictionary
 			_add(list, 3, {u: 1.0})
 			_add(list, 1, {r: 1.0})
 		"timeshifted":
+			_add(list, 1, {BASIC: 1.0}, c)
 			_add(list, 10, {c: 1.0})
 			_add(list, 3, {u: 1.0})
 			_add(list, 1, {r: 1.0})
@@ -184,20 +186,22 @@ static func era_slots(kind: String, sizes: PackedInt32Array) -> Array[Dictionary
 			_add(list, 1, {BASIC: 1.0})
 			_add(list, 7, {c: 1.0})
 			_add(list, 3, {u: 1.0})
-			_add(list, 1, {c: PLAY_WILDCARD[0], u: PLAY_WILDCARD[1], r: PLAY_WILDCARD[2], m: PLAY_WILDCARD[3]})
-			_add(list, 1, {c: PLAY_FOIL[0], u: PLAY_FOIL[1], r: PLAY_FOIL[2], m: PLAY_FOIL[3]})
+			_add(list, 2, {c: PLAY_WILDCARD[0], u: PLAY_WILDCARD[1], r: PLAY_WILDCARD[2], m: PLAY_WILDCARD[3]})
 			_add(list, 1, {r: PLAY_MYTHIC_CHANCE - 1.0, m: 1.0})
 		_:
-			_add(list, 11, {c: 1.0})
+			_add(list, 1, {BASIC: 1.0}, c)
+			_add(list, 10, {c: 1.0})
 			_add(list, 3, {u: 1.0})
 			_add(list, 1, {r: 1.0})
 	return list
 
 
-static func _add(list: Array[Dictionary], count: int, weights: Dictionary) -> void:
-	var main := -1
+## A slot of `count` cards. `instead` is the rarity it takes when none of
+## its pools has cards; a land slot without one is left out.
+static func _add(list: Array[Dictionary], count: int, weights: Dictionary, instead := -1) -> void:
+	var main := instead
 	for pool in weights:
-		if pool != BASIC and (main < 0 or weights[pool] > weights[main]):
+		if instead < 0 and pool != BASIC and (main < 0 or weights[pool] > weights[main]):
 			main = pool
 	list.append({count = count, weights = weights, main = main, fallback = main >= 0})
 
