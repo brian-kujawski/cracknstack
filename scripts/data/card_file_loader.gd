@@ -89,7 +89,7 @@ static func load_file(path: String) -> Result:
 			card.face_index = card.id
 			if result.faces.has("near"):
 				card.image_near = folder.path_join(str(result.faces["near"]).format(
-						{"set": card.set_code.to_lower(), "number": card.collector_number}))
+						{"set": folder_name(card.set_code), "number": card.collector_number}))
 		if not counts.has(card.set_code):
 			push_error("CardFileLoader: card %s references unknown set %s" % [card.name, card.set_code])
 			result.error = ERR_INVALID_DATA
@@ -100,3 +100,17 @@ static func load_file(path: String) -> Result:
 	for set_data in result.sets:
 		set_data.card_count = counts[set_data.code]
 	return result
+
+
+## Names Windows keeps for devices (a file or folder called "con" can't be
+## opened there; Conflux's code is CON). Same list as the importer's
+## RESERVED_NAMES.
+const RESERVED_NAMES := ["con", "prn", "aux", "nul", "com0", "com1", "com2", "com3", "com4", "com5", "com6",
+	"com7", "com8", "com9", "lpt0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9"]
+
+
+## A set's folder name on disk, as tools/import_scryfall.py writes it: its
+## code in lower case, with "_" after a name Windows reserves.
+static func folder_name(code: String) -> String:
+	var name := code.to_lower()
+	return name + "_" if name in RESERVED_NAMES else name

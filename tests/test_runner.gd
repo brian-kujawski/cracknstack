@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_chapters", &"_test_card_values"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
 
 var _failures := 0
 var _checks := 0
@@ -38,6 +38,7 @@ func _ready() -> void:
 	await _run(_test_set_locks)
 	await _run(_test_chapters)
 	await _run(_test_card_values)
+	await _run(_test_folder_names)
 	await _run(_test_set_unlock_delivery)
 	await _run(_test_collector_numbers_are_contiguous)
 	await _run(_test_shelf_order)
@@ -996,6 +997,12 @@ func _write_fixture(with_pages := true) -> String:
 	file.store_string(JSON.stringify(data))
 	file.close()
 	return path
+
+
+func _test_folder_names() -> void:
+	_check(CardFileLoader.folder_name("CON") == "con_" and CardFileLoader.folder_name("LPT1") == "lpt1_",
+		"a set code Windows reserves gets an underscore on disk, as the importer writes it")
+	_check(CardFileLoader.folder_name("KTK") == "ktk", "any other code is just lower case")
 
 
 func _test_card_values() -> void:
