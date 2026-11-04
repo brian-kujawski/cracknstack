@@ -4,21 +4,84 @@ extends RefCounted
 ## (card ids, CardData), for Collection to make new copies of. Every card of
 ## the set can turn up, however many copies of it you already have.
 ##
-## A booster pack is SIZE cards with no card twice: one rare slot (a mythic
-## one time in MYTHIC_CHANCE, in sets that have mythics), UNCOMMONS
-## uncommons and commons for the rest. A slot whose rarity the set doesn't
-## have enough of takes the nearest rarity that has. It's handed over in the
-## order you reveal it, the way it's done on stream: commons first, then
-## uncommons, the rare slot last.
+## A booster pack is made the way its set's real boosters were (era()):
+## a list of slots (slots()), each drawing from the set's cards by rarity
+## and from its basic lands (pools()). How many cards, of which rarities,
+## and whether there were basic lands at all changed over the years:
+##
+## - "sheets", Alpha to Revised (1993-94): 15 cards, 11 from the common
+##   sheet, 3 from the uncommon sheet, 1 rare. Basic lands filled the spare
+##   places on the 121-card common and uncommon sheets, so they turn up in
+##   those slots (in Beta about 38% of common slots).
+## - "eight", Arabian Nights, Antiquities, The Dark, Fallen Empires,
+##   Homelands: 8 cards, 6 commons and 2 from an uncommon sheet that held
+##   the scarcer cards too. There was no rare slot: what Scryfall calls rare
+##   in these sets were the uncommons printed less often (taken here as half
+##   as often as the others).
+## - "twelve", Alliances: 12 cards, 8 commons, 3 uncommons, 1 rare.
+## - "classic", Legends and Fourth Edition up to Eventide (1994-2008):
+##   15 cards, 11 commons, 3 uncommons, 1 rare, and no basic lands (from
+##   Fourth Edition basics had their own print sheet and went in starter
+##   decks, not boosters).
+## - "timeshifted", Time Spiral: 10 commons, 3 uncommons, 1 rare; the 15th
+##   card was a timeshifted one, which belongs in the Timeshifted (TSB)
+##   binder and so isn't part of a Time Spiral pack here.
+## - "core_land", Tenth Edition: 10 commons, 3 uncommons, 1 rare, 1 basic.
+## - "un", Unglued and Unhinged: 10 cards, 6 commons, 2 uncommons, 1 rare,
+##   1 basic.
+## - "draft", Shards of Alara (2008) to The Lost Caverns of Ixalan (2023):
+##   10 commons, 3 uncommons, a rare that's a mythic one time in
+##   MYTHIC_CHANCE, and a basic land. A small set without basics of its own
+##   had another set's basic, a checklist or a token there, none of which
+##   go in its binder, so its packs hold 14 of its cards.
+## - "epilogue", March of the Machine: The Aftermath: 5 cards, 3 uncommons,
+##   a rare or mythic, and one more of any of those.
+## - "play", Play Boosters, Murders at Karlov Manor (2024) on: 14 cards,
+##   7 commons, 3 uncommons, a rare (a mythic one time in
+##   PLAY_MYTHIC_CHANCE), a land, a wildcard of any rarity and a foil of any
+##   rarity (PLAY_WILDCARD, PLAY_FOIL). Nothing makes foil copies yet, so the
+##   foil slot's card comes plain.
+##
+## No card comes twice in a pack, except basic lands, which were printed
+## many times over on a sheet. A slot whose rarity the set doesn't have
+## takes the nearest rarity that has; a land slot in a set with no basics
+## is left out. A pack is handed over in the order you reveal it, the way
+## it's done on stream: basic lands and commons first, the rarest last.
 ##
 ## A booster box is BOX_PACKS packs of one set. A bulk box is BULK_SIZE
 ## cards of one set picked one by one, by rarity in the shares it's given
 ## (BULK_SHARES by default, mostly commons), and can hold the same card many
 ## times.
 
-const SIZE := 15
-const UNCOMMONS := 3
+## The pool of a set's basic lands, after its four rarities (CardData.Rarity).
+const BASIC := 4
+## Pools in the order a pack is handed over.
+const REVEAL: Array[int] = [BASIC, CardData.Rarity.COMMON, CardData.Rarity.UNCOMMON,
+	CardData.Rarity.RARE, CardData.Rarity.MYTHIC]
+## Draft-era boosters: one rare slot in this many is a mythic.
 const MYTHIC_CHANCE := 8
+## Play Boosters: about one rare slot in this many is a mythic.
+const PLAY_MYTHIC_CHANCE := 7
+## Cards on an early print sheet (11 x 11). Basic lands filled what the
+## set's commons or uncommons left over.
+const SHEET := 121
+## A Play Booster's wildcard and foil slots: the chance of each rarity
+## (common, uncommon, rare, mythic). Rough figures from published pull rates;
+## tune here.
+const PLAY_WILDCARD: Array[float] = [0.5, 0.42, 0.067, 0.011]
+const PLAY_FOIL: Array[float] = [0.58, 0.33, 0.067, 0.011]
+## The first set with mythic rares and a basic land in every pack (Shards
+## of Alara), and the first with Play Boosters (Murders at Karlov Manor).
+const DRAFT_FROM := "2008-10-03"
+const PLAY_FROM := "2024-02-09"
+## Sets whose boosters don't follow their date's era (see the list above).
+const ERA_OF_SET := {
+	"LEA": "sheets", "LEB": "sheets", "2ED": "sheets", "3ED": "sheets",
+	"ARN": "eight", "ATQ": "eight", "DRK": "eight", "FEM": "eight", "HML": "eight",
+	"ALL": "twelve", "TSP": "timeshifted", "10E": "core_land",
+	"UGL": "un", "UNH": "un", "MAT": "epilogue",
+}
+
 const BOX_PACKS := 36
 const BULK_SIZE := 1000
 ## A bulk box's mix: the share of each rarity, by CardData.Rarity (common,
@@ -30,6 +93,7 @@ const BULK_SHARES: Array[float] = [0.75, 0.23, 0.0175, 0.0025]
 
 
 ## The cards of `code`'s set by rarity (CardData.Rarity), as card ids.
+## Basic lands count as commons here.
 static func by_rarity(code: String) -> Array[Array]:
 	var pools: Array[Array] = [[], [], [], []]
 	for card in CardDatabase.cards_in_set(code):
@@ -37,18 +101,163 @@ static func by_rarity(code: String) -> Array[Array]:
 	return pools
 
 
+## The cards of `code`'s set a pack draws from, as card ids: by rarity
+## (CardData.Rarity), then its basic lands (BASIC), which aren't in the
+## commons.
+static func pools(code: String) -> Array[Array]:
+	var into: Array[Array] = [[], [], [], [], []]
+	for card in CardDatabase.cards_in_set(code):
+		into[BASIC if is_basic_land(card) else card.rarity].append(card.id)
+	return into
+
+
+static func is_basic_land(card: CardData) -> bool:
+	return card.type_line.begins_with("Basic") and card.type_line.contains("Land")
+
+
+## Which kind of booster `code`'s set came in (see the list at the top).
+static func era(code: String) -> String:
+	if ERA_OF_SET.has(code):
+		return ERA_OF_SET[code]
+	var set_data := CardDatabase.get_set(code)
+	var date := set_data.release_date if set_data != null else ""
+	if date >= PLAY_FROM:
+		return "play"
+	if date >= DRAFT_FROM:
+		return "draft"
+	return "classic"
+
+
+## A booster pack of `code`'s slots (era_slots()).
+static func slots(code: String) -> Array[Dictionary]:
+	return era_slots(era(code), pool_sizes(pools(code)))
+
+
+## The slots of a booster of era `kind` (era()), for a set whose pools()
+## hold `sizes` cards: each {count, weights, main, fallback}.
+## `weights` maps a pool (CardData.Rarity or BASIC) to how likely the slot
+## is to draw from it, among the pools with cards left. `main` is the
+## rarity a slot takes the nearest of when none of its pools has, and
+## `fallback` false leaves the slot out instead (land slots).
+static func era_slots(kind: String, sizes: PackedInt32Array) -> Array[Dictionary]:
+	var c := CardData.Rarity.COMMON
+	var u := CardData.Rarity.UNCOMMON
+	var r := CardData.Rarity.RARE
+	var m := CardData.Rarity.MYTHIC
+	var list: Array[Dictionary] = []
+	match kind:
+		"sheets":
+			_add(list, 11, {c: sizes[c], BASIC: maxi(SHEET - sizes[c], 0)})
+			_add(list, 3, {u: sizes[u], BASIC: maxi(SHEET - sizes[u], 0)})
+			_add(list, 1, {r: 1.0})
+		"eight":
+			_add(list, 6, {c: sizes[c], BASIC: sizes[BASIC]})
+			_add(list, 2, {u: 2.0 * sizes[u], r: sizes[r]})
+		"twelve":
+			_add(list, 8, {c: 1.0})
+			_add(list, 3, {u: 1.0})
+			_add(list, 1, {r: 1.0})
+		"timeshifted":
+			_add(list, 10, {c: 1.0})
+			_add(list, 3, {u: 1.0})
+			_add(list, 1, {r: 1.0})
+		"core_land":
+			_add(list, 1, {BASIC: 1.0})
+			_add(list, 10, {c: 1.0})
+			_add(list, 3, {u: 1.0})
+			_add(list, 1, {r: 1.0})
+		"un":
+			_add(list, 1, {BASIC: 1.0})
+			_add(list, 6, {c: 1.0})
+			_add(list, 2, {u: 1.0})
+			_add(list, 1, {r: 1.0})
+		"draft":
+			_add(list, 1, {BASIC: 1.0})
+			_add(list, 10, {c: 1.0})
+			_add(list, 3, {u: 1.0})
+			_add(list, 1, {r: MYTHIC_CHANCE - 1.0, m: 1.0})
+		"epilogue":
+			_add(list, 3, {u: 1.0})
+			_add(list, 1, {r: MYTHIC_CHANCE - 1.0, m: 1.0})
+			_add(list, 1, {u: 0.6, r: 0.35, m: 0.05})
+		"play":
+			_add(list, 1, {BASIC: 1.0})
+			_add(list, 7, {c: 1.0})
+			_add(list, 3, {u: 1.0})
+			_add(list, 1, {c: PLAY_WILDCARD[0], u: PLAY_WILDCARD[1], r: PLAY_WILDCARD[2], m: PLAY_WILDCARD[3]})
+			_add(list, 1, {c: PLAY_FOIL[0], u: PLAY_FOIL[1], r: PLAY_FOIL[2], m: PLAY_FOIL[3]})
+			_add(list, 1, {r: PLAY_MYTHIC_CHANCE - 1.0, m: 1.0})
+		_:
+			_add(list, 11, {c: 1.0})
+			_add(list, 3, {u: 1.0})
+			_add(list, 1, {r: 1.0})
+	return list
+
+
+static func _add(list: Array[Dictionary], count: int, weights: Dictionary) -> void:
+	var main := -1
+	for pool in weights:
+		if pool != BASIC and (main < 0 or weights[pool] > weights[main]):
+			main = pool
+	list.append({count = count, weights = weights, main = main, fallback = main >= 0})
+
+
+static func pool_sizes(of: Array[Array]) -> PackedInt32Array:
+	var sizes := PackedInt32Array()
+	for pool in of:
+		sizes.append(pool.size())
+	return sizes
+
+
+## How likely `slot` is to draw from each pool, with pools of `sizes`
+## cards: {pool: chance}, adding up to 1, or empty when it's left out.
+static func slot_chances(slot: Dictionary, sizes: PackedInt32Array) -> Dictionary:
+	var weights: Dictionary = slot.weights
+	var total := 0.0
+	for pool in weights:
+		if sizes[pool] > 0:
+			total += maxf(weights[pool], 0.0)
+	var chances := {}
+	if total > 0.0:
+		for pool in weights:
+			if sizes[pool] > 0 and weights[pool] > 0.0:
+				chances[pool] = weights[pool] / total
+	elif slot.fallback:
+		var nearest := _nearest_rarity(sizes, slot.main)
+		if nearest >= 0:
+			chances[nearest] = 1.0
+	return chances
+
+
+## How many cards a booster pack of `code` holds.
+static func pack_size(code: String) -> int:
+	var sizes := pool_sizes(pools(code))
+	var count := 0
+	for slot in slots(code):
+		if not slot_chances(slot, sizes).is_empty():
+			count += slot.count
+	return count
+
+
+## Whether the shop and the debug tools make packs of `code`: it has at
+## least a pack's worth of cards.
+static func sells_packs(code: String) -> bool:
+	var size := pack_size(code)
+	return size > 0 and CardDatabase.cards_in_set(code).size() >= size
+
+
 ## A booster pack of `code`, in reveal order.
 static func draw(code: String, rng: RandomNumberGenerator) -> PackedInt32Array:
-	return PackedInt32Array(draw_from(by_rarity(code), set_has_mythics(code), rng))
+	return PackedInt32Array(draw_from(pools(code), slots(code), rng))
 
 
 ## BOX_PACKS packs of `code`, each in reveal order.
 static func booster_box(code: String, rng: RandomNumberGenerator) -> Array[PackedInt32Array]:
-	var pools := by_rarity(code)
-	var mythics := set_has_mythics(code)
+	var from := pools(code)
+	var list := slots(code)
 	var packs: Array[PackedInt32Array] = []
 	for i in BOX_PACKS:
-		packs.append(PackedInt32Array(draw_from(pools.duplicate(true), mythics, rng)))
+		packs.append(PackedInt32Array(draw_from(from.duplicate(true), list, rng)))
 	return packs
 
 
@@ -56,7 +265,7 @@ static func booster_box(code: String, rng: RandomNumberGenerator) -> Array[Packe
 ## (see BULK_SHARES).
 static func bulk_box(code: String, rng: RandomNumberGenerator, count := BULK_SIZE,
 		shares: Array[float] = BULK_SHARES) -> PackedInt32Array:
-	var pools := by_rarity(code)
+	var by := by_rarity(code)
 	var cards := PackedInt32Array()
 	var total := 0.0
 	for share in shares:
@@ -69,47 +278,43 @@ static func bulk_box(code: String, rng: RandomNumberGenerator, count := BULK_SIZ
 		while wanted < shares.size() - 1 and roll >= maxf(shares[wanted], 0.0):
 			roll -= maxf(shares[wanted], 0.0)
 			wanted += 1
-		var rarity := _nearest_rarity(pools, wanted)
+		var rarity := _nearest_rarity(pool_sizes(by), wanted)
 		if rarity < 0:
 			break
-		var pool: Array = pools[rarity]
+		var pool: Array = by[rarity]
 		cards.append(pool[rng.randi_range(0, pool.size() - 1)])
 	return cards
 
 
-## The same as draw() from pools of ids by rarity (they're emptied as cards
-## are drawn, so no card comes twice), in reveal order: by the rarity of the
-## pool each came from.
-static func draw_from(pools: Array[Array], has_mythics: bool, rng: RandomNumberGenerator) -> Array[int]:
-	var rare := CardData.Rarity.RARE
-	if has_mythics and rng.randi_range(1, MYTHIC_CHANCE) == 1:
-		rare = CardData.Rarity.MYTHIC
-	var slots: Array[int] = []
-	for i in SIZE - 1 - UNCOMMONS:
-		slots.append(CardData.Rarity.COMMON)
-	for i in UNCOMMONS:
-		slots.append(CardData.Rarity.UNCOMMON)
-	slots.append(rare)
-	# Drawn into a list per rarity, so the pack comes out commons first and
-	# the rarest last, each rarity in the order drawn.
-	var by_rarity: Array[Array] = [[], [], [], []]
-	for wanted in slots:
-		var rarity := _nearest_rarity(pools, wanted)
-		if rarity < 0:
-			break
-		var pool: Array = pools[rarity]
-		by_rarity[rarity].append(pool.pop_at(rng.randi_range(0, pool.size() - 1)))
+## A pack drawn slot by slot from `from` (pools(): ids by rarity, then
+## basic lands), which is emptied as cards are drawn so no card comes
+## twice; basic lands stay, as there were many of each on a sheet. In
+## reveal order (REVEAL), each pool's cards in the order drawn.
+static func draw_from(from: Array[Array], list: Array[Dictionary], rng: RandomNumberGenerator) -> Array[int]:
+	var drawn: Array[Array] = [[], [], [], [], []]
+	for slot in list:
+		for i in slot.count:
+			var pool_index := _roll_pool(slot_chances(slot, pool_sizes(from)), rng)
+			if pool_index < 0:
+				continue
+			var pool: Array = from[pool_index]
+			var at := rng.randi_range(0, pool.size() - 1)
+			drawn[pool_index].append(pool[at] if pool_index == BASIC else pool.pop_at(at))
 	var pack: Array[int] = []
-	for drawn in by_rarity:
-		pack.append_array(drawn)
+	for pool_index in REVEAL:
+		pack.append_array(drawn[pool_index])
 	return pack
 
 
-static func set_has_mythics(code: String) -> bool:
-	for card in CardDatabase.cards_in_set(code):
-		if card.rarity == CardData.Rarity.MYTHIC:
-			return true
-	return false
+static func _roll_pool(chances: Dictionary, rng: RandomNumberGenerator) -> int:
+	var roll := rng.randf()
+	var picked := -1
+	for pool in chances:
+		picked = pool
+		if roll < chances[pool]:
+			break
+		roll -= chances[pool]
+	return picked
 
 
 ## A set to make product of, picked at random from every unlocked set with
@@ -117,17 +322,17 @@ static func set_has_mythics(code: String) -> bool:
 static func pick_set(rng: RandomNumberGenerator) -> String:
 	var sets: Array[String] = []
 	for set_data in CardDatabase.sets_in_shelf_order():
-		if CardDatabase.cards_in_set(set_data.code).size() >= SIZE and Progression.is_set_unlocked(set_data.code):
+		if sells_packs(set_data.code) and Progression.is_set_unlocked(set_data.code):
 			sets.append(set_data.code)
 	return sets[rng.randi_range(0, sets.size() - 1)] if not sets.is_empty() else ""
 
 
 ## The rarity a slot draws from: its own, or else the nearest one with
 ## cards left, looking down before up (a common for an empty uncommon slot).
-## -1 when every pool is empty.
-static func _nearest_rarity(pools: Array[Array], wanted: int) -> int:
-	for step in pools.size():
+## Only the four rarities, never the basic lands. -1 when they're all empty.
+static func _nearest_rarity(sizes: PackedInt32Array, wanted: int) -> int:
+	for step in 4:
 		for rarity in [wanted - step, wanted + step]:
-			if rarity >= 0 and rarity < pools.size() and not pools[rarity].is_empty():
+			if rarity >= 0 and rarity < 4 and sizes[rarity] > 0:
 				return rarity
 	return -1

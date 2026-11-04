@@ -47,19 +47,24 @@ static func _slot_mean(means: PackedFloat64Array, wanted: int) -> float:
 	return 0.0
 
 
-## What a booster pack of `code` is worth on average, in dollars: its
-## commons, its uncommons and its rare slot (a mythic one time in
-## PackContents.MYTHIC_CHANCE, in sets that have them).
+## What a booster pack of `code` is worth on average, in dollars: each of
+## its slots (PackContents.slots) at the average value of the pools it
+## draws from, as likely as it draws from them.
 static func pack_worth(code: String) -> float:
-	var means := rarity_means(code)
-	var commons := PackContents.SIZE - 1 - PackContents.UNCOMMONS
-	var worth := commons * _slot_mean(means, CardData.Rarity.COMMON)
-	worth += PackContents.UNCOMMONS * _slot_mean(means, CardData.Rarity.UNCOMMON)
-	var rare := _slot_mean(means, CardData.Rarity.RARE)
-	if means[CardData.Rarity.MYTHIC] >= 0.0:
-		var chance := 1.0 / PackContents.MYTHIC_CHANCE
-		rare = rare * (1.0 - chance) + means[CardData.Rarity.MYTHIC] * chance
-	return worth + rare
+	var pools := PackContents.pools(code)
+	var sizes := PackContents.pool_sizes(pools)
+	var means := PackedFloat64Array()
+	for pool in pools:
+		var sum := 0.0
+		for id in pool:
+			sum += CardDatabase.get_card(id).value
+		means.append(sum / pool.size() if not pool.is_empty() else 0.0)
+	var worth := 0.0
+	for slot in PackContents.slots(code):
+		var chances := PackContents.slot_chances(slot, sizes)
+		for pool in chances:
+			worth += slot.count * chances[pool] * means[pool]
+	return worth
 
 
 ## What a bulk box of `code` is worth on average, in dollars

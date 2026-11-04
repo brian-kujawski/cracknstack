@@ -164,7 +164,7 @@ static func _look(code: String) -> Array:
 		var back := BinderLettering.panel_mask(SIZE, [
 			{text = "BOOSTER PACK", center = Vector2(SIZE.x / 2, 0.048), box = Vector2(0.05, 0.005),
 				cap = Vector2(0.0015, 0.003), lines = 1},
-			{text = "%d CARDS" % PackContents.SIZE, center = Vector2(SIZE.x / 2, 0.057), box = Vector2(0.04, 0.004),
+			{text = "%d CARDS" % PackContents.pack_size(code), center = Vector2(SIZE.x / 2, 0.057), box = Vector2(0.04, 0.004),
 				cap = Vector2(0.0012, 0.0022), lines = 1},
 			{text = set_data.code, center = Vector2(SIZE.x / 2, 0.072), box = Vector2(0.03, 0.006),
 				cap = Vector2(0.0015, 0.0035), lines = 1},
