@@ -6,7 +6,8 @@ extends RefCounted
 ## line under it: ??? and "This achievement is locked." with the locked icon
 ## until it's earned, then the card's name, what it was for and the full
 ## icon. The rare card achievements, which have no colour, follow in rows
-## under the columns, and the wall art's in rows under those.
+## under the columns, the wall art's in rows under those, and the two for
+## the banned cards last.
 
 const ICON_SIZE := 96
 const TILE_WIDTH := 280
@@ -43,6 +44,13 @@ static func make() -> MenuScreen:
 	wall_art.add_theme_constant_override("h_separation", 24)
 	wall_art.add_theme_constant_override("v_separation", 20)
 	sections.add_child(wall_art)
+	var banned := GridContainer.new()
+	banned.name = "BannedCards"
+	banned.columns = COLOUR_COUNT
+	banned.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	banned.add_theme_constant_override("h_separation", 24)
+	banned.add_theme_constant_override("v_separation", 20)
+	sections.add_child(banned)
 	var by_colour: Array[VBoxContainer] = []
 	for colour in COLOUR_COUNT:
 		var column := VBoxContainer.new()
@@ -52,6 +60,8 @@ static func make() -> MenuScreen:
 	for index in Achievements.count():
 		if Achievements.is_rare(index):
 			rare.add_child(tile(index))
+		elif Achievements.is_banned(index):
+			banned.add_child(tile(index))
 		elif Achievements.is_wall_art(index):
 			wall_art.add_child(tile(index))
 		else:

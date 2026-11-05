@@ -2066,8 +2066,8 @@ func _test_achievements() -> void:
 	for colour in Progression.COLOURS.size():
 		for step in Progression.COLOURS[colour].steps:
 			nodes[step[0]] = colour
-	_check(Achievements.count() == nodes.size() + RareCards.count() + 1 + WallArt.count(),
-		"one achievement per card the upgrade tree is named after, per rare card, one for all rare cards, and one per wall art frame: %d" % Achievements.count())
+	_check(Achievements.count() == nodes.size() + RareCards.count() + 1 + WallArt.count() + 2,
+		"one achievement per card the upgrade tree is named after, per rare card, one for all rare cards, one per wall art frame, and two for the banned cards: %d" % Achievements.count())
 	var matches := true
 	for index in nodes.size():
 		matches = matches and nodes.get(Achievements.card_name(index), -1) == Achievements.colour(index)
@@ -2113,6 +2113,24 @@ func _test_achievements() -> void:
 	_check(Achievements.is_unlocked(tithe), "New Game doesn't clear achievements")
 	Achievements.load_from(path)
 	_check(Achievements.is_unlocked(tithe) and Achievements.description(tithe) == "Filed Tithe from %s." % set_name, "unlocked achievements are saved and load back")
+	var first := Achievements.first_banned_index()
+	var all := Achievements.all_banned_index()
+	_check(Achievements.is_banned(first) and Achievements.is_banned(all) and not Achievements.is_wall_art(first)
+		and Achievements.colour(first) == Achievements.BANNED_GROUP and Achievements.key(all) == "banned:all",
+		"the two banned card achievements come last, in their own group")
+	heard.clear()
+	Achievements.banned_card_found("Crusade")
+	Achievements.banned_card_found("Crusade")
+	_check(heard == [first] and Achievements.banned_found_count() == 1 and not Achievements.is_unlocked(all),
+		"finding Crusade unlocks the first banned card achievement, once")
+	Achievements.load_from(path)
+	_check(Achievements.banned_found_count() == 1, "which banned cards were found is saved and loads back")
+	for name in Achievements.BANNED_CARDS.slice(0, -1):
+		Achievements.banned_card_found(name)
+	_check(not Achievements.is_unlocked(all), "six of the seven isn't all of them")
+	Achievements.banned_card_found(Achievements.BANNED_CARDS[-1])
+	_check(heard == [first, all] and Achievements.description(all) == Achievements.BANNED[1][1],
+		"finding the seventh unlocks All Seven: " + Achievements.description(all))
 	Achievements.unlocked.disconnect(listen)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	Achievements.load_from(Achievements.SAVE_PATH)

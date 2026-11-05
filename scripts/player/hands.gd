@@ -1881,6 +1881,7 @@ func open_box(box: ProductBox) -> Array:
 	FeedbackSounds.play(pile, at, FeedbackSounds.Kind.PACK_RIP)
 	if box.kind == ProductBox.Kind.BULK:
 		var copies := Collection.add_all(PackContents.bulk_box(box.set_code, _pack_rng))
+		Achievements.cards_found(copies)
 		pile.tip_out(copies, at, _pack_rng.randi())
 		return Array(copies)
 	return tip_out_packs(box.set_code, PackContents.BOX_PACKS, at)
@@ -1969,6 +1970,7 @@ func rip_pack() -> Array[int]:
 		return []
 	var ids: Array[int] = []
 	ids.assign(Collection.add_all(PackContents.draw(pack.set_code, _pack_rng)))
+	Achievements.cards_found(ids)
 	held_pack = null
 	_ripping = false
 	_rip = 0.0
