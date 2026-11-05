@@ -16,8 +16,8 @@ extends StaticBody3D
 ## the shelf above comes on.
 ##
 ## A locked set's space is bare: no plate, and its binder waits out of
-## sight in it (refresh_locks) until the set unlocks and the binder is
-## delivered (deliver_binder).
+## sight in it (refresh_locks) until the set unlocks and it shows there
+## (reveal_set).
 ##
 ## The unit's collision is one solid box from the floor up, so nothing gets
 ## under or behind it; only the top is a separate body (`top`), which aiming
@@ -270,20 +270,16 @@ func refresh_locks() -> void:
 	nameplates.show_plates(shown)
 
 
-## A set has just unlocked: its plate arrives in a glow, and if its binder is
-## still waiting out of sight in its space, the binder comes off the shelf
-## for delivery. Returns that binder (not yet placed anywhere), or null.
-func deliver_binder(set_code: String) -> Binder:
+## A set has just unlocked: its plate arrives in a glow, and its binder, if
+## it's still waiting out of sight in its space, shows there.
+func reveal_set(set_code: String) -> void:
 	var space := space_for(set_code)
 	if space < 0:
-		return null
+		return
 	nameplates.set_shown(space, true, true)
 	var binder: Binder = shelved[space]
-	if binder == null or binder.binder.set_code != set_code or binder.visible:
-		return null
-	unshelve(space)
-	binder.visible = true
-	return binder
+	if binder != null and binder.binder.set_code == set_code:
+		binder.visible = true
 
 
 ## The space labelled for a set's binder, or -1.

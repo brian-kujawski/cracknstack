@@ -51,10 +51,6 @@ const APPS := [
 ]
 ## What the Card Shop sells: [kind, name, what's in it]. A pack's "%d" is
 ## how many cards a pack of the set holds (PackContents.pack_size).
-## Booster packs that come with a set's binder when it unlocks (Main
-## delivers them). The first set of a chapter comes with a sealed booster
-## box instead (Chapters).
-const STARTER_PACKS := 3
 const PRODUCTS := [
 	["pack", "Booster Pack", "%d cards"],
 	["booster_box", "Booster Box", "%d packs" % PackContents.BOX_PACKS],
@@ -602,7 +598,7 @@ static func _row_text(set_data: SetData) -> String:
 
 
 ## The Card Shop's right-hand side: the chosen set and what it sells, or,
-## while it's locked, its Unlock button.
+## while it's locked, which chapter opens it.
 func _show_set(detail: Control, code: String) -> void:
 	shop_set = code
 	for child in detail.get_children():
@@ -616,21 +612,14 @@ func _show_set(detail: Control, code: String) -> void:
 	swatch.custom_minimum_size = Vector2(0, 8)
 	detail.add_child(swatch)
 	if not Progression.is_set_unlocked(code):
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 14)
 		var words := VBoxContainer.new()
-		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.name = "Locked"
 		words.add_theme_constant_override("separation", 0)
 		words.add_child(Win95.label("Locked", 22))
-		var note := Win95.label("Unlocking brings its binder and %s. Free for now: levels will unlock sets." % starter_product(code), 18, Win95.SHADOW.darkened(0.3))
+		var note := Win95.label("Opens with Chapter %d." % Chapters.game_number(code), 18, Win95.SHADOW.darkened(0.3))
 		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		words.add_child(note)
-		row.add_child(words)
-		var unlock := Win95.button("Unlock", unlock_set.bind(code), 130)
-		unlock.name = "Unlock"
-		unlock.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(unlock)
-		var panel := Win95.well(row, Win95.FACE)
+		var panel := Win95.well(words, Win95.FACE)
 		panel.add_theme_stylebox_override("panel", Win95.bevel(Win95.Look.RAISED, Win95.FACE, 14))
 		detail.add_child(panel)
 		return
@@ -653,31 +642,6 @@ func _show_set(detail: Control, code: String) -> void:
 		var panel := Win95.well(row, Win95.FACE)
 		panel.add_theme_stylebox_override("panel", Win95.bevel(Win95.Look.RAISED, Win95.FACE, 14))
 		detail.add_child(panel)
-
-
-## What comes with set `code`'s binder when it unlocks, in words.
-static func starter_product(code: String) -> String:
-	if Chapters.opens_chapter(code):
-		return "a sealed booster box"
-	return "%d booster packs" % STARTER_PACKS
-
-
-## Unlocks set `code` (for now, until levels do): the shop delivers its
-## binder and starter packs, and the shop's list and side show it unlocked.
-func unlock_set(code: String) -> void:
-	if not Progression.unlock_set(code):
-		return
-	if shop_status != null:
-		shop_status.text = "Unlocked: %s. Its binder and %s are waiting inside the door." % [CardDatabase.get_set(code).name, starter_product(code)]
-	var window: Control = windows.get("shop")
-	if window == null:
-		return
-	var row: Button = window.find_child("Set_" + code, true, false)
-	if row != null:
-		row.text = _row_text(CardDatabase.get_set(code))
-	var detail: Control = window.find_child("Detail", true, false)
-	if detail != null and shop_set == code:
-		_show_set(detail, code)
 
 
 ## The Card Shop's money line: what you have, and when orders come.

@@ -1,10 +1,11 @@
 extends Node3D
 ## Main scene: the graybox store, its empty floor, a bare shelf, and the
 ## player. Every binder waits out of sight in its shelf space until its set
-## unlocks; then it's delivered inside the door with STARTER_PACKS packs (a
-## sealed booster box instead for the first set of a chapter, see Chapters),
-## and its plate appears on the shelf. Cards come only from product (the Card
-## Shop; see PackContents). A
+## unlocks, which happens a chapter at a time (Chapters, open_chapter): a new
+## game opens Chapter 1, and completing every binder of a chapter opens the
+## next. Each set that unlocks gets its binder and plate on the shelf and a
+## sealed booster box inside the door. Cards come only from product (the
+## Card Shop; see PackContents). A
 ## loaded game builds it all from the save instead (ShopSave), and Saves
 ## asks it for capture_save().
 ##
@@ -23,18 +24,20 @@ const SAVING_ICON := "res://assets/ui/saving_icon.png"
 const SAVING_ICON_SIZE := Vector2(36, 50)
 const SAVING_SHOWN := 1.0
 const SAVING_TURN := 0.6
-## Where Card Shop orders and new sets' binders turn up: floor spots just
-## inside the door, on its left, filled in turn.
-const DELIVERY_SPOTS := [Vector2(5.25, 7.15), Vector2(4.85, 7.15), Vector2(5.25, 6.75), Vector2(4.85, 6.75),
-	Vector2(4.45, 7.15), Vector2(4.45, 6.75)]
+## Where Card Shop orders and new sets' booster boxes turn up: a grid of
+## floor spots just inside the door, on its left, filled in turn, column by
+## column away from the door (a whole chapter's boxes fit before it starts
+## over): the rows' z, the first column's x and the step between spots.
+const DELIVERY_ROWS := [7.15, 6.75, 6.35, 5.95]
+const DELIVERY_X := 5.25
+const DELIVERY_STEP := 0.4
+const DELIVERY_COLUMNS := 12
 ## Ending the day: the fade to black, how long it stays black, the fade
 ## back in, and the hour the new day starts at.
 const END_DAY_FADE_OUT := 0.8
 const END_DAY_HOLD := 0.8
 const END_DAY_FADE_IN := 1.2
 const MORNING_HOUR := 8.0
-## Booster packs that come with a set's binder when the set unlocks.
-const STARTER_PACKS := LaptopScreen.STARTER_PACKS
 ## Sorceries in key order, each with the action that casts it. Only learned
 ## ones show, in the HUD's sorcery bar.
 const SORCERIES := [
@@ -67,6 +70,8 @@ var _debug_rng := RandomNumberGenerator.new()
 var laptop: Laptop
 var laptop_screen: LaptopScreen
 var _deliveries := 0
+## While open_chapter unlocks a chapter's sets (one banner for them all).
+var _opening_chapter := false
 ## Card Shop orders waiting for the morning: [kind, set code] each.
 var orders: Array = []
 ## Which day it is: the first is day 1, and each End Day adds one.
@@ -123,6 +128,7 @@ func _ready() -> void:
 	Saves.shop = self
 	_build_hud()
 	_build_saving_icon()
+	open_chapter(saved.is_empty())
 	if not _falling.is_empty():
 		_land_falling()
 	_hang_wall_art(false)
@@ -242,18 +248,18 @@ static func unlocked_binders(binders: Array[Binder]) -> Array[Binder]:
 ## The chapter the HUD counts: the latest one with a set unlocked, as
 ## {"name", "number", "organized", "pockets"} over its unlocked sets'
 ## binders. Empty before any set is unlocked. Unlocked sets in no chapter
-## (data/chapters.txt doesn't list them) count as "Unlocked sets" when no
-## chaptered set is open.
+## count as "Unlocked sets" when no chaptered set is open.
 static func current_chapter(binders: Array[Binder]) -> Dictionary:
 	var open := unlocked_binders(binders)
 	if open.is_empty():
 		return {}
+	var codes := Chapters.shop_codes()
 	var number := 0
 	for binder in open:
-		number = maxi(number, Chapters.chapter_of(binder.binder.set_code))
+		number = maxi(number, Chapters.number_in(binder.binder.set_code, codes))
 	var counted: Array[Binder] = []
 	for binder in open:
-		if Chapters.chapter_of(binder.binder.set_code) == number:
+		if Chapters.number_in(binder.binder.set_code, codes) == number:
 			counted.append(binder)
 	return {"name": "Chapter %d" % number if number > 0 else "Unlocked sets", "number": number,
 		"organized": cards_organized(counted), "pockets": pockets(counted)}
@@ -344,9 +350,9 @@ func deliver(kind: String, code: String) -> Node3D:
 
 ## The next floor spot inside the door, in turn.
 func _next_delivery_spot() -> Vector2:
-	var spot: Vector2 = DELIVERY_SPOTS[_deliveries % DELIVERY_SPOTS.size()]
+	var n := _deliveries % (DELIVERY_ROWS.size() * DELIVERY_COLUMNS)
 	_deliveries += 1
-	return spot
+	return Vector2(DELIVERY_X - DELIVERY_STEP * (n / DELIVERY_ROWS.size()), DELIVERY_ROWS[n % DELIVERY_ROWS.size()])
 
 
 ## Turned toward where you stand as you come in, to the right.
@@ -354,29 +360,44 @@ func _delivery_yaw() -> float:
 	return PI / 2 + _debug_rng.randf_range(-0.3, 0.3)
 
 
-## A set unlocked: its binder comes off the shelf (where it waited out of
-## sight) and turns up inside the door, closed, with STARTER_PACKS packs, or
-## a sealed booster box when it's the first set of its chapter (Chapters);
-## its plate arrives on the shelf. Returns what was delivered.
+## Opens the chapter the player is on: the first one with a set still
+## locked or a binder not yet complete. Every set of it unlocks (each brings
+## its booster box, _on_set_unlocked), with one banner for the chapter, or
+## with `quiet`, none (a new game, behind the laptop). Earlier chapters are
+## all complete, so their sets are open already; a loaded game whose
+## chapter didn't open (an older save) catches up here. Returns the
+## chapter's number, 0 once every chapter is done (or when sets don't lock:
+## old checks).
+func open_chapter(quiet := false) -> int:
+	if not Progression.locks_sets:
+		return 0
+	var list := Chapters.game()
+	for i in list.size():
+		if _chapter_complete(i + 1):
+			continue
+		var opened := 0
+		_opening_chapter = true
+		for code in list[i]:
+			if Progression.unlock_set(code):
+				opened += 1
+		_opening_chapter = false
+		if opened > 0 and not quiet and hud != null:
+			var kicker := "Chapter complete" if i > 0 else "New chapter"
+			var sub := CardDatabase.get_set(list[i][0]).name if list[i].size() == 1 else "%d new sets" % list[i].size()
+			hud.show_banner(kicker, "Chapter %d" % (i + 1), sub)
+		return i + 1
+	return 0
+
+
+## A set unlocked: its binder, which waited out of sight in its shelf space,
+## shows there and its plate arrives in a glow, and a sealed booster box of
+## it turns up inside the door. Returns what was delivered.
 func _on_set_unlocked(code: String) -> Array[Node3D]:
-	var delivered: Array[Node3D] = []
-	if hud != null:
+	if hud != null and not _opening_chapter:
 		hud.show_banner("New set", CardDatabase.get_set(code).name)
 	for unit: ShelfUnit in _shelves():
-		var binder := unit.deliver_binder(code)
-		if binder != null:
-			var spot := _next_delivery_spot()
-			var yaw := _delivery_yaw()
-			var half := Vector2(Binder.COVER.x, Binder.COVER.y) / 2
-			var p := _pile.clear_point(spot, half, yaw)
-			var at := Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, _pile.height_under(p, half, yaw) + 0.01, p.y))
-			binder.place(_pile, _pile.global_transform * at)
-			delivered.append(binder)
-	if Chapters.opens_chapter(code):
-		delivered.append(deliver("booster_box", code))
-	else:
-		for i in STARTER_PACKS:
-			delivered.append(deliver("pack", code))
+		unit.reveal_set(code)
+	var delivered: Array[Node3D] = [deliver("booster_box", code)]
 	return delivered
 
 
@@ -527,25 +548,26 @@ func _update_stats() -> void:
 	Radio.set_progress(_organized_share())
 
 
-## A binder just filled its last pocket: a banner (or, when that finishes
-## the chapter's unlocked sets and the chapter has no more to unlock, a
-## chapter banner).
+## A binder just filled its last pocket: a banner, or, when that completes
+## its chapter, the next chapter opens (open_chapter, with its own banner;
+## after the last one, a "Chapter complete" banner).
 func _announce_complete_binders() -> void:
 	for binder in _pile.binders:
 		var code := binder.binder.set_code
 		if _complete_binders.has(code) or not binder.contents.is_complete():
 			continue
 		_complete_binders[code] = true
-		var chapter := Chapters.chapter_of(code)
+		var chapter := Chapters.game_number(code)
 		if chapter > 0 and _chapter_complete(chapter):
-			hud.show_banner("Chapter complete", "Chapter %d" % chapter)
+			if open_chapter() == 0:
+				hud.show_banner("Chapter complete", "Chapter %d" % chapter)
 		else:
 			hud.show_banner("Binder complete", CardDatabase.get_set(code).name)
 
 
 ## Every set of chapter `number` is unlocked and its binder complete.
 func _chapter_complete(number: int) -> bool:
-	var sets: PackedStringArray = Chapters.all()[number - 1].sets
+	var sets: PackedStringArray = Chapters.game()[number - 1]
 	for binder in _pile.binders:
 		if binder.binder.set_code in sets and not binder.contents.is_complete():
 			return false

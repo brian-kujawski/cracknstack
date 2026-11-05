@@ -424,6 +424,8 @@ func _test_hud() -> void:
 	var hands: Hands = main.get_node("Player/Hands")
 	var pile: PileWorld = main.get_node("Pile")
 	_check(hud != null and hud.get_parent() == main.get_node("HUD"), "the shop has its HUD")
+	_check(main.current_chapter(pile.binders).get("number", 0) == 1, "a new game opens Chapter 1")
+	Progression.reset()
 	_check(main.current_chapter(pile.binders).is_empty(), "no set unlocked, no chapter to count")
 	main._update_stats()
 	_check(not hud.chapter_block.visible and hud.money_label.text == "$0.00" and hud.level_label.text == "1",
@@ -520,8 +522,12 @@ func _test_chapters() -> void:
 	Chapters.use_text("Chapter 1\nFRA\nChapter 2\nAAA\nBBB")
 	_check(Chapters.chapter_of("FRA") == 1 and Chapters.chapter_of("bbb") == 2 and Chapters.chapter_of("ZZZ") == 0,
 		"chapter_of counts from 1, 0 when a set's in none")
-	_check(Chapters.opens_chapter("FRA") and Chapters.opens_chapter("AAA") and not Chapters.opens_chapter("BBB")
-		and not Chapters.opens_chapter("ZZZ"), "only the first set of each chapter opens it")
+	var played := Chapters.playable(PackedStringArray(["NEW", "BBB", "FRA", "OLD"]))
+	_check(played.size() == 4 and played[0] == PackedStringArray(["FRA"]) and played[1] == PackedStringArray(["BBB"]),
+		"sets the data lacks are left out of their chapters, got %s" % [played])
+	_check(played.size() == 4 and played[2] == PackedStringArray(["NEW"]) and played[3] == PackedStringArray(["OLD"])
+		and Chapters.number_in("old", PackedStringArray(["NEW", "BBB", "FRA", "OLD"])) == 4,
+		"and each loaded set the file doesn't list plays as a chapter of its own, after the file's")
 	Chapters.reload()
 	var chapters := Chapters.all()
 	_check(not chapters.is_empty() and chapters[0].sets.size() >= 1 and chapters[0].sets[0] == "FRA",
@@ -532,6 +538,10 @@ func _test_set_unlock_delivery() -> void:
 	Progression.reset()
 	Progression.locks_sets = true
 	Collection.reset()
+	var first: String = LaptopScreen.shop_sets()[0].code
+	var second: String = LaptopScreen.shop_sets()[1].code
+	var third: String = LaptopScreen.shop_sets()[2].code
+	Chapters.use_text("Chapter 1\n%s\nChapter 2\n%s\n%s" % [first, second, third])
 	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
 	add_child(main)
 	await get_tree().physics_frame
@@ -545,50 +555,39 @@ func _test_set_unlock_delivery() -> void:
 				if unit.nameplates.is_shown(space):
 					count += 1
 		return count
-	_check(plates_up.call(units) == 0, "a new game's shelf has no plates")
-	_check(pile.binders.all(func(b: Binder) -> bool: return b.state == Binder.State.SHELVED and not b.visible),
-		"and every binder waits out of sight in its space")
-	_check(PackContents.pick_set(RandomNumberGenerator.new()) == "", "nothing's unlocked, so there's nothing to make product of")
+	var boxes_of := func(shop: Node, code: String) -> Array:
+		return (shop.get_node("Pile") as PileWorld).get_children().filter(func(n: Node) -> bool: return n is ProductBox and n.set_code == code)
+	_check(Progression.is_set_unlocked(first) and not Progression.is_set_unlocked(second) and plates_up.call(units) == 1,
+		"a new game opens Chapter 1, and only its set")
+	_check(pile.binders.all(func(b: Binder) -> bool: return b.state == Binder.State.SHELVED and b.visible == (b.binder.set_code == first)),
+		"its binder stands in its shelf space; every other waits out of sight")
+	var box: Array = boxes_of.call(main, first)
+	_check(box.size() == 1 and box[0].kind == ProductBox.Kind.BOOSTER and box[0].global_position.z > 5.5 and box[0].global_position.z < 8.0,
+		"and a sealed booster box of it is inside the door")
+	_check(pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack).is_empty(), "no loose packs")
 
 	var screen: LaptopScreen = main.laptop_screen
-	var code: String = LaptopScreen.shop_sets()[0].code
 	screen.open()
 	var shop := screen.open_app("shop")
-	_check(shop.find_child("Unlock", true, false) != null and shop.find_child("Order_pack", true, false) == null,
-		"a locked set shows Unlock, not Order")
+	_check(shop.find_child("Order_pack", true, false) != null, "the shop sells the open set")
+	screen._show_set(shop.find_child("Detail", true, false), second)
+	var locked: Node = shop.find_child("Locked", true, false)
+	_check(locked != null and shop.find_child("Order_pack", true, false) == null and shop.find_child("Unlock", true, false) == null
+		and (locked.get_child(1) as Label).text == "Opens with Chapter 2.", "a locked set says which chapter opens it, and has no Unlock")
 	var before := pile.get_child_count()
-	screen.order_product("pack", code)
-	_check(pile.get_child_count() == before, "a locked set can't be ordered")
-
-	screen.unlock_set(code)
-	_check(Progression.is_set_unlocked(code), "Unlock unlocks the set")
-	var binder: Binder = pile.binders.filter(func(b: Binder) -> bool: return b.binder.set_code == code).front()
-	_check(binder.visible and binder.state == Binder.State.CLOSED and binder.get_parent() == pile
-		and binder.global_position.z > 6.0 and binder.global_position.z < 8.0, "its binder is delivered inside the door")
-	var packs := pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.set_code == code)
-	_check(packs.size() == LaptopScreen.STARTER_PACKS, "with %d starter packs, got %d" % [LaptopScreen.STARTER_PACKS, packs.size()])
-	var unit: ShelfUnit = units.filter(func(u: ShelfUnit) -> bool: return u.space_for(code) >= 0).front()
-	var space := unit.space_for(code)
-	_check(unit.nameplates.is_shown(space) and unit.shelved[space] == null and plates_up.call(units) == 1,
-		"its plate goes up over its empty space, and only its")
-	_check(shop.find_child("Order_pack", true, false) != null and screen.shop_status.text.begins_with("Unlocked: "),
-		"the shop now sells it")
-	screen.unlock_set(code)
-	_check(pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.set_code == code).size() == packs.size(),
-		"unlocking again delivers nothing more")
-
+	screen.order_product("pack", second)
+	_check(pile.get_child_count() == before and main.orders.is_empty(), "a locked set can't be ordered")
 	screen.close()
 
-	# Ripping a pack of another (locked) set doesn't unlock it.
-	var other: String = LaptopScreen.shop_sets()[1].code
+	# Ripping a pack of a locked set doesn't unlock it.
 	var pack := BoosterPack.new()
-	pack.setup(other)
+	pack.setup(second)
 	pile.add_child(pack)
 	hands.held_pack = pack
 	hands.rip_pack()
-	_check(not Progression.is_set_unlocked(other), "opening product no longer unlocks a set")
+	_check(not Progression.is_set_unlocked(second), "opening product doesn't unlock a set")
 
-	# Saved and loaded: the plate stays up, locked binders stay hidden.
+	# Saved and loaded: the plate stays up, no second box comes.
 	var saved: Dictionary = main.capture_save()
 	main.free()
 	Saves._pending = saved
@@ -596,32 +595,24 @@ func _test_set_unlock_delivery() -> void:
 	add_child(main)
 	units = main._shelves()
 	pile = main.get_node("Pile")
-	unit = units.filter(func(u: ShelfUnit) -> bool: return u.space_for(code) >= 0).front()
-	_check(unit.nameplates.is_shown(unit.space_for(code)) and plates_up.call(units) == 1, "a save keeps the plate up")
-	_check(pile.binders.all(func(b: Binder) -> bool: return b.visible == (b.binder.set_code == code)),
-		"and only the unlocked set's binder is out")
+	_check(plates_up.call(units) == 1 and pile.binders.all(func(b: Binder) -> bool: return b.visible == (b.binder.set_code == first)),
+		"a save keeps Chapter 1 open, and only it")
+	_check(boxes_of.call(main, first).size() == 1, "and loading delivers nothing more")
 
-	# The first set of a chapter comes with a sealed booster box instead.
-	screen = main.laptop_screen
-	screen.open()
-	screen.open_app("shop")
-	var opener: String = LaptopScreen.shop_sets()[1].code
-	Chapters.use_text("Chapter 1\n%s\n%s" % [opener, LaptopScreen.shop_sets()[2].code])
-	_check(LaptopScreen.starter_product(opener) == "a sealed booster box"
-		and LaptopScreen.starter_product(LaptopScreen.shop_sets()[2].code) == "%d booster packs" % LaptopScreen.STARTER_PACKS,
-		"the shop says what comes with each set")
-	screen.unlock_set(opener)
-	var boxes := pile.get_children().filter(func(n: Node) -> bool: return n is ProductBox and n.set_code == opener)
-	_check(boxes.size() == 1 and boxes[0].kind == ProductBox.Kind.BOOSTER, "a chapter's first set comes with a booster box")
-	_check(pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.set_code == opener).is_empty(),
-		"and no loose packs")
-	_check(screen.shop_status.text.contains("a sealed booster box"), "and the shop says so")
-	var second: String = LaptopScreen.shop_sets()[2].code
-	screen.unlock_set(second)
-	var second_packs := pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and n.set_code == second)
-	_check(second_packs.size() == LaptopScreen.STARTER_PACKS, "the chapter's next set brings packs")
+	# Completing Chapter 1 opens Chapter 2: both its sets, a box each.
+	var binder: Binder = pile.binders.filter(func(b: Binder) -> bool: return b.binder.set_code == first).front()
+	for card in CardDatabase.cards_in_set(first):
+		if binder.binder.contains(card.collector_number):
+			binder.contents.insert(card.collector_number - binder.binder.first, Collection.add(card.id))
+	_check(binder.contents.is_complete(), "Chapter 1's binder is complete")
+	main._announce_complete_binders()
+	_check(Progression.is_set_unlocked(second) and Progression.is_set_unlocked(third) and plates_up.call(units) == 3,
+		"which opens every set of Chapter 2")
+	_check(boxes_of.call(main, second).size() == 1 and boxes_of.call(main, third).size() == 1, "each with its own booster box")
+	_check(main.hud.banner.visible and (main.hud.banner.find_child("Title", true, false) as Label).text == "Chapter 2",
+		"under one Chapter 2 banner")
+	_check(main.current_chapter(pile.binders).number == 2, "and the HUD counts Chapter 2 now")
 	Chapters.reload()
-	screen.close()
 	main.free()
 	get_tree().paused = false
 	Collection.reset()
