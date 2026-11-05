@@ -1319,6 +1319,34 @@ func _test_card_values() -> void:
 	CardValues.assign_set(unpriced)
 	_check(is_equal_approx(unpriced[0].value, 0.10) and is_equal_approx(unpriced[1].value, 2.50),
 		"a set with no prices (the placeholders) gets plain baselines")
+	# Two sets sharing 40 cards, the older one's twice the newer's.
+	var named := func(code: String, name: String, price: float, foil := -1.0) -> CardData:
+		var card: CardData = make.call(R, price)
+		card.set_code = code
+		card.name = name
+		card.foil_price = foil
+		return card
+	var newer := []
+	var older := []
+	for i in 40:
+		newer.append(named.call("NEW", "Card %d" % i, i + 1.0))
+		older.append(named.call("OLD", "Card %d" % i, 2.0 * (i + 1.0)))
+	newer.append(named.call("NEW", "Power", 100.0))
+	older.append(named.call("OLD", "Power", -1.0))
+	older.append(named.call("OLD", "Wolves", 0.10))
+	newer.append(named.call("NEW", "Wolves", 3.0))
+	older.append(named.call("OLD", "Foil Only", -1.0, 30.0))
+	older.append(named.call("OLD", "Banned", -1.0))
+	older.append(named.call("OLD", "Black Lotus", -1.0))
+	CardValues.assign({"NEW": newer, "OLD": older})
+	_check(absf(older[40].estimate - 200.0) < 0.01, "an unpriced card is estimated from its other printing: %.2f" % older[40].estimate)
+	_check(absf(older[41].estimate - 6.0) < 0.01 and older[41].value > older[0].value,
+		"a price under 1%% of its rarity's median is bad data and estimated too: %.2f" % older[41].estimate)
+	_check(older[42].estimate == 30.0, "a foil-only card goes by its foil price")
+	var middle := CardValues.median(PackedFloat64Array(older.filter(func(c: CardData) -> bool: return c.price >= 0.0).map(func(c: CardData) -> float: return c.price)))
+	_check(older[43].estimate < 0.0 and absf(older[43].value - older[20].value * sqrt(middle / older[20].price)) < 1e-4,
+		"a card with no priced printing anywhere is worth its rarity's median")
+	_check(is_equal_approx(older[44].estimate, older[40].estimate), "Black Lotus stands in as its set's dearest card")
 	_check(CardDatabase.cards_in_set(CardDatabase.sets_in_shelf_order()[0].code).all(
 		func(c: CardData) -> bool: return c.value > 0.0), "loaded cards all have a value")
 

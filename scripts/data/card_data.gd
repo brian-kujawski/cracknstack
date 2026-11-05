@@ -25,6 +25,9 @@ var image_near: String = ""
 ## and the foil price.
 var price: float = -1.0
 var foil_price: float = -1.0
+## A stand-in price (CardValues.estimate_missing) where the real one is
+## missing or can't be right, -1 for none.
+var estimate: float = -1.0
 ## What it's worth in the game, in game dollars (CardValues, from the price).
 var value: float = 0.0
 
