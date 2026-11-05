@@ -14,4 +14,6 @@ missing, its tile falls back to achievement001.
 rare cards in the display cabinets in order (Achievements.RARE), 053
 the one for putting every rare card on display, and 054-065 the twelve
 wall art frames in WallArt.LIST order (scripts/data/wall_art.gd): 054-058
-the basic lands over the shelf, 059-065 the reading corner's frames.
+the basic lands over the shelf, 059-065 the reading corner's frames;
+066 finding the first of the seven cards banned in 2020 for racist
+content (Achievements.BANNED_CARDS), 067 finding all seven.

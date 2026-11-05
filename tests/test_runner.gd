@@ -1319,6 +1319,34 @@ func _test_card_values() -> void:
 	CardValues.assign_set(unpriced)
 	_check(is_equal_approx(unpriced[0].value, 0.10) and is_equal_approx(unpriced[1].value, 2.50),
 		"a set with no prices (the placeholders) gets plain baselines")
+	# Two sets sharing 40 cards, the older one's twice the newer's.
+	var named := func(code: String, name: String, price: float, foil := -1.0) -> CardData:
+		var card: CardData = make.call(R, price)
+		card.set_code = code
+		card.name = name
+		card.foil_price = foil
+		return card
+	var newer := []
+	var older := []
+	for i in 40:
+		newer.append(named.call("NEW", "Card %d" % i, i + 1.0))
+		older.append(named.call("OLD", "Card %d" % i, 2.0 * (i + 1.0)))
+	newer.append(named.call("NEW", "Power", 100.0))
+	older.append(named.call("OLD", "Power", -1.0))
+	older.append(named.call("OLD", "Wolves", 0.10))
+	newer.append(named.call("NEW", "Wolves", 3.0))
+	older.append(named.call("OLD", "Foil Only", -1.0, 30.0))
+	older.append(named.call("OLD", "Banned", -1.0))
+	older.append(named.call("OLD", "Black Lotus", -1.0))
+	CardValues.assign({"NEW": newer, "OLD": older})
+	_check(absf(older[40].estimate - 200.0) < 0.01, "an unpriced card is estimated from its other printing: %.2f" % older[40].estimate)
+	_check(absf(older[41].estimate - 6.0) < 0.01 and older[41].value > older[0].value,
+		"a price under 1%% of its rarity's median is bad data and estimated too: %.2f" % older[41].estimate)
+	_check(older[42].estimate == 30.0, "a foil-only card goes by its foil price")
+	var middle := CardValues.median(PackedFloat64Array(older.filter(func(c: CardData) -> bool: return c.price >= 0.0).map(func(c: CardData) -> float: return c.price)))
+	_check(older[43].estimate < 0.0 and absf(older[43].value - older[20].value * sqrt(middle / older[20].price)) < 1e-4,
+		"a card with no priced printing anywhere is worth its rarity's median")
+	_check(is_equal_approx(older[44].estimate, older[40].estimate), "Black Lotus stands in as its set's dearest card")
 	_check(CardDatabase.cards_in_set(CardDatabase.sets_in_shelf_order()[0].code).all(
 		func(c: CardData) -> bool: return c.value > 0.0), "loaded cards all have a value")
 
@@ -2066,8 +2094,8 @@ func _test_achievements() -> void:
 	for colour in Progression.COLOURS.size():
 		for step in Progression.COLOURS[colour].steps:
 			nodes[step[0]] = colour
-	_check(Achievements.count() == nodes.size() + RareCards.count() + 1 + WallArt.count(),
-		"one achievement per card the upgrade tree is named after, per rare card, one for all rare cards, and one per wall art frame: %d" % Achievements.count())
+	_check(Achievements.count() == nodes.size() + RareCards.count() + 1 + WallArt.count() + 2,
+		"one achievement per card the upgrade tree is named after, per rare card, one for all rare cards, one per wall art frame, and two for the banned cards: %d" % Achievements.count())
 	var matches := true
 	for index in nodes.size():
 		matches = matches and nodes.get(Achievements.card_name(index), -1) == Achievements.colour(index)
@@ -2113,6 +2141,24 @@ func _test_achievements() -> void:
 	_check(Achievements.is_unlocked(tithe), "New Game doesn't clear achievements")
 	Achievements.load_from(path)
 	_check(Achievements.is_unlocked(tithe) and Achievements.description(tithe) == "Filed Tithe from %s." % set_name, "unlocked achievements are saved and load back")
+	var first := Achievements.first_banned_index()
+	var all := Achievements.all_banned_index()
+	_check(Achievements.is_banned(first) and Achievements.is_banned(all) and not Achievements.is_wall_art(first)
+		and Achievements.colour(first) == Achievements.BANNED_GROUP and Achievements.key(all) == "banned:all",
+		"the two banned card achievements come last, in their own group")
+	heard.clear()
+	Achievements.banned_card_found("Crusade")
+	Achievements.banned_card_found("Crusade")
+	_check(heard == [first] and Achievements.banned_found_count() == 1 and not Achievements.is_unlocked(all),
+		"finding Crusade unlocks the first banned card achievement, once")
+	Achievements.load_from(path)
+	_check(Achievements.banned_found_count() == 1, "which banned cards were found is saved and loads back")
+	for name in Achievements.BANNED_CARDS.slice(0, -1):
+		Achievements.banned_card_found(name)
+	_check(not Achievements.is_unlocked(all), "six of the seven isn't all of them")
+	Achievements.banned_card_found(Achievements.BANNED_CARDS[-1])
+	_check(heard == [first, all] and Achievements.description(all) == Achievements.BANNED[1][1],
+		"finding the seventh unlocks All Seven: " + Achievements.description(all))
 	Achievements.unlocked.disconnect(listen)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	Achievements.load_from(Achievements.SAVE_PATH)

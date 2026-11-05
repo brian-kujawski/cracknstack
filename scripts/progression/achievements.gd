@@ -12,6 +12,12 @@ extends Node
 ## Last, one for each frame of wall art (WallArt), unlocked when its card is
 ## locked into its own pocket and its art goes up on the wall.
 ##
+## And two for the seven cards Wizards of the Coast banned from every format
+## in 2020 for racist content (BANNED_CARDS): one for finding the first of
+## them, one for finding all seven. Found means a copy came out of a pack or
+## a bulk box (cards_found). Which of the seven have been found is kept with
+## the unlocks, so the second one can span games.
+##
 ## Unlocked achievements belong to the player, not to one game: they're kept
 ## in user://achievements.cfg, apart from save files, and New Game doesn't
 ## clear them.
@@ -87,14 +93,36 @@ const RARE := [
 	["Rare Card 36", "Put Rare Card 36 on display."],
 	["Collector", "Put every rare card on display."],
 ]
-## colour() of the rare card achievements, which belong to no colour, and
-## of the wall art's.
+## The seven cards Wizards of the Coast banned in 2020 for racist content,
+## by name (every printing counts).
+const BANNED_CARDS := [
+	"Crusade",
+	"Cleanse",
+	"Imprison",
+	"Invoke Prejudice",
+	"Jihad",
+	"Pradesh Gypsies",
+	"Stone-Throwing Devils",
+]
+## Their two achievements, for the first found and for all seven: [title,
+## line shown once unlocked]. Placeholders, yours to write. Icons carry on
+## after the wall art's (066, 067).
+const BANNED := [
+	["Banned Card", "Found one of the seven cards Wizards of the Coast banned from every format in 2020 for racist imagery or text."],
+	["All Seven", "Found all seven cards Wizards of the Coast banned in 2020 for racist content. They stay in this game as part of Magic's history."],
+]
+
+## colour() of the rare card achievements, which belong to no colour, of
+## the wall art's and of the banned cards'.
 const RARE_GROUP := -1
 const WALL_ART_GROUP := -2
+const BANNED_GROUP := -3
 
 ## Key (a card name, "rare:NN" / "rare:all", or "art:NN") -> [set name it was filed
 ## from ("" for rare cards), date unlocked "YYYY-MM-DD"].
 var _unlocked := {}
+## Names of the BANNED_CARDS found so far -> true.
+var _banned_found := {}
 var _path := SAVE_PATH
 
 
@@ -103,7 +131,7 @@ func _ready() -> void:
 
 
 func count() -> int:
-	return _wall_art_start() + WallArt.count()
+	return _banned_start() + BANNED.size()
 
 
 ## The achievement's name: the card it's named after, or a rare one's or
@@ -111,15 +139,20 @@ func count() -> int:
 func card_name(index: int) -> String:
 	if index < LIST.size():
 		return LIST[index][0]
+	if is_banned(index):
+		return BANNED[index - _banned_start()][0]
 	if is_wall_art(index):
 		return WallArt.LIST[index - _wall_art_start()][0]
 	return RARE[index - LIST.size()][0]
 
 
-## Its colour in the upgrade tree, or RARE_GROUP or WALL_ART_GROUP.
+## Its colour in the upgrade tree, or RARE_GROUP, WALL_ART_GROUP or
+## BANNED_GROUP.
 func colour(index: int) -> int:
 	if index < LIST.size():
 		return LIST[index][1]
+	if is_banned(index):
+		return BANNED_GROUP
 	return WALL_ART_GROUP if is_wall_art(index) else RARE_GROUP
 
 
@@ -128,7 +161,11 @@ func is_rare(index: int) -> bool:
 
 
 func is_wall_art(index: int) -> bool:
-	return index >= _wall_art_start()
+	return index >= _wall_art_start() and index < _banned_start()
+
+
+func is_banned(index: int) -> bool:
+	return index >= _banned_start()
 
 
 ## The achievement for rare card `number` (from 1), and the one for all of
@@ -146,16 +183,32 @@ func wall_art_index(index: int) -> int:
 	return _wall_art_start() + index
 
 
+## The achievement for finding the first banned card, and all seven.
+func first_banned_index() -> int:
+	return _banned_start()
+
+
+func all_banned_index() -> int:
+	return _banned_start() + 1
+
+
 func _wall_art_start() -> int:
 	return LIST.size() + RARE.size()
 
 
+func _banned_start() -> int:
+	return _wall_art_start() + WallArt.count()
+
+
 ## What an unlock is saved under: the card's name, for the rare cards their
 ## number ("rare:07") or "rare:all", and for the wall art its frame's
-## ("art:03"), so renaming them loses nothing.
+## ("art:03"), and the banned cards' "banned:first" and "banned:all", so
+## renaming them loses nothing.
 func key(index: int) -> String:
 	if index < LIST.size():
 		return LIST[index][0]
+	if is_banned(index):
+		return "banned:first" if index == first_banned_index() else "banned:all"
 	if is_wall_art(index):
 		return "art:%02d" % (index - _wall_art_start() + 1)
 	if index == all_rare_index():
@@ -181,6 +234,8 @@ func description(index: int) -> String:
 		return RARE[index - LIST.size()][1]
 	if is_wall_art(index):
 		return WallArt.LIST[index - _wall_art_start()][1]
+	if is_banned(index):
+		return BANNED[index - _banned_start()][1]
 	return "Filed %s from %s." % [card_name(index), _unlocked[key(index)][0]]
 
 
@@ -210,6 +265,30 @@ func wall_art_hung(index: int) -> void:
 	unlock(wall_art_index(index), "")
 
 
+## New copies came out of a pack or a bulk box: any of the BANNED_CARDS
+## among them count as found.
+func cards_found(copies) -> void:
+	for copy: int in copies:
+		var name := Collection.card(copy).name
+		if name in BANNED_CARDS:
+			banned_card_found(name)
+
+
+## How many of the BANNED_CARDS have been found.
+func banned_found_count() -> int:
+	return _banned_found.size()
+
+
+func banned_card_found(name: String) -> void:
+	if _banned_found.has(name):
+		return
+	_banned_found[name] = true
+	save()
+	unlock(first_banned_index(), "")
+	if _banned_found.size() == BANNED_CARDS.size():
+		unlock(all_banned_index(), "")
+
+
 func index_of(name: String) -> int:
 	for index in LIST.size():
 		if LIST[index][0] == name:
@@ -237,6 +316,8 @@ func save(path := _path) -> void:
 	var file := ConfigFile.new()
 	for name in _unlocked:
 		file.set_value("unlocked", name, _unlocked[name])
+	if not _banned_found.is_empty():
+		file.set_value("found", "banned", PackedStringArray(_banned_found.keys()))
 	file.save(path)
 
 
@@ -245,8 +326,14 @@ func save(path := _path) -> void:
 func load_from(path: String) -> void:
 	_path = path
 	_unlocked.clear()
+	_banned_found.clear()
 	var file := ConfigFile.new()
-	if file.load(path) != OK or not file.has_section("unlocked"):
+	if file.load(path) != OK:
+		return
+	for name in file.get_value("found", "banned", PackedStringArray()):
+		if name in BANNED_CARDS:
+			_banned_found[name] = true
+	if not file.has_section("unlocked"):
 		return
 	for name in file.get_section_keys("unlocked"):
 		var entry = file.get_value("unlocked", name)
