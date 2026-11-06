@@ -2,11 +2,11 @@
 #
 # A line starting with "Chapter" begins a new chapter; the rest of that line
 # is its name. Under it, one set code per line (the code on the set's
-# nameplate, e.g. FRA), in the order you want them. The FIRST set of each
-# chapter comes with a sealed booster box when it unlocks; every other set
-# comes with a few booster packs. Anything after a # is a comment, and blank
-# lines don't matter. A set that isn't listed in any chapter still unlocks
-# with packs, it just isn't part of a chapter.
+# nameplate, e.g. FRA), in the order you want them. A new game opens
+# Chapter 1; completing every binder in a chapter opens the next. Every set
+# in a chapter unlocks when the chapter opens, each with a sealed booster
+# box. Anything after a # is a comment, and blank lines don't matter. A set
+# that isn't listed in any chapter gets a chapter of its own after these.
 
 Chapter 1
 FRA  # Reality Fracture (2026)

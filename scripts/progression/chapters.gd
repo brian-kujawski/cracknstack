@@ -1,9 +1,15 @@
 class_name Chapters
 extends RefCounted
 ## The chapters: which sets the game unlocks together, read from one text
-## file (data/chapters.txt) so they're easy to rearrange. The first set of
-## each chapter comes with a sealed booster box when it unlocks; the rest
-## come with LaptopScreen.STARTER_PACKS packs (Main._on_set_unlocked).
+## file (data/chapters.txt) so they're easy to rearrange. A new game opens
+## Chapter 1: every set in it unlocks, each with a sealed booster box
+## (Main.open_chapter). Once every one of its binders is complete, the next
+## chapter opens the same way.
+##
+## The game plays the chapters over the sets that are loaded (playable): a
+## set the file lists but the data doesn't have is left out, and a loaded
+## set the file doesn't list gets a chapter of its own after the file's, so
+## nothing is out of reach (the placeholder sets play one at a time).
 ##
 ## The file: a line starting with "Chapter" begins a chapter (the rest of
 ## the line is its name); then one set code per line. "#" starts a comment.
@@ -13,6 +19,10 @@ const PATH := "res://data/chapters.txt"
 ## Each chapter: {"name": String, "sets": PackedStringArray}, in order.
 static var _chapters: Array[Dictionary] = []
 static var _loaded := false
+## playable()'s last answer, and the sets it was for.
+static var _playable: Array[PackedStringArray] = []
+static var _playable_for := PackedStringArray()
+static var _playable_ready := false
 
 
 ## All chapters, in order (read from PATH the first time).
@@ -26,11 +36,13 @@ static func all() -> Array[Dictionary]:
 static func use_text(text: String) -> void:
 	_chapters = parse(text)
 	_loaded = true
+	_playable_ready = false
 
 
 ## Goes back to reading the file.
 static func reload() -> void:
 	_loaded = false
+	_playable_ready = false
 
 
 ## Chapters from the file's text. Set codes are upper-cased; a set listed
@@ -66,9 +78,57 @@ static func chapter_of(code: String) -> int:
 	return 0
 
 
-## Whether `code` is the first set of its chapter (it comes with a box).
-static func opens_chapter(code: String) -> bool:
-	for chapter in all():
-		if not chapter.sets.is_empty() and chapter.sets[0] == code.to_upper():
-			return true
-	return false
+## The chapters the game plays, as each one's set codes, for the loaded
+## sets `codes` (the order unlisted sets' chapters come in): see the top.
+static func playable(codes: PackedStringArray) -> Array[PackedStringArray]:
+	var listed := all()
+	if _playable_ready and codes == _playable_for:
+		return _playable
+	var loaded := {}
+	for code in codes:
+		loaded[code.to_upper()] = true
+	var chapters: Array[PackedStringArray] = []
+	var placed := {}
+	for chapter in listed:
+		var sets := PackedStringArray()
+		for code in chapter.sets:
+			if loaded.has(code):
+				sets.append(code)
+				placed[code] = true
+		if not sets.is_empty():
+			chapters.append(sets)
+	for code in codes:
+		if not placed.has(code.to_upper()):
+			chapters.append(PackedStringArray([code.to_upper()]))
+	_playable = chapters
+	_playable_for = codes.duplicate()
+	_playable_ready = true
+	return chapters
+
+
+## The chapter set `code` is played in, counting from 1, among
+## playable(`codes`); 0 when it's in none.
+static func number_in(code: String, codes: PackedStringArray) -> int:
+	var chapters := playable(codes)
+	for i in chapters.size():
+		if code.to_upper() in chapters[i]:
+			return i + 1
+	return 0
+
+
+## The chapters this game plays: playable() over the sets the Card Shop
+## sells, newest first.
+static func game() -> Array[PackedStringArray]:
+	return playable(shop_codes())
+
+
+## The chapter set `code` is played in (number_in over shop_codes()).
+static func game_number(code: String) -> int:
+	return number_in(code, shop_codes())
+
+
+static func shop_codes() -> PackedStringArray:
+	var codes := PackedStringArray()
+	for set_data in LaptopScreen.shop_sets():
+		codes.append(set_data.code)
+	return codes
