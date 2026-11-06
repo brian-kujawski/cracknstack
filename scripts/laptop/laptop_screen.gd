@@ -41,11 +41,14 @@ const TASKBAR_GAP := 5
 ## Height of everything in the taskbar.
 const TASK_ROW := TASKBAR_HEIGHT - TASKBAR_GAP * 2
 const ICON_SIZE := Vector2(130, 110)
+## A tool's picture in the Tools app, square.
+const TOOL_ICON := 64
 ## Each program: its id, its name (desktop and Start menu), its window's
 ## title and size.
 const APPS := [
 	["shop", "Card Shop", "Card Shop", Vector2(1180, 720)],
 	["collection", "My Collection", "My Collection", Vector2(860, 680)],
+	["tools", "Tools", "Tools", Vector2(900, 700)],
 	["story", "To Do", LaptopText.STORY_TITLE, Vector2(820, 640)],
 	["readme", "Instructions", LaptopText.README_TITLE, Vector2(860, 700)],
 ]
@@ -62,6 +65,9 @@ var day: DayCycle
 ## Returns what My Collection shows (the shop sets it): {"organized",
 ## "pockets", "mana", "binders": [[code, filled, capacity], ...]}.
 var stats := Callable()
+## Returns the orders waiting to arrive (the shop sets it): [kind, code, ...]
+## each, as Main.orders.
+var pending := Callable()
 ## Open windows by program id. For the tests.
 var windows := {}
 ## The Card Shop's chosen set, and its last order's line.
@@ -380,6 +386,8 @@ func open_app(app: String) -> LaptopWindow:
 			_build_shop(window.content)
 		"collection":
 			_build_collection(window.content)
+		"tools":
+			_build_tools(window.content)
 		"story":
 			_build_text(window.content, "story")
 		"readme":
@@ -502,6 +510,11 @@ func _refresh(app: String) -> void:
 				child.queue_free()
 				window.content.remove_child(child)
 			_build_collection(window.content)
+		"tools":
+			for child in window.content.get_children():
+				child.queue_free()
+				window.content.remove_child(child)
+			_build_tools(window.content)
 		"story":
 			var text := window.find_child("Text", true, false) as Label
 			text.text = story_text(_stats().get("organized", 0))
@@ -642,6 +655,181 @@ func _show_set(detail: Control, code: String) -> void:
 		var panel := Win95.well(row, Win95.FACE)
 		panel.add_theme_stylebox_override("panel", Win95.bevel(Win95.Look.RAISED, Win95.FACE, 14))
 		detail.add_child(panel)
+	_show_singles(detail, code)
+
+
+## Card Shop singles of set `code`: once you own Prices.singles_from() of
+## it, every card you're missing, one Order button each.
+func _show_singles(detail: Control, code: String) -> void:
+	var share := PackContents.owned_share(code)
+	if share < Prices.singles_from():
+		return
+	detail.add_child(Win95.label("Singles", 22))
+	var list := VBoxContainer.new()
+	list.name = "Singles"
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 4)
+	var waiting := _pending_singles()
+	for card in CardDatabase.cards_in_set(code):
+		if Collection.owns(card.id):
+			continue
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		var cents := Prices.single_cents(card)
+		var words := Win95.label("#%03d  %s  ·  %s" % [card.collector_number, card.name, Progression.money_text(cents)], 18)
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.clip_text = true
+		row.add_child(words)
+		var key := single_key(card)
+		var order := Win95.button("Ordered" if waiting.has(key) else "Order", order_single.bind(card), 130)
+		order.name = "Single_%d" % card.collector_number
+		order.disabled = waiting.has(key) or cents > Progression.money
+		row.add_child(order)
+		list.add_child(row)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list)
+	var well := Win95.well(scroll)
+	well.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail.add_child(well)
+
+
+## How a single is named in an order: "SET:number".
+static func single_key(card: CardData) -> String:
+	return "%s:%d" % [card.set_code, card.collector_number]
+
+
+## The singles on their way: "SET:number" -> true.
+func _pending_singles() -> Dictionary:
+	var waiting := {}
+	var orders: Array = pending.call() if pending.is_valid() else []
+	for order in orders:
+		if order[0] == "single":
+			waiting[order[1]] = true
+	return waiting
+
+
+## Orders a single of `card`, paying for it now: only while its set's
+## singles are on sale, you don't own it, it isn't on its way already and
+## you can afford it. Returns whether it was ordered.
+func order_single(card: CardData) -> bool:
+	if not Progression.is_set_unlocked(card.set_code) or Collection.owns(card.id):
+		return false
+	if PackContents.owned_share(card.set_code) < Prices.singles_from():
+		return false
+	if _pending_singles().has(single_key(card)):
+		return false
+	if not Progression.spend_money(Prices.single_cents(card)):
+		if shop_status != null:
+			shop_status.text = "Not enough money for %s. %s" % [card.name, money_line()]
+		return false
+	ordered.emit("single", single_key(card))
+	if shop_status != null:
+		shop_status.text = "Ordered: %s. It arrives tomorrow morning. You have %s left." % [
+			card.name, Progression.money_text(Progression.money)]
+	_redraw_shop(card.set_code)
+	return true
+
+
+func _redraw_shop(code: String) -> void:
+	var window: Control = windows.get("shop")
+	var detail: Control = window.find_child("Detail", true, false) if window != null else null
+	if detail != null and shop_set == code:
+		_show_set(detail, code)
+
+
+# --- Tools -----------------------------------------------------------------
+
+## The Tools catalogue: every tool in level order (_tool_row).
+func _build_tools(into: Control) -> void:
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	column.set_anchors_preset(Control.PRESET_FULL_RECT)
+	into.add_child(column)
+	column.add_child(Win95.label("Tools", 28))
+	var list := VBoxContainer.new()
+	list.name = "ToolList"
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 8)
+	for row in Tools.LIST:
+		list.add_child(_tool_row(row))
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list)
+	column.add_child(scroll)
+	var status := Win95.label(money_line(), 18)
+	status.name = "ToolStatus"
+	column.add_child(Win95.well(status, Win95.FACE))
+
+
+## One tool's panel: its picture, name, what it does and price, and an
+## Order button or where it stands. Until its level is reached the picture
+## is the grey outline and what it does is "???"; more than HIDDEN_BEYOND
+## levels away its name is "???" too.
+func _tool_row(tool: Array) -> Control:
+	var id: String = tool[0]
+	var opened := Progression.level() >= int(tool[2])
+	var row := HBoxContainer.new()
+	row.name = "Tool_" + id
+	row.add_theme_constant_override("separation", 14)
+	var picture := TextureRect.new()
+	picture.name = "Icon"
+	picture.texture = Tools.icon(id, opened)
+	picture.custom_minimum_size = Vector2.ONE * TOOL_ICON
+	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	picture.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(picture)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	words.add_theme_constant_override("separation", 0)
+	row.add_child(words)
+	var grey := Win95.SHADOW.darkened(0.3)
+	words.add_child(Win95.label(tool[1] if Tools.is_named(id) else "???", 22))
+	var effect := Win95.label("%s  ·  %s" % [tool[4], Progression.money_text(Tools.price_cents(id))] if opened else "???", 18, grey)
+	words.add_child(effect)
+	var state := ""
+	if Progression.has_tool(id):
+		state = "Owned"
+	elif Progression.is_tool_ordered(id):
+		state = "On its way"
+	elif not opened:
+		state = "Level %d" % tool[2]
+	if state != "":
+		var note := Win95.label(state, 18)
+		note.autowrap_mode = TextServer.AUTOWRAP_OFF
+		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		note.custom_minimum_size.x = 130
+		note.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(note)
+	else:
+		var order := Win95.button("Order", order_tool.bind(id), 130)
+		order.name = "Order"
+		order.disabled = not Tools.can_order(id)
+		order.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(order)
+	var panel := Win95.well(row, Win95.FACE)
+	panel.add_theme_stylebox_override("panel", Win95.bevel(Win95.Look.RAISED, Win95.FACE, 14))
+	return panel
+
+
+## Orders tool `id`, paying for it now (Tools.can_order). It arrives with
+## the morning's orders. Returns whether it was ordered.
+func order_tool(id: String) -> bool:
+	if not Tools.can_order(id) or not Progression.spend_money(Tools.price_cents(id)):
+		return false
+	Progression.mark_tool_ordered(id)
+	ordered.emit("tool", id)
+	_refresh("tools")
+	var window: Control = windows.get("tools")
+	var status: Label = window.find_child("ToolStatus", true, false) if window != null else null
+	if status != null:
+		status.text = "Ordered: %s. It arrives tomorrow morning. You have %s left." % [
+			Tools.tool_name(id), Progression.money_text(Progression.money)]
+	return true
 
 
 ## The Card Shop's money line: what you have, and when orders come.
@@ -664,10 +852,7 @@ func order_product(kind: String, code: String) -> bool:
 	if shop_status != null:
 		shop_status.text = "Ordered: %s %s. It arrives tomorrow morning. You have %s left." % [
 			CardDatabase.get_set(code).name, product[1], Progression.money_text(Progression.money)]
-	var window: Control = windows.get("shop")
-	var detail: Control = window.find_child("Detail", true, false) if window != null else null
-	if detail != null and shop_set == code:
-		_show_set(detail, code)
+	_redraw_shop(code)
 	return true
 
 

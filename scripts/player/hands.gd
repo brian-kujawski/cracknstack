@@ -163,6 +163,9 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX,
 ## strip takes to fly off, and how long the card on top takes to go to the
 ## back when the next one's shown.
 @export var rip_seconds := 1.6
+## With the pack knife (Tools "pack_knife"), ripping takes this share of
+## rip_seconds.
+@export var pack_knife_share := 0.375
 @export var pack_burst_seconds := 0.45
 @export var reveal_seconds := 0.22
 ## How long the cards out of a pack take to come up from the pack's size to
@@ -485,7 +488,9 @@ func _use_hand() -> void:
 		radio_used.emit()
 		return
 	if held_box != null:
-		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
+		if held_box is SortingTray and _aim == Aim.BOX and _aim_box is ShippingBox:
+			sell_tray(held_box, _aim_box)
+		elif _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
 			put_down_box()
 		return
 	if held_pack != null:
@@ -510,6 +515,9 @@ func _use_hand() -> void:
 	if held_card_id >= 0:
 		if _aim == Aim.BOX and _aim_box is ShippingBox:
 			sell_held_card(_aim_box)
+			return
+		if _aim == Aim.BOX and _aim_box is SortingTray:
+			drop_on_tray(_aim_box)
 			return
 		if _try_display_held_card() or _try_file_held_card():
 			return
@@ -1171,7 +1179,7 @@ func held_shipping_box() -> ShippingBox:
 func shipping_box_hint(box: ShippingBox) -> String:
 	if box.sealed:
 		return "Sealed: %d Cards" % box.cards
-	var lines := PackedStringArray(["Shipping Box: %d/%d Cards" % [box.cards, ShippingBox.CAPACITY]])
+	var lines := PackedStringArray(["Shipping Box: %d/%d Cards" % [box.cards, box.capacity]])
 	if box.can_seal():
 		lines.append("%s: Seal Box" % _key(Controls.INTERACT))
 	return "\n".join(lines)
@@ -1503,12 +1511,12 @@ func _take_pack_node(pack: BoosterPack) -> void:
 ## all been shown, lower the stack into your hand; otherwise show the next
 ## card.
 func press_rip() -> void:
-	if held_box is Laptop or held_box is ShippingBox:
+	if held_box != null and not is_product(held_box):
 		return
 	if held_box != null:
 		open_box(held_box)
 	elif _hands_empty() and _aim == Aim.BOX:
-		if not (_aim_box is Laptop or _aim_box is ShippingBox):
+		if is_product(_aim_box):
 			open_box(_aim_box)
 	elif held_pack != null:
 		_start_ripping()
@@ -1521,6 +1529,53 @@ func press_rip() -> void:
 
 ## A new, empty shipping box from the crate by the door, into your hand.
 ## Returns it.
+## Whether `box` is sealed product to open (a booster or bulk box), not
+## the laptop, a shipping box or the sorting tray.
+static func is_product(box: ProductBox) -> bool:
+	return not (box is Laptop or box is ShippingBox or box is SortingTray)
+
+
+## The sorting tray, aimed at with a card in hand: a duplicate glides onto
+## it. A card the collection still needs stays in hand. Returns whether the
+## card went.
+func drop_on_tray(tray: SortingTray) -> bool:
+	if held_card_id < 0 or tray == null or tray == held_box or _gliding() or collection_needs(held_card_id):
+		return false
+	var id := held_card_id
+	var card := _card_copy(id)
+	var from := _held_view.global_transform
+	_release_top()
+	var to := tray.card_slot_pose()
+	tray.add(id)
+	_glide = Glide.start(card, from, func() -> Transform3D: return to, glide_seconds(sell_seconds), put_down_lift)
+	_glide.tween_callback(card.queue_free)
+	return true
+
+
+## The sorting tray in hand, clicking a shipping box: the tray's stack is
+## sold into the box in one go, top card first, as many as it has room for.
+## Returns the cents paid.
+func sell_tray(tray: SortingTray, box: ShippingBox) -> int:
+	var paid := 0
+	while not tray.cards.is_empty() and box.has_room():
+		var id: int = tray.take(1)[0]
+		var cents := Sales.sell(id)
+		box.add_card(id)
+		seen_cards.erase(id)
+		paid += cents
+		card_sold.emit(id, cents)
+	if paid > 0:
+		FeedbackSounds.play(pile, box.global_position, FeedbackSounds.Kind.CARD_SOLD)
+	held_pack_changed.emit(tray.set_code) # The corner's count changes.
+	return paid
+
+
+## How long Space is held to rip a pack open now: quicker with the pack
+## knife.
+func rip_time() -> float:
+	return rip_seconds * (pack_knife_share if Progression.has_tool("pack_knife") else 1.0)
+
+
 func take_new_shipping_box() -> ShippingBox:
 	var box := ShippingBox.new()
 	box.build()
@@ -1581,9 +1636,9 @@ func sell_held_card(box: ShippingBox, confirmed := false) -> bool:
 	if not confirmed and Settings.value("confirm_new_sales") and collection_needs(id):
 		sale_confirm_requested.emit(box)
 		return false
-	var cents := Prices.sale_cents(Collection.card(id))
 	var card := _card_copy(id)
 	card.remove_meta("card_id") # Sold: nothing for a save to put back.
+	var cents := Sales.sell(id)
 	_sleeve(card, cents)
 	var from := _held_view.global_transform
 	_release_top()
@@ -1596,9 +1651,7 @@ func sell_held_card(box: ShippingBox, confirmed := false) -> bool:
 			box.add_card(id)
 		FeedbackSounds.play(pile, to.origin, FeedbackSounds.Kind.CARD_SOLD)
 		card.queue_free())
-	Collection.mark_sold(id)
 	seen_cards.erase(id)
-	Progression.earn_money(cents)
 	card_sold.emit(id, cents)
 	return true
 
@@ -1721,7 +1774,7 @@ func put_down_pack() -> void:
 ## table or the floor. Opening a set's product unlocks the set (for now).
 ## Returns the packs tipped out, or the copies made.
 func open_box(box: ProductBox) -> Array:
-	if box is Laptop or box is ShippingBox:
+	if not is_product(box):
 		return [] # Not product: E uses the laptop, and seals a shipping box.
 	var at := box.global_position
 	if box == held_box:
@@ -1789,7 +1842,7 @@ func _process(delta: float) -> void:
 	if _ripping and (held_pack == null or not Input.is_action_pressed(Controls.RIP)):
 		_ripping = false
 	if _ripping and not _gliding():
-		_rip = minf(1.0, _rip + delta / rip_seconds)
+		_rip = minf(1.0, _rip + delta / rip_time())
 		held_pack.set_tear(rip_tear(_rip))
 		# It shakes harder the further it's torn, quick and uneven.
 		var strength := lerpf(0.08, 1.0, _rip * _rip)

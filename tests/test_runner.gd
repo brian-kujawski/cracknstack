@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_hud", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_tools_and_singles", &"_test_hud", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
 
 var _failures := 0
 var _checks := 0
@@ -93,6 +93,7 @@ func _ready() -> void:
 	await _run(_test_booster_packs)
 	await _run(_test_laptop)
 	await _run(_test_selling)
+	await _run(_test_tools_and_singles)
 	await _run(_test_hud)
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
@@ -370,6 +371,226 @@ func _test_selling() -> void:
 	_check(hint[0] == "E: End Day", "the door's hint is E: End Day, got " + hint[0])
 	main.free()
 	Progression.reset()
+
+
+## The money track (Tools): the laptop's Tools catalogue, deliveries, what
+## each tool changes, the sorting tray, Card Shop singles (Burning Wish) and
+## Quicken's express orders.
+func _test_tools_and_singles() -> void:
+	Progression.reset()
+	Collection.reset()
+	var levels := true
+	for i in range(1, Tools.LIST.size()):
+		levels = levels and int(Tools.LIST[i][2]) >= int(Tools.LIST[i - 1][2])
+	_check(levels, "the Tools catalogue runs in level order")
+	_check(Tools.is_named("sorting_tray") and Tools.is_named("pack_knife") and not Tools.is_named("boxes_300"),
+		"at Level 1 the next level's tools are named; further ones are ???")
+	_check(not Tools.can_order("sorting_tray"), "a tool you can't afford can't be ordered")
+	Progression.earn_money(Tools.price_cents("sorting_tray"))
+	_check(Tools.can_order("sorting_tray") and not Tools.can_order("pack_knife"), "one you can afford, at your level, can")
+
+	# Price rates live in Prices.
+	_check(is_equal_approx(Prices.sell_rate(), 1.0), "sales pay a card's value")
+	Progression.give_tool("listings")
+	_check(is_equal_approx(Prices.sell_rate(), Prices.LISTINGS_RATE), "online listings pay 1.1x")
+	Progression.give_tool("storefront")
+	_check(is_equal_approx(Prices.sell_rate(), Prices.STOREFRONT_RATE), "a storefront pays 1.2x, in place of listings")
+	Progression.reach_level(8)
+	_check(is_equal_approx(Prices.sell_rate(), Prices.STOREFRONT_RATE * Prices.BLACK_MARKET_RATE), "Black Market stacks on top")
+	var code: String = LaptopScreen.shop_sets()[0].code
+	var box_price := Prices.product_cents("booster_box", code)
+	Progression.give_tool("bulk_account")
+	_check(Prices.product_cents("booster_box", code) == roundi(box_price * 0.9), "a bulk account takes 10% off booster boxes")
+	_check(Progression.save_state().tools.has("bulk_account"), "tools are saved")
+	var state := Progression.save_state()
+	Progression.reset()
+	_check(not Progression.has_tool("listings"), "a new game has none")
+	Progression.restore_state(state)
+	_check(Progression.has_tool("listings") and Progression.has_tool("bulk_account"), "and a load brings them back")
+
+	# One sale function.
+	Progression.reset()
+	var card := CardDatabase.get_card(_first_binder_cards()[0])
+	var copy := Collection.add(card.id)
+	var cents := Sales.sell(copy)
+	_check(cents == Prices.sale_cents(card) and Progression.money == cents and Collection.is_sold(copy),
+		"Sales.sell marks a copy sold and pays for it")
+	_check(Sales.sell(copy) == 0 and Progression.money == cents, "a copy sells once")
+
+	# Shipping box sizes.
+	Progression.reset()
+	_check(ShippingBox.new_capacity() == ShippingBox.CAPACITY, "boxes hold %d to start" % ShippingBox.CAPACITY)
+	Progression.give_tool("boxes_100")
+	_check(ShippingBox.new_capacity() == 100, "bigger boxes hold 100")
+	Progression.give_tool("boxes_300")
+	_check(ShippingBox.new_capacity() == 300, "bulk boxes hold 300")
+	var big := ShippingBox.new()
+	big.build(299)
+	_check(big.capacity == 300 and big.has_room() and big.box_size().y > ShippingBox.SIZE.y and big.details().contains("299/300"),
+		"a bulk box is taller and says how much it holds")
+	big.add_card()
+	_check(not big.has_room(), "and fills at 300")
+	big.free()
+
+	Progression.reset()
+	Collection.reset()
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	var hands: Hands = main.get_node("Player/Hands")
+	var pile: PileWorld = main.get_node("Pile")
+	var laptop: LaptopScreen = main.get_node("LaptopScreen")
+
+	# The pack knife.
+	var plain := hands.rip_time()
+	Progression.give_tool("pack_knife")
+	_check(hands.rip_time() < plain * 0.5, "the pack knife rips in about a third of the time")
+	Progression.reset()
+
+	# Ordering a tool from the laptop: it comes the next morning.
+	laptop.open()
+	var window := laptop.open_app("tools")
+	var rows := window.find_child("ToolList", true, false)
+	_check(rows != null and rows.get_child_count() == Tools.LIST.size(), "the Tools app lists every tool")
+	_check(window.find_child("Tool_boxes_300", true, false).find_child("*", true, false) != null
+		and _labels_text(window.find_child("Tool_boxes_300", true, false)).contains("???"), "far-off tools show ???")
+	var knife_row := window.find_child("Tool_pack_knife", true, false)
+	_check(_labels_text(knife_row).contains("Pack Knife") and not _labels_text(knife_row).contains("Ripping")
+		and _labels_text(knife_row).contains("???") and _labels_text(knife_row).contains("Level 2"),
+		"the next level's tool is named, but what it does stays ??? until then: " + _labels_text(knife_row))
+	_check((knife_row.find_child("Icon", true, false) as TextureRect).texture == Tools.icon("pack_knife", false)
+		and (window.find_child("Tool_sorting_tray", true, false).find_child("Icon", true, false) as TextureRect).texture == Tools.icon("sorting_tray", true)
+		and Tools.icon("pack_knife", false) != null and Tools.icon("pack_knife", true) != null,
+		"a tool's picture is a grey outline until its level, then in colour")
+	_check(not laptop.order_tool("sorting_tray"), "no money, no order")
+	Progression.earn_money(Tools.price_cents("sorting_tray"))
+	_check(laptop.order_tool("sorting_tray") and Progression.money == 0 and Progression.is_tool_ordered("sorting_tray")
+		and main.orders.has(["tool", "sorting_tray"]), "a tool is paid for and goes on order")
+	_check(_labels_text(window.find_child("Tool_sorting_tray", true, false)).contains("On its way"), "the app says it's on its way")
+	_check(not laptop.order_tool("sorting_tray"), "and it can't be ordered twice")
+	laptop.close()
+	main.start_new_day()
+	var trays := pile.get_children().filter(func(n: Node) -> bool: return n is SortingTray)
+	_check(Progression.has_tool("sorting_tray") and not Progression.is_tool_ordered("sorting_tray") and trays.size() == 1,
+		"the next morning it's yours, and the tray is inside the door")
+	var tray: SortingTray = trays[0]
+
+	# The tray: duplicates on, then sold into a shipping box in one go.
+	var needed := Collection.add(card.id)
+	hands.restore_hand([needed])
+	_check(not hands.drop_on_tray(tray) and hands.held_card_id == needed, "a card the collection needs stays in hand")
+	var binder := pile.binder_for(needed)
+	binder.contents.insert(card.collector_number - binder.binder.first, needed)
+	var spares: Array[int] = []
+	for i in 3:
+		spares.append(Collection.add(card.id))
+	for id in spares:
+		hands.restore_hand([id])
+		_check(hands.drop_on_tray(tray), "a duplicate goes on the tray")
+		hands._glide.custom_step(10.0)
+	_check(tray.cards == spares and tray.details().contains("3 cards"), "the tray holds them: " + tray.details())
+
+	# Saved and loaded: the tray keeps its cards.
+	var saved: Dictionary = main.capture_save()
+	var entry: Array = saved.products.filter(func(e: Array) -> bool: return e[0] == "tray").front()
+	_check(entry != null and Array(entry[1]) == Array(spares), "the tray is saved with its cards")
+
+	var shipping := ShippingBox.new()
+	shipping.build(ShippingBox.CAPACITY - 2)
+	pile.add_child(shipping)
+	shipping.global_position = Vector3(4.0, 0.0, 4.0)
+	hands.restore_hand([])
+	hands.take_box(tray)
+	hands._glide.custom_step(10.0)
+	var paid := hands.sell_tray(tray, shipping)
+	_check(paid == 2 * Prices.sale_cents(card) and Progression.money == paid and tray.cards.size() == 1 and not shipping.has_room(),
+		"the tray sells into the box, as many as it has room for")
+	_check(Collection.is_sold(spares[2]) and Collection.is_sold(spares[1]) and not Collection.is_sold(spares[0]),
+		"top card first")
+	main.free()
+
+	# Loading puts the tray back with its copies.
+	Collection.reset()
+	main = load(SceneFlow.SHOP_SCENE).instantiate()
+	Saves._pending = saved
+	add_child(main)
+	await get_tree().physics_frame
+	pile = main.get_node("Pile")
+	trays = pile.get_children().filter(func(n: Node) -> bool: return n is SortingTray)
+	_check(trays.size() == 1 and trays[0].cards.size() == 3 and not pile.is_lying(trays[0].cards[0]),
+		"a load brings the tray back with its cards on it")
+	main.free()
+
+	# Singles: on sale once you own 95% of a set, at 1.5x.
+	Progression.reset()
+	Collection.reset()
+	main = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	laptop = main.get_node("LaptopScreen")
+	var cards := CardDatabase.cards_in_set(code)
+	var want := ceili(cards.size() * 0.95)
+	for i in want - 1:
+		Collection.add(cards[i].id)
+	laptop.open()
+	window = laptop.open_app("shop")
+	laptop._show_set(window.find_child("Detail", true, false), code)
+	_check(window.find_child("Singles", true, false) == null, "below 95% owned there are no singles")
+	var last := cards[cards.size() - 1]
+	_check(not laptop.order_single(last), "and none can be ordered")
+	Collection.add(cards[want - 1].id)
+	laptop._show_set(window.find_child("Detail", true, false), code)
+	var singles := window.find_child("Singles", true, false)
+	_check(singles != null and singles.get_child_count() == cards.size() - want, "at 95%, every missing card is on sale")
+	_check(Prices.single_cents(last) == maxi(1, roundi(last.value * 150.0)), "at 1.5x its value")
+	Progression.earn_money(Prices.single_cents(last))
+	_check(laptop.order_single(last) and main.orders.has(["single", LaptopScreen.single_key(last)]) and Progression.money == 0,
+		"a single is paid for and goes on order")
+	Progression.earn_money(Prices.single_cents(last))
+	_check(not laptop.order_single(last), "the same single can't be ordered twice")
+	main.start_new_day()
+	_check(Collection.owns(last.id) and main.orders.is_empty(), "it arrives the next morning, a new copy of its own")
+	Progression.reach_level(7)
+	_check(is_equal_approx(Prices.singles_from(), 0.9) and Prices.single_cents(last) == maxi(1, roundi(last.value * 130.0)),
+		"Burning Wish I: singles from 90%, at 1.3x")
+	Progression.reach_level(18)
+	_check(is_equal_approx(Prices.singles_from(), 0.8) and Prices.single_cents(last) == maxi(1, roundi(last.value * 120.0)),
+		"Burning Wish II: from 80%, at 1.2x")
+	laptop.close()
+
+	# Quicken: the first order each day comes within the hour.
+	Progression.reset()
+	Progression.reach_level(12)
+	main._day.set_hour(10.0)
+	main.orders.clear()
+	main.place_order("pack", code)
+	main.place_order("pack", code)
+	_check(main.orders.size() == 2 and main.orders[0].size() == 3 and main.orders[1].size() == 2,
+		"with Quicken, the day's first order is an express one")
+	var packs_before := pile_packs(main)
+	_check(main.deliver_express() == 0, "it isn't there yet")
+	main._day.set_hour(11.1)
+	_check(main.deliver_express() == 1 and main.orders.size() == 1 and pile_packs(main) == packs_before + 1,
+		"an hour later it's inside the door")
+	main.place_order("pack", code)
+	_check(main.orders.size() == 2 and main.orders[1].size() == 2, "the next one waits for the morning")
+	main.free()
+	Settings.reset_all()
+	Progression.reset()
+
+
+func pile_packs(main: Node) -> int:
+	return main.get_node("Pile").get_children().filter(func(n: Node) -> bool: return n is BoosterPack).size()
+
+
+## Every Label's text under `node`, joined.
+func _labels_text(node: Node) -> String:
+	if node == null:
+		return ""
+	var parts := PackedStringArray()
+	for label in node.find_children("*", "Label", true, false):
+		parts.append((label as Label).text)
+	return " | ".join(parts)
 
 
 ## The HUD (Hud): placeholder levels, how hint lines are drawn, the card
@@ -2267,8 +2488,9 @@ func _test_progression() -> void:
 	_check(thresholds and Progression.max_level() == 20, "Level L takes 85 (L - 1)^2 Mana, up to 20")
 	_check(Progression.level_at(84) == 1 and Progression.level_at(85) == 2 and Progression.level_at(10 ** 6) == 20, "levels by Mana earned")
 	var expect := {2: ["Fact or Fiction", 1], 3: ["Shunt", 1], 4: ["Tithe", 1], 5: ["Howling Mine", 1], 6: ["Snap", 2],
-		8: ["Black Market", 1], 10: ["Shunt", 3], 11: ["Lucky Clover", 1], 14: ["Demonic Tutor", 1], 15: ["Teleport", 2],
-		16: ["Howling Mine", 2], 17: ["Ancestral Recall", 1]}
+		7: ["Burning Wish", 1], 8: ["Black Market", 1], 10: ["Shunt", 3], 11: ["Lucky Clover", 1], 12: ["Quicken", 1],
+		14: ["Demonic Tutor", 1], 15: ["Teleport", 2], 16: ["Howling Mine", 2], 17: ["Ancestral Recall", 1],
+		18: ["Burning Wish", 2]}
 	for level in range(1, 21):
 		Progression.reach_level(level)
 		var rows := Progression.abilities_at(level)
@@ -2287,7 +2509,8 @@ func _test_progression() -> void:
 	Progression.reach_level(20)
 	_check(Progression.next_unlock().is_empty(), "nothing's left at Level 20")
 	var main := preload("res://scripts/main.gd")
-	_check(main.level_up_text(3) == "Shunt I: Click anywhere on the open pages to file a card." and main.level_up_text(9) == "",
+	_check(main.level_up_text(3) == "Shunt I: Click anywhere on the open pages to file a card." and main.level_up_text(9) == "New on the laptop: Bulk Account"
+		and main.level_up_text(13) == "" and main.level_up_text(2).ends_with("\nNew on the laptop: Pack Knife, Bigger Shipping Boxes"),
 		"the level-up banner names what the level opened: " + main.level_up_text(3))
 	_check(LaptopScreen.next_unlock_text() == "Every ability is yours.", "My Collection says when there's nothing left")
 	Progression.reset()

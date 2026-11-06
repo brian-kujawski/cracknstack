@@ -20,6 +20,18 @@ const BULK_ROUNDING := 100
 
 ## Black Market (Level 8): every sale pays this much more.
 const BLACK_MARKET_RATE := 1.1
+## Selling online (Tools "listings"), then from a storefront ("storefront",
+## in its place): sales pay this much more. Black Market multiplies either.
+const LISTINGS_RATE := 1.1
+const STOREFRONT_RATE := 1.2
+## The bulk account (Tools "bulk_account"): booster boxes cost this share
+## less.
+const BULK_ACCOUNT_DISCOUNT := 0.1
+## Singles (the Card Shop, once you've collected enough of a set): each
+## costs its value times this, by rank of Burning Wish (none, I, II), and
+## goes on sale once you own this share of the set.
+const SINGLES_MARKUP := [1.5, 1.3, 1.2]
+const SINGLES_FROM := [0.95, 0.9, 0.8]
 
 
 ## What card `card` sells for: its value times sell_rate(), never less than
@@ -28,10 +40,28 @@ static func sale_cents(card: CardData) -> int:
 	return maxi(1, roundi(card.value * 100.0 * sell_rate()))
 
 
-## What sales pay, as a share of a card's value: 1, or more with Black
-## Market (listings and the storefront will add to it).
+## What sales pay, as a share of a card's value: 1, times the listings or
+## storefront rate, times Black Market's.
 static func sell_rate() -> float:
-	return BLACK_MARKET_RATE if Progression.rank("Black Market") > 0 else 1.0
+	var rate := 1.0
+	if Progression.has_tool("storefront"):
+		rate = STOREFRONT_RATE
+	elif Progression.has_tool("listings"):
+		rate = LISTINGS_RATE
+	if Progression.rank("Black Market") > 0:
+		rate *= BLACK_MARKET_RATE
+	return rate
+
+
+## A single of `card` from the Card Shop, in cents (see SINGLES_MARKUP),
+## never less than a cent.
+static func single_cents(card: CardData) -> int:
+	return maxi(1, roundi(card.value * 100.0 * SINGLES_MARKUP[Progression.rank("Burning Wish")]))
+
+
+## The share of a set you need to own before its singles go on sale.
+static func singles_from() -> float:
+	return SINGLES_FROM[Progression.rank("Burning Wish")]
 
 
 ## The average value (dollars) of each rarity's cards in set `code`
@@ -103,7 +133,10 @@ static func product_cents(kind: String, code: String) -> int:
 		"pack":
 			return pack_cents(code)
 		"booster_box":
-			return pack_cents(code) * PackContents.BOX_PACKS
+			var box := pack_cents(code) * PackContents.BOX_PACKS
+			if Progression.has_tool("bulk_account"):
+				box = roundi(box * (1.0 - BULK_ACCOUNT_DISCOUNT))
+			return box
 		"bulk_box":
 			return _rounded(bulk_worth(code) / MARGIN * 100.0, BULK_ROUNDING)
 	return 0

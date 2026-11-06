@@ -223,16 +223,22 @@ static func play_mythic_chance() -> float:
 ## times 1.2 with Demonic Tutor.
 static func needed_weight(code: String) -> float:
 	var weight := TUTOR_WEIGHT if Progression.rank("Demonic Tutor") > 0 else 1.0
+	if owned_share(code) >= NUDGE_FROM:
+		weight *= NUDGE_WEIGHT
+	return weight
+
+
+## The share of set `code`'s cards you own at least one copy of (0 for a
+## set with no cards).
+static func owned_share(code: String) -> float:
 	var cards := CardDatabase.cards_in_set(code)
 	if cards.is_empty():
-		return weight
+		return 0.0
 	var owned := 0
 	for card in cards:
 		if Collection.owns(card.id):
 			owned += 1
-	if float(owned) / cards.size() >= NUDGE_FROM:
-		weight *= NUDGE_WEIGHT
-	return weight
+	return float(owned) / cards.size()
 
 
 ## The cards of `code` you don't own yet: id -> true.
