@@ -559,8 +559,11 @@ func _test_set_unlock_delivery() -> void:
 		return (shop.get_node("Pile") as PileWorld).get_children().filter(func(n: Node) -> bool: return n is ProductBox and n.set_code == code)
 	_check(Progression.is_set_unlocked(first) and not Progression.is_set_unlocked(second) and plates_up.call(units) == 1,
 		"a new game opens Chapter 1, and only its set")
-	_check(pile.binders.all(func(b: Binder) -> bool: return b.state == Binder.State.SHELVED and b.visible == (b.binder.set_code == first)),
-		"its binder stands in its shelf space; every other waits out of sight")
+	var delivered: Binder = pile.binders.filter(func(b: Binder) -> bool: return b.binder.set_code == first).front()
+	_check(delivered.visible and delivered.state == Binder.State.CLOSED and delivered.get_parent() == pile
+		and delivered.global_position.z > 5.5 and delivered.global_position.z < 8.0, "its binder is delivered inside the door")
+	_check(pile.binders.all(func(b: Binder) -> bool: return b == delivered or (b.state == Binder.State.SHELVED and not b.visible)),
+		"every other binder waits out of sight on the shelf")
 	var box: Array = boxes_of.call(main, first)
 	_check(box.size() == 1 and box[0].kind == ProductBox.Kind.BOOSTER and box[0].global_position.z > 5.5 and box[0].global_position.z < 8.0,
 		"and a sealed booster box of it is inside the door")
@@ -612,6 +615,14 @@ func _test_set_unlock_delivery() -> void:
 	_check(main.hud.banner.visible and (main.hud.banner.find_child("Title", true, false) as Label).text == "Chapter 2",
 		"under one Chapter 2 banner")
 	_check(main.current_chapter(pile.binders).number == 2, "and the HUD counts Chapter 2 now")
+	var spots: int = main.DELIVERY_ROWS.size() * main.DELIVERY_COLUMNS
+	var piled := []
+	for i in spots + 1:
+		piled.append(main.deliver("booster_box", first))
+	var flat := func(n: Node3D) -> Vector2: return Vector2(n.global_position.x, n.global_position.z)
+	_check(piled[spots].global_position.y >= piled[0].global_position.y + ProductBox.BOOSTER_SIZE.y - 0.001
+		and flat.call(piled[spots]).distance_to(flat.call(piled[0])) < 0.2,
+		"once the delivery spots are full, deliveries stack: %.3f over %.3f" % [piled[spots].global_position.y, piled[0].global_position.y])
 	Chapters.reload()
 	main.free()
 	get_tree().paused = false

@@ -3,8 +3,8 @@ extends Node3D
 ## player. Every binder waits out of sight in its shelf space until its set
 ## unlocks, which happens a chapter at a time (Chapters, open_chapter): a new
 ## game opens Chapter 1, and completing every binder of a chapter opens the
-## next. Each set that unlocks gets its binder and plate on the shelf and a
-## sealed booster box inside the door. Cards come only from product (the
+## next. Each set that unlocks gets its plate on the shelf, and its binder
+## and a sealed booster box turn up inside the door. Cards come only from product (the
 ## Card Shop; see PackContents). A
 ## loaded game builds it all from the save instead (ShopSave), and Saves
 ## asks it for capture_save().
@@ -24,14 +24,17 @@ const SAVING_ICON := "res://assets/ui/saving_icon.png"
 const SAVING_ICON_SIZE := Vector2(36, 50)
 const SAVING_SHOWN := 1.0
 const SAVING_TURN := 0.6
-## Where Card Shop orders and new sets' booster boxes turn up: a grid of
-## floor spots just inside the door, on its left, filled in turn, column by
-## column away from the door (a whole chapter's boxes fit before it starts
-## over): the rows' z, the first column's x and the step between spots.
+## Where Card Shop orders and new sets' binders and booster boxes turn up: a
+## grid of floor spots just inside the door, on its left (in front of the
+## tables), filled in turn, column by column away from the door: the rows'
+## z, the first column's x and the step between spots. Once it's full it
+## starts over, stacking on what's already there (binders and boxes take
+## turns, so binders land on binders, boxes on boxes: a big chapter's
+## deliveries come in piles).
 const DELIVERY_ROWS := [7.15, 6.75, 6.35, 5.95]
 const DELIVERY_X := 5.25
 const DELIVERY_STEP := 0.4
-const DELIVERY_COLUMNS := 12
+const DELIVERY_COLUMNS := 13
 ## Ending the day: the fade to black, how long it stays black, the fade
 ## back in, and the hour the new day starts at.
 const END_DAY_FADE_OUT := 0.8
@@ -70,6 +73,9 @@ var _debug_rng := RandomNumberGenerator.new()
 var laptop: Laptop
 var laptop_screen: LaptopScreen
 var _deliveries := 0
+## Delivery spot -> top of what this session has delivered there.
+var _spot_tops := {}
+var _spot := 0
 ## While open_chapter unlocks a chapter's sets (one banner for them all).
 var _opening_chapter := false
 ## Card Shop orders waiting for the morning: [kind, set code] each.
@@ -339,20 +345,35 @@ func start_new_day() -> int:
 func deliver(kind: String, code: String) -> Node3D:
 	var spot := _next_delivery_spot()
 	var yaw := _delivery_yaw()
+	var base := _spot_top()
 	if kind == "pack":
 		var pack := BoosterPack.new()
 		pack.setup(code)
-		pack.lie(_pile, Vector3(spot.x, _pile.height_at(spot), spot.y), yaw)
+		var y := maxf(_pile.height_at(spot), base)
+		pack.lie(_pile, Vector3(spot.x, y, spot.y), yaw)
+		_raise_spot(y + 0.005)
 		return pack
 	var box_kind := ProductBox.Kind.BOOSTER if kind == "booster_box" else ProductBox.Kind.BULK
-	return place_box(_pile, box_kind, code, Vector3(spot.x, 0.0, spot.y), yaw)
+	var box := place_box(_pile, box_kind, code, Vector3(spot.x, base, spot.y), yaw)
+	_raise_spot(box.global_position.y - _pile.global_position.y + box.box_size().y)
+	return box
 
 
 ## The next floor spot inside the door, in turn.
 func _next_delivery_spot() -> Vector2:
 	var n := _deliveries % (DELIVERY_ROWS.size() * DELIVERY_COLUMNS)
 	_deliveries += 1
+	_spot = n
 	return Vector2(DELIVERY_X - DELIVERY_STEP * (n / DELIVERY_ROWS.size()), DELIVERY_ROWS[n % DELIVERY_ROWS.size()])
+
+
+## The top of what's been delivered to the latest spot (0: nothing yet).
+func _spot_top() -> float:
+	return _spot_tops.get(_spot, 0.0)
+
+
+func _raise_spot(top: float) -> void:
+	_spot_tops[_spot] = maxf(_spot_top(), top)
 
 
 ## Turned toward where you stand as you come in, to the right.
@@ -389,15 +410,26 @@ func open_chapter(quiet := false) -> int:
 	return 0
 
 
-## A set unlocked: its binder, which waited out of sight in its shelf space,
-## shows there and its plate arrives in a glow, and a sealed booster box of
-## it turns up inside the door. Returns what was delivered.
+## A set unlocked: its binder comes off the shelf (where it waited out of
+## sight) and turns up inside the door, closed, with a sealed booster box of
+## it, and its plate arrives on the shelf. Returns what was delivered.
 func _on_set_unlocked(code: String) -> Array[Node3D]:
+	var delivered: Array[Node3D] = []
 	if hud != null and not _opening_chapter:
 		hud.show_banner("New set", CardDatabase.get_set(code).name)
 	for unit: ShelfUnit in _shelves():
-		unit.reveal_set(code)
-	var delivered: Array[Node3D] = [deliver("booster_box", code)]
+		var binder := unit.deliver_binder(code)
+		if binder != null:
+			var spot := _next_delivery_spot()
+			var yaw := _delivery_yaw()
+			var half := Vector2(Binder.COVER.x, Binder.COVER.y) / 2
+			var p := _pile.clear_point(spot, half, yaw)
+			var y := maxf(_pile.height_under(p, half, yaw), _spot_top()) + 0.01
+			var at := Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, y, p.y))
+			binder.place(_pile, _pile.global_transform * at)
+			_raise_spot(y + binder.thickness)
+			delivered.append(binder)
+	delivered.append(deliver("booster_box", code))
 	return delivered
 
 
