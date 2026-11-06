@@ -121,7 +121,10 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 	var hand := PackedInt32Array([hands.held_card_id] if hands.held_card_id >= 0 else [])
 	var products := snapshot_products(pile, hands, player)
 	hand.append_array(PackedInt32Array(hands.behind))
+	var sorter := CardSorter.find(pile)
 	return {
+		"sorter": [PackedInt32Array(sorter.queue), PackedInt32Array(sorter.needed_tray.cards),
+			PackedInt32Array(sorter.surplus_tray.cards)] if sorter != null else [],
 		"copies": [Collection.card_ids().duplicate(), Collection.all_flags().duplicate()],
 		"products": products,
 		"laptop": snapshot_laptop(pile, hands, player),
@@ -198,6 +201,7 @@ static func finish(taken: Dictionary) -> Dictionary:
 	return {
 		"copies": copy_table(card_ids, taken.copies[1]),
 		"products": taken.get("products", []),
+		"sorter": taken.get("sorter", []),
 		"laptop": taken.get("laptop"),
 		"orders": taken.get("orders", []),
 		"day": taken.get("day", 1),
@@ -288,6 +292,24 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 		tray.build(on)
 		pile.add_child(tray)
 		tray.global_transform = entry[2]
+
+	# The card sorter, if it's been delivered: the cards waiting in its
+	# hopper and the stacks in its two pockets.
+	if Progression.has_tool("sorter"):
+		var sorter := CardSorter.install(pile)
+		var saved_sorter: Array = saved.get("sorter", [])
+		var lists: Array = []
+		for part in 3:
+			var list: Array[int] = []
+			for index in saved_sorter[part] if saved_sorter.size() > part else []:
+				var id := ids[index] if index >= 0 and index < ids.size() else -1
+				if id >= 0 and placed[id] == 0:
+					placed[id] = 1
+					list.append(id)
+			lists.append(list)
+		sorter.feed(lists[0])
+		sorter.needed_tray.set_cards(lists[1])
+		sorter.surplus_tray.set_cards(lists[2])
 
 	# The hand, whole: a ripped pack's cards are all held at once.
 	var hand: Array[int] = []

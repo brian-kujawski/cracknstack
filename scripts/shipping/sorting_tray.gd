@@ -100,6 +100,12 @@ func take(count := -1) -> Array[int]:
 	return taken
 
 
+## Puts these copies on it in place of what was there, the last on top.
+func set_cards(ids: Array[int]) -> void:
+	cards.assign(ids)
+	_refresh()
+
+
 ## Where a dropped card goes (global): flat on top of the stack.
 func card_slot_pose() -> Transform3D:
 	return global_transform * Transform3D(Basis(Vector3.RIGHT, -PI / 2), Vector3(0, RIM / 2 + cards.size() * CARD_STACK + 0.001, 0))

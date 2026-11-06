@@ -798,6 +798,8 @@ func _tool_row(tool: Array) -> Control:
 		state = "On its way"
 	elif not opened:
 		state = "Level %d" % tool[2]
+	elif not Tools.has_needed(id):
+		state = "Needs %s" % Tools.tool_name(Tools.needs(id))
 	if state != "":
 		var note := Win95.label(state, 18)
 		note.autowrap_mode = TextServer.AUTOWRAP_OFF

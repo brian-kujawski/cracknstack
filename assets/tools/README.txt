@@ -9,5 +9,5 @@ square, 128 x 128 px, transparent around them). Replace them with the real
 art under the same names; the app shows each at 64 x 64. A missing file
 shows no picture.
 
-  sorting_tray, pack_knife, boxes_100, boxes_300, listings, bulk_account,
-  storefront
+  sorting_tray, pack_knife, boxes_100, sorter, surplus_chute, boxes_300,
+  listings, sorter_mk2, bulk_account, storefront

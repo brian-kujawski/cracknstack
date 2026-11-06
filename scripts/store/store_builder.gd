@@ -1,11 +1,12 @@
 extends Node3D
 ## Builds the graybox store: one small room, cluttered on purpose. A closed
-## door in the front wall, one wall-length binder shelf on the back wall, and
-## four work tables in the middle for setting binders down and stacking cards.
-## On the right-hand wall (seen from the door) stand two glass display
-## cabinets for the rare cards. Opposite them, on the left-hand wall, is a
-## reading corner: an armchair, a side table with the shop's radio on it, and
-## a floor lamp.
+## door in the right-hand wall with the IN deliveries and the OUT shipping
+## corner either side of it, one wall-length binder shelf on the back wall,
+## and four work tables in the middle for setting binders down and stacking
+## cards. On the left-hand wall stand two glass display cabinets for the rare
+## cards, with a reading corner between them: an armchair, a side table with
+## the shop's radio on it, and a floor lamp. A longcase clock stands between
+## the windows on the front wall.
 ##
 ## Everything is plain boxes so the layout is cheap to change. Coordinates are
 ## metres: x runs 0..WIDTH left to right as you face the back wall, z runs from
@@ -33,8 +34,8 @@ const TABLE_TOPS := &"table_tops"
 ## Collision layer only the player collides with: the block under each table
 ## top that stops a lean, set high enough that crouching still gets you under.
 const LEAN_STOP_LAYER := 16
-## Windows on the front wall, either side of the door: centres along x, and
-## the opening's size and sill height.
+## Windows on the front wall, either side of the clock: centres along x,
+## and the opening's size and sill height.
 const WINDOW_XS := [2.9, 9.1]
 const WINDOW_SIZE := Vector2(1.8, 1.5)
 const WINDOW_SILL := 0.9
@@ -47,11 +48,11 @@ const PENDANT_HEIGHT := 2.3
 const TRACK_Z := 1.15
 const TRACK_HEADS := 7
 const FIXTURE_LIGHT := Color(1.0, 0.82, 0.6)
-## The display cabinets stand against the right-hand wall (x = WIDTH), facing
-## into the room, centred at these z, back one first. They line up with the
-## table rows.
-const CABINET_ZS := [2.9, 5.3]
-## The reading corner on the left-hand wall (x = 0), between the table rows:
+## The display cabinets stand against the left-hand wall (x = 0), facing
+## into the room, centred at these z, back one first, with the reading
+## corner and its wall of frames between them.
+const CABINET_ZS := [1.4, 6.6]
+## The reading corner on the left-hand wall (x = 0), between the cabinets:
 ## along the wall from the back, the side table, the floor lamp tucked in
 ## against the wall, and the armchair, turned out to face the room, angled a
 ## little toward the back tables. Floor centres, and the chair's and radio's
@@ -63,14 +64,15 @@ const ARMCHAIR_YAW := deg_to_rad(116.0)
 ## The radio sits across the side table, facing out into the room.
 const RADIO_ON_TABLE := Vector2(0.0, -0.05)
 const RADIO_YAW := deg_to_rad(70.0)
-## The shipping corner (ShippingStation) just inside the door, on the
-## window side of it, away from where deliveries turn up: the middle of its
-## OUTGOING mat. It faces into the room.
-const SHIPPING_AT := Vector2(7.35, 7.5)
-## The longcase clock stands at the shelf end of the left-hand wall,
-## balancing the low reading corner with something tall: its floor
-## centre along z.
-const CLOCK_Z := 1.0
+## The door, centred along the right-hand wall (x = WIDTH): its centre along z.
+const DOOR_Z := 4.0
+## The shipping corner (ShippingStation) just inside the door, on its front
+## side (deliveries turn up on the back side, Main.DELIVERY_ROWS): the middle
+## of its OUTGOING mat. It faces into the room, its crate toward the door.
+const SHIPPING_AT := Vector2(11.45, 6.3)
+## The longcase clock stands against the front wall between the windows:
+## its floor centre along x.
+const CLOCK_X := 6.0
 ## The wall art (WallArt), hung in its order. Over the binder shelf, one
 ## landscape frame centred over each span between pairs of legs, their
 ## bottoms 22 cm above the shelf top so what's put down there doesn't hide
@@ -346,25 +348,25 @@ func _build_display_cabinets() -> void:
 		var cabinet := DisplayCabinet.new()
 		cabinet.name = "DisplayCabinet%d" % (i + 1)
 		cabinet.build(_table_material, _felt_material, _brass_material, FIXTURE_LIGHT)
-		cabinet.position = Vector3(WIDTH - DisplayCabinet.DEPTH / 2, 0, CABINET_ZS[i])
-		cabinet.rotation.y = -PI / 2
+		cabinet.position = Vector3(DisplayCabinet.DEPTH / 2, 0, CABINET_ZS[i])
+		cabinet.rotation.y = PI / 2
 		cabinet.first_number = display_slots.size() + 1
 		add_child(cabinet)
 		cabinets.append(cabinet)
 		display_slots.append_array(cabinet.slots)
-		# Turned a quarter, the footprint's across becomes z and its out-from-the-wall -x.
+		# Turned a quarter, the footprint's across becomes z and its out-from-the-wall +x.
 		var footprint := DisplayCabinet.footprint()
-		obstacles.append(Rect2(Vector2(WIDTH - DisplayCabinet.DEPTH / 2 - footprint.end.y, CABINET_ZS[i] + footprint.position.x),
+		obstacles.append(Rect2(Vector2(DisplayCabinet.DEPTH / 2 + footprint.position.y, CABINET_ZS[i] - footprint.end.x),
 			Vector2(footprint.size.y, footprint.size.x)))
 
 
-## The longcase clock against the left-hand wall by the shelf end, facing
+## The longcase clock against the front wall between the windows, facing
 ## into the room.
 func _build_clock() -> void:
 	clock = ShopClock.new()
 	clock.name = "ShopClock"
 	clock.build(_table_material, _brass_material)
-	_place(clock, Vector2(ShopClock.DEPTH / 2, CLOCK_Z), PI / 2, Vector2(ShopClock.WIDTH, ShopClock.DEPTH))
+	_place(clock, Vector2(CLOCK_X, DEPTH - ShopClock.DEPTH / 2), PI, Vector2(ShopClock.WIDTH, ShopClock.DEPTH))
 
 
 ## Empty picture frames over the binder shelf and the reading corner (see
@@ -418,7 +420,7 @@ func _build_shipping_station() -> void:
 	shipping_station = ShippingStation.new()
 	shipping_station.build(_table_material)
 	shipping_station.position = Vector3(SHIPPING_AT.x, 0, SHIPPING_AT.y)
-	shipping_station.rotation.y = PI
+	shipping_station.rotation.y = -PI / 2
 	add_child(shipping_station)
 	obstacles.append(shipping_station.crate_footprint())
 
@@ -488,16 +490,17 @@ func _build_windows() -> void:
 		window_lights.append(light)
 
 
-## The shop door, centred on the front wall and facing into the room.
+## The door, on the right-hand wall at DOOR_Z, facing into the room.
 func _build_door() -> void:
 	var door := ShopDoor.new()
 	door.name = "ShopDoor"
 	door.build(_table_material, _brass_material)
-	door.position = Vector3(WIDTH / 2, 0, DEPTH)
-	door.rotation.y = PI
+	door.position = Vector3(WIDTH, 0, DOOR_Z)
+	door.rotation.y = -PI / 2
 	add_child(door)
+	# Turned a quarter, the footprint's across becomes z and its depth -x.
 	var footprint := ShopDoor.footprint()
-	obstacles.append(Rect2(Vector2(WIDTH / 2 + footprint.position.x, DEPTH - footprint.end.y), footprint.size))
+	obstacles.append(Rect2(Vector2(WIDTH - footprint.end.y, DOOR_Z + footprint.position.x), Vector2(footprint.size.y, footprint.size.x)))
 
 
 ## A pleated curtain hanging from its top edge (origin at the top centre).
