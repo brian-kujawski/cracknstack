@@ -454,6 +454,14 @@ func _test_tools_and_singles() -> void:
 	_check(rows != null and rows.get_child_count() == Tools.LIST.size(), "the Tools app lists every tool")
 	_check(window.find_child("Tool_boxes_300", true, false).find_child("*", true, false) != null
 		and _labels_text(window.find_child("Tool_boxes_300", true, false)).contains("???"), "far-off tools show ???")
+	var knife_row := window.find_child("Tool_pack_knife", true, false)
+	_check(_labels_text(knife_row).contains("Pack Knife") and not _labels_text(knife_row).contains("Ripping")
+		and _labels_text(knife_row).contains("???") and _labels_text(knife_row).contains("Level 2"),
+		"the next level's tool is named, but what it does stays ??? until then: " + _labels_text(knife_row))
+	_check((knife_row.find_child("Icon", true, false) as TextureRect).texture == Tools.icon("pack_knife", false)
+		and (window.find_child("Tool_sorting_tray", true, false).find_child("Icon", true, false) as TextureRect).texture == Tools.icon("sorting_tray", true)
+		and Tools.icon("pack_knife", false) != null and Tools.icon("pack_knife", true) != null,
+		"a tool's picture is a grey outline until its level, then in colour")
 	_check(not laptop.order_tool("sorting_tray"), "no money, no order")
 	Progression.earn_money(Tools.price_cents("sorting_tray"))
 	_check(laptop.order_tool("sorting_tray") and Progression.money == 0 and Progression.is_tool_ordered("sorting_tray")

@@ -19,6 +19,10 @@ const LIST := [
 	["storefront", "Storefront", 12, 1500000, "Sales pay 1.2x (in place of Online Listings)."],
 ]
 
+## Tool icons: <id>.png in colour, <id>_locked.png the grey outline
+## (assets/tools/README.txt).
+const ICON_PATH := "res://assets/tools/%s%s.png"
+
 ## A tool more than this many levels away shows as "???" in the shop.
 const HIDDEN_BEYOND := 1
 
@@ -60,3 +64,10 @@ static func is_named(id: String) -> bool:
 static func can_order(id: String) -> bool:
 	return not row(id).is_empty() and Progression.level() >= level_of(id) and not Progression.has_tool(id) \
 		and not Progression.is_tool_ordered(id) and price_cents(id) <= Progression.money
+
+
+## Tool `id`'s picture: in colour once `unlocked`, else its grey outline.
+## Null if the file is missing.
+static func icon(id: String, unlocked: bool) -> Texture2D:
+	var path := ICON_PATH % [id, "" if unlocked else "_locked"]
+	return load(path) if ResourceLoader.exists(path) else null

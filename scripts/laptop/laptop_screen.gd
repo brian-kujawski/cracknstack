@@ -41,6 +41,8 @@ const TASKBAR_GAP := 5
 ## Height of everything in the taskbar.
 const TASK_ROW := TASKBAR_HEIGHT - TASKBAR_GAP * 2
 const ICON_SIZE := Vector2(130, 110)
+## A tool's picture in the Tools app, square.
+const TOOL_ICON := 64
 ## Each program: its id, its name (desktop and Start menu), its window's
 ## title and size.
 const APPS := [
@@ -739,8 +741,7 @@ func _redraw_shop(code: String) -> void:
 
 # --- Tools -----------------------------------------------------------------
 
-## The Tools catalogue: every tool in level order. One more than a level
-## away shows as "???"; locked ones say when they open.
+## The Tools catalogue: every tool in level order (_tool_row).
 func _build_tools(into: Control) -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 10)
@@ -763,43 +764,53 @@ func _build_tools(into: Control) -> void:
 	column.add_child(Win95.well(status, Win95.FACE))
 
 
-## One tool's panel: name, what it does, price and an Order button (or
-## where it stands).
+## One tool's panel: its picture, name, what it does and price, and an
+## Order button or where it stands. Until its level is reached the picture
+## is the grey outline and what it does is "???"; more than HIDDEN_BEYOND
+## levels away its name is "???" too.
 func _tool_row(tool: Array) -> Control:
 	var id: String = tool[0]
+	var opened := Progression.level() >= int(tool[2])
 	var row := HBoxContainer.new()
 	row.name = "Tool_" + id
 	row.add_theme_constant_override("separation", 14)
+	var picture := TextureRect.new()
+	picture.name = "Icon"
+	picture.texture = Tools.icon(id, opened)
+	picture.custom_minimum_size = Vector2.ONE * TOOL_ICON
+	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	picture.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(picture)
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	words.add_theme_constant_override("separation", 0)
 	row.add_child(words)
 	var grey := Win95.SHADOW.darkened(0.3)
-	if not Tools.is_named(id):
-		words.add_child(Win95.label("???", 22))
-		words.add_child(Win95.label("Opens at Level %d" % tool[2], 18, grey))
+	words.add_child(Win95.label(tool[1] if Tools.is_named(id) else "???", 22))
+	var effect := Win95.label("%s  ·  %s" % [tool[4], Progression.money_text(Tools.price_cents(id))] if opened else "???", 18, grey)
+	words.add_child(effect)
+	var state := ""
+	if Progression.has_tool(id):
+		state = "Owned"
+	elif Progression.is_tool_ordered(id):
+		state = "On its way"
+	elif not opened:
+		state = "Level %d" % tool[2]
+	if state != "":
+		var note := Win95.label(state, 18)
+		note.autowrap_mode = TextServer.AUTOWRAP_OFF
+		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		note.custom_minimum_size.x = 130
+		note.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(note)
 	else:
-		words.add_child(Win95.label(tool[1], 22))
-		var effect := Win95.label("%s  ·  %s" % [tool[4], Progression.money_text(Tools.price_cents(id))], 18, grey)
-		effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		words.add_child(effect)
-		var state := ""
-		if Progression.has_tool(id):
-			state = "Owned"
-		elif Progression.is_tool_ordered(id):
-			state = "On its way"
-		elif Progression.level() < int(tool[2]):
-			state = "Opens at Level %d" % tool[2]
-		if state != "":
-			var note := Win95.label(state, 18)
-			note.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			row.add_child(note)
-		else:
-			var order := Win95.button("Order", order_tool.bind(id), 130)
-			order.name = "Order"
-			order.disabled = not Tools.can_order(id)
-			order.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			row.add_child(order)
+		var order := Win95.button("Order", order_tool.bind(id), 130)
+		order.name = "Order"
+		order.disabled = not Tools.can_order(id)
+		order.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(order)
 	var panel := Win95.well(row, Win95.FACE)
 	panel.add_theme_stylebox_override("panel", Win95.bevel(Win95.Look.RAISED, Win95.FACE, 14))
 	return panel
