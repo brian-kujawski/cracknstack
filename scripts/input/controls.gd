@@ -26,18 +26,13 @@ const INTERACT := &"interact"
 const FLIP_NEXT := &"flip_next"
 const FLIP_PREVIOUS := &"flip_previous"
 const PAUSE := &"pause"
-const UPGRADES := &"upgrades"
 const RADIO := &"radio"
 ## Hold to rip open the booster pack in hand; with cards in hand, show the
 ## next one.
 const RIP := &"rip"
-## Sorceries, one key each, in Magic's colour order (white, blue, black,
-## red, green): 1-5. Each is added as it's built.
-const CAST_TITHE := &"cast_tithe"
+## Sorceries, one key each, from 1 in the order they're learned. Each is
+## added as it's built (Serra's Blessing, on 2, comes later).
 const CAST_TELEPORT := &"cast_teleport"
-const CAST_DEMONIC_TUTOR := &"cast_demonic_tutor"
-const CAST_CHAIN_LIGHTNING := &"cast_chain_lightning"
-const CAST_ABUNDANCE := &"cast_abundance"
 
 ## Every bindable action in menu order: [action, what it's called in the menu].
 const ACTIONS := [
@@ -47,7 +42,7 @@ const ACTIONS := [
 	[MOVE_RIGHT, "Step right"],
 	[CROUCH, "Crouch"],
 	[USE_HAND, "Pick up, put down, file, shelve"],
-	[TOSS, "Toss the held card or binder, or flip the pile"],
+	[TOSS, "Toss whatever is in your hand"],
 	[INSPECT, "Inspect the held card"],
 	[FLIP_CARD, "Turn the inspected card over"],
 	[TURN_SIDEWAYS, "Turn the inspected card sideways"],
@@ -55,14 +50,9 @@ const ACTIONS := [
 	[FLIP_NEXT, "Next page"],
 	[FLIP_PREVIOUS, "Previous page"],
 	[PAUSE, "Pause"],
-	[UPGRADES, "Upgrades"],
 	[RADIO, "Radio"],
 	[RIP, "Rip open a pack (hold), or show the next card"],
-	[CAST_TITHE, "Cast Tithe"],
 	[CAST_TELEPORT, "Cast Teleport"],
-	[CAST_DEMONIC_TUTOR, "Cast Demonic Tutor"],
-	[CAST_CHAIN_LIGHTNING, "Cast Chain Lightning"],
-	[CAST_ABUNDANCE, "Cast Abundance"],
 ]
 
 ## Defaults per action: keys by physical keycode (so WASD stays put on
@@ -78,14 +68,9 @@ const DEFAULT_KEYS := {
 	TURN_SIDEWAYS: [KEY_T],
 	INTERACT: [KEY_E],
 	PAUSE: [KEY_ESCAPE],
-	UPGRADES: [KEY_TAB],
 	RADIO: [KEY_Q],
 	RIP: [KEY_SPACE],
-	CAST_TITHE: [KEY_1],
-	CAST_TELEPORT: [KEY_2],
-	CAST_DEMONIC_TUTOR: [KEY_3],
-	CAST_CHAIN_LIGHTNING: [KEY_4],
-	CAST_ABUNDANCE: [KEY_5],
+	CAST_TELEPORT: [KEY_1],
 }
 const DEFAULT_BUTTONS := {
 	USE_HAND: [MOUSE_BUTTON_LEFT],

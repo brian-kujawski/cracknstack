@@ -673,6 +673,17 @@ func order_product(kind: String, code: String) -> bool:
 
 # --- My Collection ----------------------------------------------------------
 
+## My Collection's line on what's next: "Next at Level 4: Tithe".
+static func next_unlock_text() -> String:
+	var next := Progression.next_unlock()
+	if next.is_empty():
+		return "Every ability is yours."
+	var names := PackedStringArray()
+	for row in next[1]:
+		names.append(row[3])
+	return "Next at Level %d: %s" % [next[0], ", ".join(names)]
+
+
 func _build_collection(into: Control) -> void:
 	var s := _stats()
 	var column := VBoxContainer.new()
@@ -684,12 +695,16 @@ func _build_collection(into: Control) -> void:
 	var level_name := Win95.label("Level %d" % Progression.level(), 28)
 	level_name.autowrap_mode = TextServer.AUTOWRAP_OFF
 	level.add_child(level_name)
-	var level_note := Win95.label("(Placeholder) Every %d Mana is a level for now. Levels will unlock sets and tools." % Progression.LEVEL_MANA, 18)
+	var level_note := Win95.label(next_unlock_text(), 18)
+	level_note.name = "NextUnlock"
 	level_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	level.add_child(level_note)
 	var organized: int = s.get("organized", 0)
 	var pockets: int = s.get("pockets", 0)
-	column.add_child(Win95.label("Mana: %d / %d to the next level" % [Progression.level_progress(), Progression.LEVEL_MANA], 22))
+	if Progression.level_span() > 0:
+		column.add_child(Win95.label("Mana: %d / %d to the next level" % [Progression.level_progress(), Progression.level_span()], 22))
+	else:
+		column.add_child(Win95.label("Mana: %d (top level)" % Progression.mana, 22))
 	column.add_child(Win95.label("Cards Organized: %d/%d" % [organized, pockets], 22))
 	var bar := ProgressBar.new()
 	bar.name = "Organized"

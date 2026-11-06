@@ -1,17 +1,15 @@
 class_name AchievementsScreen
 extends RefCounted
-## The Achievements page, opened from the main menu and the pause menu: a
-## grid of tiles, one column per colour in the upgrade tree's order (white,
-## blue, black, red, green). Each tile is a square icon with a title and a
-## line under it: ??? and "This achievement is locked." with the locked icon
-## until it's earned, then the card's name, what it was for and the full
-## icon. The rare card achievements, which have no colour, follow in rows
-## under the columns, the wall art's in rows under those, and the two for
-## the banned cards last.
+## The Achievements page, opened from the main menu and the pause menu:
+## grids of tiles, five across. Each tile is a square icon with a title and
+## a line under it: ??? and "This achievement is locked." with the locked
+## icon until it's earned, then its name, what it was for and the full icon.
+## The rare card achievements come first, the wall art's under those, then
+## the two for the banned cards, and the odd ones out last.
 
 const ICON_SIZE := 96
 const TILE_WIDTH := 280
-const COLOUR_COUNT := 5
+const COLUMNS := 5
 const TEXT_LINE_HEIGHT := 28
 
 
@@ -25,54 +23,32 @@ static func make() -> MenuScreen:
 	sections.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sections.add_theme_constant_override("separation", 40)
 	scroll.add_child(sections)
-	var columns := HBoxContainer.new()
-	columns.alignment = BoxContainer.ALIGNMENT_CENTER
-	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	columns.add_theme_constant_override("separation", 24)
-	sections.add_child(columns)
-	var rare := GridContainer.new()
-	rare.name = "RareCards"
-	rare.columns = COLOUR_COUNT
-	rare.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	rare.add_theme_constant_override("h_separation", 24)
-	rare.add_theme_constant_override("v_separation", 20)
-	sections.add_child(rare)
-	var wall_art := GridContainer.new()
-	wall_art.name = "WallArt"
-	wall_art.columns = COLOUR_COUNT
-	wall_art.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	wall_art.add_theme_constant_override("h_separation", 24)
-	wall_art.add_theme_constant_override("v_separation", 20)
-	sections.add_child(wall_art)
-	var banned := GridContainer.new()
-	banned.name = "BannedCards"
-	banned.columns = COLOUR_COUNT
-	banned.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	banned.add_theme_constant_override("h_separation", 24)
-	banned.add_theme_constant_override("v_separation", 20)
-	sections.add_child(banned)
-	var by_colour: Array[VBoxContainer] = []
-	for colour in COLOUR_COUNT:
-		var column := VBoxContainer.new()
-		column.add_theme_constant_override("separation", 20)
-		columns.add_child(column)
-		by_colour.append(column)
+	var grids := {}
+	for grid_name in ["RareCards", "WallArt", "BannedCards", "Other"]:
+		var grid := GridContainer.new()
+		grid.name = grid_name
+		grid.columns = COLUMNS
+		grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		grid.add_theme_constant_override("h_separation", 24)
+		grid.add_theme_constant_override("v_separation", 20)
+		sections.add_child(grid)
+		grids[grid_name] = grid
 	for index in Achievements.count():
 		if Achievements.is_rare(index):
-			rare.add_child(tile(index))
-		elif Achievements.is_banned(index):
-			banned.add_child(tile(index))
+			grids.RareCards.add_child(tile(index))
 		elif Achievements.is_wall_art(index):
-			wall_art.add_child(tile(index))
+			grids.WallArt.add_child(tile(index))
+		elif Achievements.is_banned(index):
+			grids.BannedCards.add_child(tile(index))
 		else:
-			by_colour[Achievements.colour(index)].add_child(tile(index))
+			grids.Other.add_child(tile(index))
 	return screen
 
 
 ## One achievement: icon, title and explainer, centred.
 static func tile(index: int) -> VBoxContainer:
 	var box := VBoxContainer.new()
-	box.name = "Achievement%03d" % (index + 1)
+	box.name = "Achievement%03d" % Achievements.icon_number(index)
 	box.custom_minimum_size.x = TILE_WIDTH
 	box.add_theme_constant_override("separation", 6)
 	var icon := TextureRect.new()

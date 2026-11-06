@@ -16,8 +16,6 @@ const Store := preload("res://scripts/store/store_builder.gd")
 
 @export var walk_speed := 3.5
 @export var crouch_speed := 1.6
-## Fervor (red): walking and crouch-walking this many times faster.
-@export var fervor_speedup := 1.5
 @export var stand_eye_height := 1.65
 @export var crouch_eye_height := 0.5
 ## Body (capsule) height standing and crouched. Crouched fits under a table.
@@ -119,10 +117,9 @@ func restore_state(saved: Dictionary) -> void:
 		_camera.position.y = crouch_eye_height
 
 
-## Walking or crouch-walking speed, with Fervor if you have it.
+## Walking or crouch-walking speed.
 func move_speed() -> float:
-	var speed := crouch_speed if _crouched else walk_speed
-	return speed * fervor_speedup if Progression.rank("Fervor") > 0 else speed
+	return crouch_speed if _crouched else walk_speed
 
 
 func is_crouched() -> bool:

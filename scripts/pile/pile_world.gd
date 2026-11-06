@@ -34,11 +34,6 @@ const GRID_CELL := 0.1
 ## enough that a card only rests on cards that are really under it, rather
 ## than on anything nearby.
 const HEIGHT_CELL := 0.015
-## A pile flip tosses the topmost cards within this distance of where you aim.
-const FLIP_RADIUS := 0.15
-## A pile flip tosses cards lying within this height of where you aim, so
-## one aimed at a table leaves the pile under it alone.
-const FLIP_HEIGHT := 0.1
 ## Cards landing on a table (or the shelf top) stay this far in from its edge.
 const TABLE_MARGIN := 0.01
 ## A box tipped out on a table (tip_out): at most this many cards stay on
@@ -61,8 +56,8 @@ const NEAR_INTERVAL := 0.1
 const NEAR_PREFETCH := 1.5
 const NEAR_BURIED := 3 * CARD_THICKNESS
 
-## HELD is anywhere a card isn't lying about: in hand, in flight, in a
-## binder or hovering (HoveringCard).
+## HELD is anywhere a card isn't lying about: in hand, in flight or in a
+## binder.
 enum State { ON_FLOOR, HELD, ON_TABLE }
 
 const Store := preload("res://scripts/store/store_builder.gd")
@@ -655,24 +650,6 @@ func glow(ids: Array, seconds: float) -> void:
 
 func is_glowing(id: int) -> bool:
 	return _glowing.has(id)
-
-
-## The cards a pile flip aimed at `point` tosses: up to `count` of the
-## topmost cards lying within FLIP_RADIUS, highest first. Aimed at the floor
-## that's floor cards; aimed at a table, the cards lying on it there.
-func flip_cards(point: Vector3, count: int) -> Array[int]:
-	var p := Vector2(point.x, point.z)
-	var found: Array[int] = []
-	if point.y < height_at(p) + FLIP_HEIGHT:
-		for id in _cards_near(p):
-			if _states[id] == State.ON_FLOOR and Vector2(_positions[id].x, _positions[id].z).distance_to(p) < FLIP_RADIUS:
-				found.append(id)
-	for id in _loose:
-		var at: Vector3 = _loose[id].position
-		if Vector2(at.x, at.z).distance_to(p) < FLIP_RADIUS and absf(at.y - point.y) < FLIP_HEIGHT:
-			found.append(id)
-	found.sort_custom(func(a: int, b: int) -> bool: return card_position(a).y > card_position(b).y)
-	return found.slice(0, count)
 
 
 ## The nearest floor point to p where a footprint (half size, turned by

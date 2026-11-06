@@ -1,29 +1,29 @@
 extends Node
-## Mana and the upgrades it buys (autoload: Progression). Every card locked
-## into its own pocket pays 1 Mana; finishing a binder, standing a binder in
-## its own shelf space and lighting up a shelf pay bonuses, each once. Mana
+## Mana, levels and money (autoload: Progression). Every card locked into its
+## own pocket pays 1 Mana; finishing a binder, standing a binder in its own
+## shelf space and lighting up a shelf pay bonuses, each once. Mana is never
+## spent: the total earned sets your level (LEVELS), and each level opens the
+## abilities listed for it in ABILITIES
+## (/mnt/project-files/plan/upgrade-tracks-spitball.md). Code that an ability
+## changes asks rank() for it.
+##
 ## Money is kept here too, in cents: it comes from selling cards (ShippingBox)
 ## and goes on product from the Card Shop (Prices). It's a separate currency
-## from Mana, which is never spent on product.
+## from Mana.
 ##
-## Mana is spent on the upgrade tree in /mnt/project-files/plan/m7-upgrade-tree.md:
-## five colours, each a row of seven unlocks bought in order. Code that an
-## unlock changes asks rank() for it. Unlocks get built a step at a time
-## across the colours; ones not built yet are bought but do nothing.
-##
-## Sorceries also recharge here. A cast starts its cooldown; every card you
-## file by hand takes a little off every recharge, but never below a minimum
-## share of the cooldown, so sorceries can't feed each other into a spiral.
+## Sorceries (abilities with a key) also recharge here. A cast starts its
+## cooldown; every card you file by hand takes a little off every recharge,
+## but never below a minimum share of the cooldown, so sorceries can't feed
+## each other into a spiral.
 
 signal mana_changed(mana: int)
 ## Money went up or down; `cents` is the new balance.
 signal money_changed(cents: int)
-signal unlocked(colour: int, step: int)
 ## A sorcery was cast or finished recharging.
 signal sorceries_changed
 ## A set was unlocked: the shop delivers its binder and starter packs.
 signal set_unlocked(code: String)
-## The level went up (placeholder levels: LEVEL_MANA Mana earned each).
+## The level went up; `level` is the new one.
 signal level_changed(level: int)
 
 const CARD_LOCKED := 1
@@ -32,94 +32,48 @@ const BINDER_COMPLETE_SHARE := 0.1
 const BINDER_SHELVED := 5
 const SECTION_LIT := 25
 
-## Every colour's row uses the same prices, step by step.
-const PRICES := [20, 40, 90, 200, 400, 900, 2000]
+## Total Mana earned to reach each level: Level L at 85 × (L − 1)², up to
+## Level 20. LEVELS[L - 1] is Level L's threshold.
+const LEVELS := [0, 85, 340, 765, 1360, 2125, 3060, 4165, 5440, 6885,
+	8500, 10285, 12240, 14365, 16660, 19125, 21760, 24565, 27540, 30685]
 
-## Each colour's row of unlocks in buying order: [node, rank, what it does].
-## A rank of 0 marks a node that's bought once, with no numeral.
-const COLOURS := [
-	{"name": "White", "steps": [
-		["Remember the Fallen", 0, "Remember the name and number of every card you've held."],
-		["Enlightened Tutor", 1, "See the set of any card on the floor or a table."],
-		["Tithe", 1, "Cast: 5 missing cards for this binder glow for 5 s."],
-		["Enlightened Tutor", 2, "See the set, number and name of any card on the floor or a table."],
-		["Tithe", 2, "Tithe lights 10 missing cards for 10 s."],
-		["Tithe", 3, "Tithe lights every missing card for 15 s."],
-		["Serra's Blessing", 0, "Tithe is always on for the binder you're using."]]},
-	{"name": "Blue", "steps": [
-		["Snap", 1, "Cards and binders move 50% faster."],
-		["Teleport", 1, "Cast: the held card flies to its binder and files itself."],
-		["Snap", 2, "Cards and binders move twice as fast."],
-		["Brainstorm", 1, "Finishing a page by hand pulls in 1 missing card for that binder."],
-		["Teleport", 2, "Teleport sends your whole hand."],
-		["Brainstorm", 2, "Brainstorm pulls in 3 cards."],
-		["Brainstorm", 3, "Brainstorm pulls in 9 cards."]]},
-	{"name": "Black", "steps": [
-		["Demonic Tutor", 1, "Cast: the card for the aimed pocket comes to your hand. 60 s cooldown."],
-		["Unmask", 1, "Pile flips toss 8 cards, most landing face up."],
-		["Demonic Tutor", 2, "Demonic Tutor's cooldown drops to 40 s."],
-		["Unmask", 2, "Pile flips toss 16 cards, all face up."],
-		["Demonic Consultation", 1, "Flipped cards for an open binder hover for 5 s."],
-		["Demonic Tutor", 3, "Demonic Tutor's cooldown drops to 20 s."],
-		["Demonic Consultation", 2, "Flipped cards hover for 15 s."]]},
-	{"name": "Red", "steps": [
-		["Fervor", 0, "Walk and crouch-walk 50% faster."],
-		["Chain Lightning", 1, "Cast: your next filed card lights 1 missing card from its page. 60 s cooldown."],
-		["Shunt", 1, "Click anywhere on the right open pages to file a card."],
-		["Chain Lightning", 2, "Chain Lightning lights 3 cards. 45 s cooldown."],
-		["Shunt", 2, "Click anywhere on the right binder to file a card."],
-		["Chain Lightning", 3, "Chain Lightning lights the whole page. 30 s cooldown."],
-		["Shunt", 3, "File into the right binder even when it's closed."]]},
-	{"name": "Green", "steps": [
-		["Spider Climb", 0, "Reach 30% further."],
-		["Harmonize", 1, "Hold 3 cards at once."],
-		["Abundance", 1, "Cast: the next unfiled cards after the held one come to your hand."],
-		["Harmonize", 2, "Hold 7 cards at once."],
-		["Abundance", 2, "Abundance's cooldown gets shorter."],
-		["Harmonize", 3, "Hold 15 cards at once."],
-		["Abundance", 3, "Abundance's cooldown gets shorter still."]]},
+## What each level opens: [level, node, rank, title, what it does]. rank()
+## gives a node's highest rank whose level you've reached. Levels with no
+## ability open tools on the laptop instead (later).
+const ABILITIES := [
+	[2, "Fact or Fiction", 1, "Fact or Fiction", "The card plate says Needed or Duplicate."],
+	[3, "Shunt", 1, "Shunt I", "Click anywhere on the open pages to file a card."],
+	[4, "Tithe", 1, "Tithe", "Hold a Needed card and its binder glows. Take it out and it opens at the card's page."],
+	[5, "Howling Mine", 1, "Howling Mine I", "Three free packs arrive every morning."],
+	[6, "Snap", 2, "Snap", "Cards and binders move twice as fast."],
+	[8, "Black Market", 1, "Black Market", "Sales pay 10% more."],
+	[10, "Shunt", 3, "Shunt II", "Click the right binder anywhere, open or closed, to file a card."],
+	[11, "Lucky Clover", 1, "Lucky Clover", "Mythics turn up 1 time in 6 instead of 1 in 8."],
+	[14, "Demonic Tutor", 1, "Demonic Tutor", "Each pack slot is a little more likely to be a card you still need."],
+	[15, "Teleport", 2, "Teleport", "Cast: the cards in your hand fly to their binders and file themselves."],
+	[16, "Howling Mine", 2, "Howling Mine II", "A free booster box arrives every seventh morning too."],
+	[17, "Ancestral Recall", 1, "Ancestral Recall", "1 pack in 15 has a bonus extra rare."],
 ]
 
-const NUMERALS := ["", "I", "II", "III"]
-
-## Each sorcery's cooldown in seconds, by rank (I, II, III). Tuning guesses.
+## Each sorcery's cooldown in seconds, by rank. Tuning guesses.
 const COOLDOWNS := {
-	"Tithe": [20.0, 20.0, 20.0],
 	"Teleport": [30.0, 30.0],
-	"Demonic Tutor": [60.0, 40.0, 20.0],
-	"Chain Lightning": [60.0, 45.0, 30.0],
-	"Abundance": [45.0, 30.0, 20.0],
 }
 ## Seconds each card filed by hand takes off every recharge in progress.
 const FILING_SPEEDUP := 2.0
 ## No recharge, however much you file, finishes sooner than this share of
 ## its cooldown.
 const MIN_RECHARGE_SHARE := 0.5
-## Placeholder levels until the real levelling exists: every LEVEL_MANA
-## Mana earned (ever; spending it doesn't count against it) is a level. The
-## HUD shows Level 1 with "X / 100" toward Level 2.
-const LEVEL_MANA := 100
-
+## All the Mana earned. It's never spent: it sets the level.
 var mana := 0
-## All the Mana ever earned, which levels count (spending doesn't lower it).
-var mana_earned := 0
 ## Money, in cents.
 var money := 0
-## Debug builds can buy past what they can afford, into negative Mana, so
-## every unlock can be tried while testing.
-var allow_debt := OS.is_debug_build()
-
-## Steps bought in each colour; the next one to buy is at this index.
-var _bought: Array[int] = []
 ## Bonuses already paid, so none can be farmed by taking a binder down and
 ## putting it back.
 var _paid := {}
 ## Sorceries recharging: node -> [seconds left, seconds before filing can't
 ## cut it any shorter].
 var _recharging := {}
-## Sorceries cast and waiting for something to set them off (Chain
-## Lightning waits for your next lock-in).
-var _armed := {}
 ## Sets unlocked so far: code -> true. A locked set's binder waits out of
 ## sight on the shelf, with no plate, and can't be bought or taken down;
 ## unlocking delivers it with a few packs (Main). Until levels unlock sets,
@@ -136,15 +90,12 @@ func _init() -> void:
 	reset()
 
 
-## Back to a new game: no Mana, nothing bought.
+## Back to a new game: no Mana, Level 1.
 func reset() -> void:
 	mana = 0
-	mana_earned = 0
 	money = 0
-	_bought.assign(COLOURS.map(func(_c) -> int: return 0))
 	_paid.clear()
 	_recharging.clear()
-	_armed.clear()
 	_unlocked_sets.clear()
 	_notes.clear()
 	mana_changed.emit(mana)
@@ -201,41 +152,23 @@ func unlock_set(code: String) -> bool:
 	return true
 
 
-## Everything here, for a save (ShopSave). Bought steps are kept by name
-## (step_name), not by position, so a reordered tree keeps what was bought.
+## Everything here, for a save (ShopSave). Levels aren't kept: they come
+## from the Mana.
 func save_state() -> Dictionary:
-	var bought := []
-	for colour in COLOURS.size():
-		var names := PackedStringArray()
-		for step in _bought[colour]:
-			names.append(step_name(colour, step))
-		bought.append(names)
 	var recharging := {}
 	for node in _recharging:
 		recharging[node] = PackedFloat32Array(_recharging[node])
-	return {"mana": mana, "mana_earned": mana_earned, "money": money, "bought": bought, "paid": PackedStringArray(_paid.keys()),
-		"recharging": recharging, "armed": PackedStringArray(_armed.keys()),
-		"sets": PackedStringArray(_unlocked_sets.keys()), "notes": PackedStringArray(_notes.keys())}
+	return {"mana": mana, "money": money, "paid": PackedStringArray(_paid.keys()),
+		"recharging": recharging, "sets": PackedStringArray(_unlocked_sets.keys()),
+		"notes": PackedStringArray(_notes.keys())}
 
 
-## Puts back what save_state() kept. Each colour keeps the steps bought, in
-## order, for as long as they match the tree; any saved step that no longer
-## does is refunded at its price.
+## Puts back what save_state() kept. Saves from the old upgrade tree, where
+## Mana was spent, count everything they earned ("mana_earned").
 func restore_state(saved: Dictionary) -> void:
 	reset()
-	mana = int(saved.get("mana", 0))
-	# Saves from before levels: what's left is the best guess at what was earned.
-	mana_earned = maxi(int(saved.get("mana_earned", mana)), 0)
+	mana = maxi(int(saved.get("mana", 0)), int(saved.get("mana_earned", 0)))
 	money = int(saved.get("money", 0))
-	var bought: Array = saved.get("bought", [])
-	for colour in mini(bought.size(), COLOURS.size()):
-		var names: PackedStringArray = bought[colour]
-		var kept := 0
-		while kept < names.size() and kept < PRICES.size() and step_name(colour, kept) == names[kept]:
-			kept += 1
-		_bought[colour] = kept
-		for step in range(kept, names.size()):
-			mana += PRICES[mini(step, PRICES.size() - 1)]
 	for key in saved.get("paid", PackedStringArray()):
 		_paid[key] = true
 	var recharging: Dictionary = saved.get("recharging", {})
@@ -243,9 +176,6 @@ func restore_state(saved: Dictionary) -> void:
 		var timer := Array(recharging[node])
 		if COOLDOWNS.has(node) and rank(node) > 0 and timer.size() == 2:
 			_recharging[node] = timer
-	for node in saved.get("armed", PackedStringArray()):
-		if rank(node) > 0:
-			_armed[node] = true
 	for code in saved.get("sets", PackedStringArray()):
 		_unlocked_sets[code] = true
 	for key in saved.get("notes", PackedStringArray()):
@@ -272,24 +202,68 @@ func tick(seconds: float) -> void:
 			sorceries_changed.emit()
 
 
+## Adds earned Mana. Each level it crosses is announced (level_changed).
 func earn(amount: int) -> void:
+	if amount <= 0:
+		return
 	var before := level()
 	mana += amount
-	if amount > 0:
-		mana_earned += amount
 	mana_changed.emit(mana)
-	if level() > before:
-		level_changed.emit(level())
+	for reached in range(before + 1, level() + 1):
+		level_changed.emit(reached)
 
 
-## The placeholder level: 1, then one more every LEVEL_MANA Mana earned.
+## The level the Mana earned has reached, 1 to 20.
 func level() -> int:
-	return 1 + mana_earned / LEVEL_MANA
+	return level_at(mana)
 
 
-## Mana earned toward the next level, out of LEVEL_MANA.
+static func level_at(earned: int) -> int:
+	var reached := 1
+	while reached < LEVELS.size() and earned >= LEVELS[reached]:
+		reached += 1
+	return reached
+
+
+static func max_level() -> int:
+	return LEVELS.size()
+
+
+## Mana earned since this level began.
 func level_progress() -> int:
-	return mana_earned % LEVEL_MANA
+	return mana - LEVELS[level() - 1]
+
+
+## Mana from this level to the next (0 at the top level).
+func level_span() -> int:
+	var reached := level()
+	return LEVELS[reached] - LEVELS[reached - 1] if reached < LEVELS.size() else 0
+
+
+## Debug and tests: earns just enough Mana to reach `target` (never lowers it).
+func reach_level(target: int) -> void:
+	target = clampi(target, 1, LEVELS.size())
+	earn(LEVELS[target - 1] - mana)
+
+
+## Debug: one level up (the pause menu's Level +1).
+func debug_level_up() -> void:
+	reach_level(level() + 1)
+
+
+## The abilities that `at` opens, as ABILITIES rows.
+static func abilities_at(at: int) -> Array:
+	return ABILITIES.filter(func(row: Array) -> bool: return row[0] == at)
+
+
+## The next level, above the current one, that opens an ability, with its
+## rows; [] at the end.
+func next_unlock() -> Array:
+	for at in range(level() + 1, LEVELS.size() + 1):
+		var rows := abilities_at(at)
+		if not rows.is_empty():
+			return [at, rows]
+	return []
 
 
 ## Pays a bonus the first time `key` earns it; later calls do nothing.
@@ -304,53 +278,22 @@ static func binder_complete_bonus(card_count: int) -> int:
 	return ceili(card_count * BINDER_COMPLETE_SHARE)
 
 
-static func step_name(colour: int, step: int) -> String:
-	var entry: Array = COLOURS[colour].steps[step]
-	return entry[0] if entry[1] == 0 else "%s %s" % [entry[0], NUMERALS[entry[1]]]
-
-
-## What an unlock does, in one line for the menu.
-static func step_effect(colour: int, step: int) -> String:
-	return COLOURS[colour].steps[step][2]
-
-
-static func price(step: int) -> int:
-	return PRICES[step]
-
-
-func bought_count(colour: int) -> int:
-	return _bought[colour]
-
-
-func is_bought(colour: int, step: int) -> bool:
-	return step < _bought[colour]
-
-
-## Only a colour's next step can be bought, and only with the Mana for it
-## (unless debt is allowed).
-func can_buy(colour: int, step: int) -> bool:
-	return step == _bought[colour] and step < PRICES.size() and (allow_debt or mana >= price(step))
-
-
-func buy(colour: int, step: int) -> bool:
-	if not can_buy(colour, step):
-		return false
-	_bought[colour] += 1
-	earn(-price(step))
-	unlocked.emit(colour, step)
-	return true
-
-
-## The rank owned of a node, e.g. rank("Tithe") is 2 once Tithe II is bought.
-## Nodes bought once (no numeral) report 1.
+## The rank reached of a node, e.g. rank("Shunt") is 3 from Level 10.
+## Nodes with a single rank report 1. 0 means not reached yet.
 func rank(node: String) -> int:
+	var reached := level()
 	var owned := 0
-	for colour in COLOURS.size():
-		var steps: Array = COLOURS[colour].steps
-		for step in _bought[colour]:
-			if steps[step][0] == node:
-				owned = maxi(owned, maxi(steps[step][1], 1))
+	for row in ABILITIES:
+		if row[1] == node and row[0] <= reached:
+			owned = maxi(owned, row[2])
 	return owned
+
+
+static func ability_level(node: String, at_rank := 1) -> int:
+	for row in ABILITIES:
+		if row[1] == node and row[2] >= at_rank:
+			return row[0]
+	return 0
 
 
 ## Whether a sorcery has been learned and is ready to cast.
@@ -380,25 +323,3 @@ func card_filed_by_hand() -> void:
 		var timer: Array = _recharging[node]
 		timer[0] = maxf(timer[0] - FILING_SPEEDUP, timer[1])
 	tick(0.0)
-
-
-## Casts a sorcery that waits for a trigger: it starts recharging now and
-## stays armed until fire() is called. Returns false if it can't be cast.
-func arm(node: String) -> bool:
-	if not cast(node):
-		return false
-	_armed[node] = true
-	sorceries_changed.emit()
-	return true
-
-
-func is_armed(node: String) -> bool:
-	return _armed.has(node)
-
-
-## Sets off an armed sorcery. Returns whether it was armed.
-func fire(node: String) -> bool:
-	if not _armed.erase(node):
-		return false
-	sorceries_changed.emit()
-	return true

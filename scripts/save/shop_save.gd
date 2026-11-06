@@ -97,8 +97,6 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 			var face_up: bool = child.global_transform.basis.z.y > 0.0 if child.land_face_up < 0 else child.land_face_up == 1
 			in_air.append([child.card_id, child.global_position,
 				atan2(-child.global_transform.basis.y.x, -child.global_transform.basis.y.z), face_up])
-		elif child is HoveringCard:
-			in_air.append([child.card_id, child.global_position, child.rotation.y, true])
 		elif child.has_meta("card_id") and child.has_meta("cabinet"):
 			displayed.append(child.get_meta("card_id"))
 			progression.mana += Progression.CARD_LOCKED
@@ -323,12 +321,14 @@ static func snapshot_products(pile: PileWorld, hands: Hands, player_node: Node) 
 			continue
 		if child is Laptop:
 			continue
+		# Lobbed and still in the air (Hands.lob_product): saved where it lands.
+		var at: Transform3D = child.get_meta("lands_at", child.global_transform) if child is Node3D else Transform3D()
 		if child is ShippingBox:
-			products.append(["shipping", child.cards, child.global_transform, child.sealed])
+			products.append(["shipping", child.cards, at, child.sealed])
 		elif child is ProductBox:
-			products.append([_box_kind(child), child.set_code, child.global_transform])
-		elif child is BoosterPack and child.is_lying():
-			products.append(["pack", child.set_code, child.global_transform])
+			products.append([_box_kind(child), child.set_code, at])
+		elif child is BoosterPack and (child.is_lying() or child.has_meta("lands_at")):
+			products.append(["pack", child.set_code, at])
 	var feet := player.global_position - player.global_basis.z * 0.5
 	feet.y = 0.0
 	if hands.held_box is ShippingBox:
@@ -350,7 +350,7 @@ static func snapshot_laptop(pile: PileWorld, hands: Hands, player_node: Node):
 		return Transform3D(player.global_basis, feet)
 	for child in pile.get_children():
 		if child is Laptop and not child.is_queued_for_deletion():
-			return child.global_transform
+			return child.get_meta("lands_at", child.global_transform)
 	return null
 
 

@@ -73,15 +73,10 @@ func _ready() -> void:
 	await _run(_test_achievements)
 	await _run(_test_credits_roll)
 	await _run(_test_progression)
-	await _run(_test_upgrade_menu)
 	await _run(_test_radio)
 	await _run(_test_sorcery_recharge)
-	await _run(_test_step_one_upgrades)
-	await _run(_test_demonic_tutor)
-	await _run(_test_step_two_upgrades)
-	await _run(_test_step_three_upgrades)
-	await _run(_test_step_four_upgrades)
-	await _run(_test_steps_five_to_seven)
+	await _run(_test_level_abilities)
+	await _run(_test_money_and_odds_perks)
 	await _run(_test_day_cycle)
 	await _run(_test_display_cabinets)
 	await _run(_test_reading_corner)
@@ -381,23 +376,31 @@ func _test_selling() -> void:
 ## plate's chip, the chapter count, the shipping box pop-up, the End Day
 ## preview and the morning report.
 func _test_hud() -> void:
-	# Placeholder levels: every LEVEL_MANA Mana earned, spent or not.
+	# Levels: Level L at 85 (L - 1)^2 Mana earned.
 	Progression.reset()
 	var levels := []
-	Progression.level_changed.connect(func(level: int) -> void: levels.append(level))
+	var listen := func(level: int) -> void: levels.append(level)
+	Progression.level_changed.connect(listen)
 	Progression.earn(40)
-	_check(Progression.level() == 1 and Progression.level_progress() == 40, "40 Mana is Level 1, 40 / 100")
+	_check(Progression.level() == 1 and Progression.level_progress() == 40 and Progression.level_span() == 85,
+		"40 Mana is Level 1, 40 / 85")
 	Progression.earn(70)
-	_check(Progression.level() == 2 and Progression.level_progress() == 10 and levels == [2],
-		"110 Mana dings Level 2 once, got %s" % [levels])
-	Progression.mana -= 100
-	_check(Progression.level() == 2, "spending Mana doesn't lose a level")
+	_check(Progression.level() == 2 and Progression.level_progress() == 25 and Progression.level_span() == 255 and levels == [2],
+		"110 Mana dings Level 2 once, 25 / 255; got %s" % [levels])
+	Progression.earn(1000)
+	_check(Progression.level() == 4 and levels == [2, 3, 4], "a big jump announces every level it crosses: %s" % [levels])
+	Progression.earn(-500)
+	_check(Progression.mana == 1110, "Mana is never taken away")
+	Progression.level_changed.disconnect(listen)
 	var kept := Progression.save_state()
 	Progression.restore_state(kept)
-	_check(Progression.mana_earned == 110, "a save keeps the Mana earned")
-	kept.erase("mana_earned")
-	Progression.restore_state(kept)
-	_check(Progression.mana_earned == Progression.mana, "an older save counts what's left")
+	_check(Progression.mana == 1110 and Progression.level() == 4, "a save keeps the Mana, and so the level")
+	Progression.restore_state({"mana": 30, "mana_earned": 1500, "bought": [["Remember the Fallen"]]})
+	_check(Progression.mana == 1500, "an old tree save counts all the Mana it earned, not what was left")
+	Progression.reach_level(20)
+	_check(Progression.level() == 20 and Progression.level_span() == 0 and Progression.mana == 30685, "Level 20 is the top")
+	Progression.debug_level_up()
+	_check(Progression.level() == 20, "and there's no Level 21")
 	Progression.reset()
 
 	# Hint lines: keys become keycaps, counts get a bar, the rest is text.
@@ -451,9 +454,14 @@ func _test_hud() -> void:
 	var spare := Collection.add(card.id)
 	_check(hands.copy_status(spare) == Hud.CopyStatus.DUPLICATE and hands.copy_status(needed) == Hud.CopyStatus.NONE,
 		"another copy is a Duplicate; the filed one has no chip")
+	Progression.reset()
 	hud.show_card(card, Hud.CopyStatus.DUPLICATE)
-	var chip: Control = hud.card_plate.find_child("Chip", true, false)
-	_check(hud.card_plate.visible and (chip != null) == Hud.needed_tag_unlocked(), "the plate shows the chip when it's unlocked")
+	_check(hud.card_plate.visible and hud.card_plate.find_child("Chip", true, false) == null and not Hud.needed_tag_unlocked(),
+		"at Level 1 the plate has no Needed / Duplicate chip")
+	Progression.reach_level(2)
+	hud.show_card(card, Hud.CopyStatus.DUPLICATE)
+	_check(hud.card_plate.find_child("Chip", true, false) != null, "Fact or Fiction (Level 2) adds it")
+	Progression.reset()
 	hud.clear_card()
 	_check(not hud.card_plate.visible, "and hides with nothing in hand")
 
@@ -1816,12 +1824,10 @@ func _test_settings_screen() -> void:
 	_check(screen.key_labels["Crouch"].text == "Ctrl", "Crouch shows as Ctrl, got " + screen.key_labels["Crouch"].text)
 	_check(screen.key_labels["Turn pages"].text == "Scroll" and screen.key_labels["Pick up, put down, file, shelve"].text == "Click",
 		"the wheel and the mouse buttons read as words")
-	_check(screen.key_labels.has("Sorcery 1") and not screen.key_labels.has("Tithe") and screen.key_labels["Sorcery 1"].text == "1",
+	_check(screen.key_labels.has("Sorcery 1") and not screen.key_labels.has("Teleport") and screen.key_labels["Sorcery 1"].text == "1",
 		"an unlearned sorcery is listed without its name")
-	Progression.earn(200)
-	for step in 3:
-		Progression.buy(0, step)
-	_check(SettingsScreen.sorcery_name(0) == "Tithe" and SettingsScreen.sorcery_name(1) == "Sorcery 2", "a learned sorcery shows its name")
+	Progression.reach_level(15)
+	_check(SettingsScreen.sorcery_name(0) == "Teleport", "a learned sorcery shows its name")
 	Progression.reset()
 
 	screen.tab_buttons["Controls"].pressed.emit()
@@ -2092,62 +2098,59 @@ func _test_achievements() -> void:
 	var path := "user://test_achievements.cfg"
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	Achievements.load_from(path)
-	var nodes := {}
-	for colour in Progression.COLOURS.size():
-		for step in Progression.COLOURS[colour].steps:
-			nodes[step[0]] = colour
-	_check(Achievements.count() == nodes.size() + RareCards.count() + 1 + WallArt.count() + 2,
-		"one achievement per card the upgrade tree is named after, per rare card, one for all rare cards, one per wall art frame, and two for the banned cards: %d" % Achievements.count())
-	var matches := true
-	for index in nodes.size():
-		matches = matches and nodes.get(Achievements.card_name(index), -1) == Achievements.colour(index)
-	_check(matches, "each achievement sits in its card's colour")
-	var tithe := Achievements.index_of("Tithe")
-	_check(not Achievements.is_unlocked(tithe) and Achievements.title(tithe) == "???" and Achievements.description(tithe) == "This achievement is locked.",
+	_check(Achievements.count() == RareCards.count() + 1 + WallArt.count() + 2 + Achievements.OTHER.size(),
+		"one achievement per rare card, one for all rare cards, one per wall art frame, two for the banned cards and the odd ones out: %d" % Achievements.count())
+	_check(Achievements.icon_number(Achievements.rare_index(1)) == 17 and Achievements.icon_number(Achievements.all_banned_index()) == 67,
+		"icons keep their numbers with the old tree's sixteen gone: the first rare card is 017, All Seven 067")
+	var laptop := Achievements.other_index("other:laptop_toss")
+	_check(laptop == Achievements.count() - 1 and Achievements.icon_number(laptop) == 68 and Achievements.is_other(laptop)
+		and Achievements.card_name(laptop) == "Hey, That's Expensive", "Hey, That's Expensive comes last, icon 068")
+	_check(not Achievements.is_unlocked(laptop) and Achievements.title(laptop) == "???" and Achievements.description(laptop) == "This achievement is locked.",
 		"a locked achievement shows ??? and This achievement is locked.")
-	_check(Achievements.icon(tithe).resource_path.ends_with("achievement%03d_locked.png" % (tithe + 1)), "and its locked icon")
+	_check(Achievements.icon(laptop).resource_path.ends_with("achievement068_locked.png"), "and its locked icon")
+	var matches := true
 	for index in Achievements.count():
+		var number := Achievements.icon_number(index)
 		for unlocked in [true, false]:
-			matches = matches and Achievements.icon_path(index + 1, unlocked) == Achievements.ICON_PATH % [index + 1, "" if unlocked else "_locked"]
+			matches = matches and Achievements.icon_path(number, unlocked) == Achievements.ICON_PATH % [number, "" if unlocked else "_locked"]
 	_check(matches, "every achievement has both placeholder icons")
 	_check(Achievements.icon_path(999, true).ends_with("achievement001.png") and Achievements.icon_path(999, false).ends_with("achievement001_locked.png"),
 		"a missing icon falls back to 001's")
 	var heard: Array[int] = []
 	var listen := func(index: int) -> void: heard.append(index)
 	Achievements.unlocked.connect(listen)
-	var card := CardDatabase.get_card(0)
-	Achievements.card_filed(card)
-	_check(heard.is_empty(), "filing a card no upgrade is named after unlocks nothing")
-	var real_name := card.name
-	card.name = "Tithe"
-	Achievements.card_filed(card)
-	Achievements.card_filed(card)
-	card.name = real_name
-	var set_name := CardDatabase.get_set(card.set_code).name
-	_check(heard == [tithe], "filing Tithe unlocks its achievement, once")
-	_check(Achievements.is_unlocked(tithe) and Achievements.title(tithe) == "Tithe" and Achievements.description(tithe) == "Filed Tithe from %s." % set_name,
-		"an unlocked achievement shows its name and what it was for: " + Achievements.description(tithe))
-	_check(Achievements.icon(tithe).resource_path.ends_with("achievement%03d.png" % (tithe + 1)), "and its full icon")
+	Achievements.laptop_tossed()
+	Achievements.laptop_tossed()
+	_check(heard == [laptop], "tossing the laptop unlocks Hey, That's Expensive, once")
+	_check(Achievements.is_unlocked(laptop) and Achievements.title(laptop) == "Hey, That's Expensive"
+		and Achievements.description(laptop) == Achievements.OTHER[0][2], "an unlocked achievement shows its name and line")
+	_check(Achievements.icon(laptop).resource_path.ends_with("achievement068.png"), "and its full icon")
 	var screen := AchievementsScreen.make()
 	add_child(screen)
 	var tiles := screen.find_children("Achievement*", "VBoxContainer", true, false)
 	_check(tiles.size() == Achievements.count(), "the Achievements page has a tile for each")
-	var tile: Node = screen.find_child("Achievement%03d" % (tithe + 1), true, false)
-	var locked_tile: Node = screen.find_child("Achievement%03d" % (Achievements.index_of("Snap") + 1), true, false)
-	_check(tile != null and tile.get_node("Title").text == "Tithe" and tile.get_node("Icon").texture == Achievements.icon(tithe),
-		"an unlocked tile shows the name and full icon")
-	_check(locked_tile != null and locked_tile.get_node("Title").text == "???" and locked_tile.get_node("Text").text == "This achievement is locked.",
-		"a locked tile shows ??? and the locked line")
+	var tile: Node = screen.find_child("Achievement068", true, false)
+	var locked_tile: Node = screen.find_child("Achievement017", true, false)
+	_check(tile != null and tile.get_parent().name == "Other" and tile.get_node("Title").text == "Hey, That's Expensive"
+		and tile.get_node("Icon").texture == Achievements.icon(laptop), "an unlocked tile shows the name and full icon, with the odd ones out")
+	_check(locked_tile != null and locked_tile.get_parent().name == "RareCards" and locked_tile.get_node("Title").text == "???"
+		and locked_tile.get_node("Text").text == "This achievement is locked.", "a locked tile shows ??? and the locked line")
 	screen.free()
 	Progression.reset()
-	_check(Achievements.is_unlocked(tithe), "New Game doesn't clear achievements")
+	_check(Achievements.is_unlocked(laptop), "New Game doesn't clear achievements")
+	var file := ConfigFile.new()
+	file.load(path)
+	file.set_value("unlocked", "Tithe", ["Visions", "2026-10-21"])
+	file.save(path)
 	Achievements.load_from(path)
-	_check(Achievements.is_unlocked(tithe) and Achievements.description(tithe) == "Filed Tithe from %s." % set_name, "unlocked achievements are saved and load back")
+	_check(Achievements.is_unlocked(laptop), "unlocked achievements are saved and load back")
+	_check(range(Achievements.count()).all(func(i: int) -> bool: return Achievements.key(i) != "Tithe"),
+		"one saved for the old tree (Tithe) loads without showing anywhere")
 	var first := Achievements.first_banned_index()
 	var all := Achievements.all_banned_index()
 	_check(Achievements.is_banned(first) and Achievements.is_banned(all) and not Achievements.is_wall_art(first)
-		and Achievements.colour(first) == Achievements.BANNED_GROUP and Achievements.key(all) == "banned:all",
-		"the two banned card achievements come last, in their own group")
+		and not Achievements.is_other(all) and Achievements.key(all) == "banned:all",
+		"the two banned card achievements come after the wall art, in their own group")
 	heard.clear()
 	Achievements.banned_card_found("Crusade")
 	Achievements.banned_card_found("Crusade")
@@ -2216,7 +2219,6 @@ func _test_credits_roll() -> void:
 
 func _test_progression() -> void:
 	Progression.reset()
-	Progression.allow_debt = false
 	var range_data := CardDatabase.all_binders()[0]
 	var ids := _first_binder_cards()
 	var binder := Binder.new()
@@ -2256,27 +2258,40 @@ func _test_progression() -> void:
 	_check(Progression.mana == before + Progression.BINDER_SHELVED, "putting it back doesn't pay again")
 
 	Progression.reset()
-	_check(Progression.mana == 0 and Progression.bought_count(0) == 0, "reset starts a new game")
-	_check(not Progression.can_buy(0, 0), "an unlock you can't afford can't be bought")
-	Progression.earn(25)
-	_check(not Progression.can_buy(0, 1), "a colour's unlocks are bought in order")
-	_check(Progression.buy(0, 0) and Progression.mana == 5, "buying spends its price")
-	_check(Progression.is_bought(0, 0) and not Progression.buy(0, 0), "an unlock is bought once")
-	_check(Progression.rank("Remember the Fallen") == 1 and Progression.rank("Tithe") == 0, "rank tracks what's owned")
-	Progression.allow_debt = true
-	_check(Progression.buy(0, 1) and Progression.buy(0, 2) and Progression.mana == 5 - 40 - 90,
-		"debug builds can buy into negative Mana, got %d" % Progression.mana)
-	_check(Progression.rank("Enlightened Tutor") == 1 and Progression.rank("Tithe") == 1, "ranks follow the row")
-	_check(Progression.step_name(0, 3) == "Enlightened Tutor II" and Progression.step_name(0, 6) == "Serra's Blessing",
-		"unlocks read with their rank numeral, or none for single buys")
-	var total := 0
-	for colour in Progression.COLOURS.size():
-		_check(Progression.COLOURS[colour].steps.size() == 7, "every colour is a row of seven")
-		for step in 7:
-			total += Progression.price(step)
-	_check(total == 18250, "the whole tree costs 18,250 Mana")
+	_check(Progression.mana == 0 and Progression.level() == 1, "reset starts a new game at Level 1")
+	_check(Progression.rank("Shunt") == 0 and Progression.rank("Fact or Fiction") == 0, "with no abilities")
+	var thresholds := true
+	for level in range(1, 21):
+		thresholds = thresholds and Progression.LEVELS[level - 1] == 85 * (level - 1) * (level - 1) \
+			and Progression.level_at(Progression.LEVELS[level - 1]) == level
+	_check(thresholds and Progression.max_level() == 20, "Level L takes 85 (L - 1)^2 Mana, up to 20")
+	_check(Progression.level_at(84) == 1 and Progression.level_at(85) == 2 and Progression.level_at(10 ** 6) == 20, "levels by Mana earned")
+	var expect := {2: ["Fact or Fiction", 1], 3: ["Shunt", 1], 4: ["Tithe", 1], 5: ["Howling Mine", 1], 6: ["Snap", 2],
+		8: ["Black Market", 1], 10: ["Shunt", 3], 11: ["Lucky Clover", 1], 14: ["Demonic Tutor", 1], 15: ["Teleport", 2],
+		16: ["Howling Mine", 2], 17: ["Ancestral Recall", 1]}
+	for level in range(1, 21):
+		Progression.reach_level(level)
+		var rows := Progression.abilities_at(level)
+		if expect.has(level):
+			_check(rows.size() == 1 and rows[0][1] == expect[level][0] and Progression.rank(expect[level][0]) == expect[level][1],
+				"Level %d opens %s" % [level, expect[level][0]])
+			_check(String(rows[0][4]).ends_with(".") and String(rows[0][4]).length() <= 100, "with a one-line effect: " + rows[0][4])
+		else:
+			_check(rows.is_empty(), "Level %d opens no ability (tools come later)" % level)
 	Progression.reset()
-	Progression.allow_debt = OS.is_debug_build()
+	Progression.reach_level(9)
+	_check(Progression.rank("Shunt") == 1 and Progression.next_unlock() == [10, Progression.abilities_at(10)],
+		"Shunt II waits for Level 10, the next unlock")
+	Progression.reach_level(10)
+	_check(Progression.rank("Shunt") == 3, "and then Shunt is at its top rank")
+	Progression.reach_level(20)
+	_check(Progression.next_unlock().is_empty(), "nothing's left at Level 20")
+	var main := preload("res://scripts/main.gd")
+	_check(main.level_up_text(3) == "Shunt I: Click anywhere on the open pages to file a card." and main.level_up_text(9) == "",
+		"the level-up banner names what the level opened: " + main.level_up_text(3))
+	_check(LaptopScreen.next_unlock_text() == "Every ability is yours.", "My Collection says when there's nothing left")
+	Progression.reset()
+	_check(LaptopScreen.next_unlock_text() == "Next at Level 2: Fact or Fiction", "and names the next: " + LaptopScreen.next_unlock_text())
 	unit.free() # The shelved binder goes with it.
 
 
@@ -2353,176 +2368,35 @@ func _test_radio() -> void:
 	_check(RadioMenu.clock(83.4) == "1:23", "song times show as minutes and seconds")
 
 
-func _test_upgrade_menu() -> void:
-	Progression.reset()
-	Progression.allow_debt = false
-	var menu := UpgradeMenu.new()
-	add_child(menu)
-	var buttons: Array = menu.find_children("*", "Button", true, false)
-	_check(buttons.size() == 35, "the menu has a button for each of the 35 unlocks, got %d" % buttons.size())
-	_check((buttons[0] as Button).tooltip_text == "Remember the name and number of every card you've held.",
-		"hovering an unlock says what it does")
-	for button in buttons:
-		_check((button as Button).tooltip_text.length() <= 90 and (button as Button).tooltip_text.ends_with("."),
-			"every unlock has a one-line description: " + (button as Button).tooltip_text)
-	var tab := InputEventAction.new()
-	tab.action = Controls.UPGRADES
-	tab.pressed = true
-	menu._unhandled_input(tab)
-	_check(menu.is_open() and get_tree().paused, "Tab opens the upgrade menu and stops the game")
-	var first: Button = buttons[0]
-	_check(first.text == "Remember the Fallen\n20 Mana" and first.disabled, "an unaffordable unlock shows its price, greyed out")
-	Progression.earn(20)
-	_check(not first.disabled and (buttons[1] as Button).disabled, "once affordable, only the colour's next unlock lights up")
-	first.pressed.emit()
-	_check(Progression.is_bought(0, 0) and first.text == "Remember the Fallen\nOwned", "clicking buys it")
-	var esc := InputEventAction.new()
-	esc.action = Controls.PAUSE
-	esc.pressed = true
-	menu._unhandled_input(esc)
-	_check(not menu.is_open() and not get_tree().paused, "Esc closes the menu")
-	menu.open()
-	menu._unhandled_input(tab)
-	_check(not menu.is_open() and not get_tree().paused, "Tab closes it too")
-	menu.free()
-	Progression.reset()
-	Progression.allow_debt = OS.is_debug_build()
-
-
-## Buys a colour's unlocks up to and including `step`, on credit.
-func _buy_through(colour: int, step: int) -> void:
-	Progression.allow_debt = true
-	while Progression.bought_count(colour) <= step:
-		Progression.buy(colour, Progression.bought_count(colour))
-
-
 func _test_sorcery_recharge() -> void:
 	Progression.reset()
-	_check(not Progression.can_cast("Demonic Tutor") and not Progression.cast("Demonic Tutor"),
-		"a sorcery can't be cast before it's learned")
-	_buy_through(2, 0)
-	_check(Progression.can_cast("Demonic Tutor"), "a learned sorcery starts ready")
-	_check(Progression.cast("Demonic Tutor") and not Progression.can_cast("Demonic Tutor"), "casting starts its recharge")
-	_check(is_equal_approx(Progression.recharge_left("Demonic Tutor"), 60.0), "Demonic Tutor I recharges in 60 s")
-	Progression.tick(10.0)
+	_check(not Progression.can_cast("Teleport") and not Progression.cast("Teleport"),
+		"a sorcery can't be cast before its level")
+	Progression.reach_level(15)
+	_check(Progression.can_cast("Teleport"), "a learned sorcery starts ready")
+	_check(Progression.cast("Teleport") and not Progression.can_cast("Teleport"), "casting starts its recharge")
+	_check(is_equal_approx(Progression.recharge_left("Teleport"), 30.0), "Teleport recharges in 30 s")
+	Progression.tick(5.0)
 	Progression.card_filed_by_hand()
-	_check(is_equal_approx(Progression.recharge_left("Demonic Tutor"), 50.0 - Progression.FILING_SPEEDUP),
+	_check(is_equal_approx(Progression.recharge_left("Teleport"), 25.0 - Progression.FILING_SPEEDUP),
 		"filing a card by hand speeds the recharge")
 	for i in 100:
 		Progression.card_filed_by_hand()
-	_check(is_equal_approx(Progression.recharge_left("Demonic Tutor"), 60.0 * Progression.MIN_RECHARGE_SHARE - 10.0),
-		"but never below the minimum, got %.1f" % Progression.recharge_left("Demonic Tutor"))
-	Progression.tick(20.0)
-	_check(Progression.can_cast("Demonic Tutor") and Progression.recharge_left("Demonic Tutor") == 0.0,
-		"it's ready again once the time is up")
-	_buy_through(2, 2)
-	Progression.cast("Demonic Tutor")
-	_check(is_equal_approx(Progression.recharge_left("Demonic Tutor"), 40.0), "Demonic Tutor II recharges in 40 s")
+	_check(is_equal_approx(Progression.recharge_left("Teleport"), 30.0 * Progression.MIN_RECHARGE_SHARE - 5.0),
+		"but never below the minimum, got %.1f" % Progression.recharge_left("Teleport"))
 	var main := preload("res://scripts/main.gd")
-	_check(main.sorcery_lines() == PackedStringArray(["3: Demonic Tutor (40 s)"]),
+	_check(main.sorcery_lines() == PackedStringArray(["1: Teleport (10 s)"]),
 		"the corner shows each learned sorcery's key and recharge, got %s" % main.sorcery_lines())
+	Progression.tick(10.0)
+	_check(Progression.can_cast("Teleport") and Progression.recharge_left("Teleport") == 0.0,
+		"it's ready again once the time is up")
 	Progression.reset()
 	_check(main.sorcery_lines().is_empty(), "no sorceries learned, no lines")
-	Progression.allow_debt = OS.is_debug_build()
 
 
-func _test_step_one_upgrades() -> void:
-	Progression.reset()
-	var hands := Hands.new()
-	_check(is_equal_approx(hands.glide_seconds(0.24), 0.24) and is_equal_approx(hands.current_reach(), 2.6),
-		"without upgrades: glides and reach as they are")
-	var player: CharacterBody3D = load("res://scenes/player/player.tscn").instantiate()
-	player.process_mode = Node.PROCESS_MODE_DISABLED
-	add_child(player)
-	player.global_position = Vector3(80, 0, 80)
-	_check(is_equal_approx(player.move_speed(), player.walk_speed), "walking at the base speed")
-
-	# Remember the Fallen: a card you've held, seen again on the floor.
-	var ids := _first_binder_cards()
-	hands.seen_cards[ids[5]] = true
-	hands._aim = Hands.Aim.FLOOR
-	hands._aim_floor_card = ids[5]
-	_check(hands.shown_card_id() == -1, "without Remember the Fallen, a floor card is a mystery")
-
-	_buy_through(0, 0) # Remember the Fallen
-	_buy_through(1, 0) # Snap I
-	_buy_through(3, 0) # Fervor
-	_buy_through(4, 0) # Spider Climb
-	_check(hands.shown_card_id() == ids[5], "Remember the Fallen names a floor card you've held")
-	hands._aim_floor_card = ids[6]
-	_check(hands.shown_card_id() == -1, "but not one you've never held")
-	_check(is_equal_approx(hands.glide_seconds(0.24), 0.16), "Snap I: glides 50% faster")
-	_check(is_equal_approx(hands.current_reach(), 3.4), "Spider Climb: reach 3.4 m")
-	_check(is_equal_approx(player.move_speed(), player.walk_speed * 1.5), "Fervor: walk 50% faster")
-	player.set_crouched(true)
-	_check(is_equal_approx(player.move_speed(), player.crouch_speed * 1.5), "and crouch-walk 50% faster")
-	_buy_through(1, 2) # Snap II
-	_check(is_equal_approx(hands.glide_seconds(0.24), 0.12), "Snap II: glides twice as fast")
-	player.free()
-	hands.free()
-	Progression.reset()
-	Progression.allow_debt = OS.is_debug_build()
-
-
-func _test_demonic_tutor() -> void:
-	Progression.reset()
-	var pile := PileWorld.new()
-	add_child(pile)
-	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 3)
-	var binder := Binder.new()
-	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
-	pile.add_child(binder)
-	pile.binders.append(binder)
-	binder.put_down(pile, Vector3(4.0, 0.75, 2.0), 0.0)
-	binder.open()
-	var ids := _first_binder_cards()
-
-	var hands := Hands.new()
-	var camera := Camera3D.new()
-	var holder := Node3D.new()
-	holder.add_child(camera)
-	holder.add_child(hands)
-	camera.name = "Camera3D"
-	add_child(holder)
-	hands.pile = pile
-	hands._aim = Hands.Aim.BINDER
-	hands._aim_binder = binder
-	hands._aim_pocket = 2
-	_check(not hands.cast_demonic_tutor(), "Demonic Tutor does nothing before it's learned")
-	_buy_through(2, 0)
-	_check(hands.cast_demonic_tutor() and hands.held_card_id == ids[2] and not pile.is_on_floor(ids[2]),
-		"Demonic Tutor brings the aimed pocket's card up off the floor into your hand")
-	_check(not Progression.can_cast("Demonic Tutor"), "and starts recharging")
-	hands._glide.custom_step(10.0)
-	hands._hold(-1)
-	Progression.reset()
-	_buy_through(2, 0)
-	pile.pick_up(ids[1])
-	binder.insert(1, ids[1])
-	hands._aim_pocket = 1
-	_check(not hands.cast_demonic_tutor(), "a pocket that isn't empty can't be tutored for")
-	var loose := LooseCard.new()
-	pile.add_child(loose)
-	loose.setup(ids[3], Vector3(1, 0.75, 1), 0.0)
-	pile.pick_up(ids[3])
-	hands._aim_pocket = 3
-	_check(hands.cast_demonic_tutor() and hands.held_card_id == ids[3] and loose.is_queued_for_deletion(),
-		"a card lying on a table comes too")
-	hands._glide.custom_step(10.0)
-	hands._hold(-1)
-	Progression.reset()
-	_buy_through(2, 0)
-	hands._aim_pocket = 4
-	pile.pick_up(ids[4]) # Somewhere it can't be had, like mid-toss.
-	_check(not hands.cast_demonic_tutor() and Progression.can_cast("Demonic Tutor"),
-		"no card to fetch, no cast spent")
-	holder.free()
-	pile.free()
-	Progression.reset()
-	Progression.allow_debt = OS.is_debug_build()
-
-
-func _test_step_two_upgrades() -> void:
+## Abilities that change how filing feels: Snap, Shunt I and II, Tithe and
+## Teleport, each from its level.
+func _test_level_abilities() -> void:
 	Progression.reset()
 	var pile := PileWorld.new()
 	add_child(pile)
@@ -2543,321 +2417,197 @@ func _test_step_two_upgrades() -> void:
 	holder.process_mode = Node.PROCESS_MODE_DISABLED # Aim is set by hand below.
 	add_child(holder)
 	hands.pile = pile
-	var main := preload("res://scripts/main.gd")
 
-	# Enlightened Tutor: the set of a floor card you've never held.
-	hands._aim = Hands.Aim.FLOOR
-	hands._aim_floor_card = ids[20]
-	_check(hands.shown_set_card_id() == -1, "without Enlightened Tutor a floor card shows nothing")
-	_buy_through(0, 1)
-	_check(hands.shown_set_card_id() == ids[20], "Enlightened Tutor shows a floor card's set")
-	var set_data := CardDatabase.get_set(CardDatabase.get_card(ids[20]).set_code)
-	_check(main.set_details(CardDatabase.get_card(ids[20])) == "%s\n%s #???" % [set_data.name, set_data.code],
-		"just the set, the number unknown: got " + main.set_details(CardDatabase.get_card(ids[20])))
-
-	# Pile flip, then Unmask.
-	var point := pile.card_position(ids[30])
-	hands._aim_point = point
-	var flipped := hands.flip_pile()
-	_check(flipped.size() == 4, "a pile flip tosses 4 cards, got %d" % flipped.size())
-	_check(flipped.all(func(id: int) -> bool: return not pile.is_on_floor(id)), "flipped cards leave the pile")
-	_land_tossed(pile)
-	_check(flipped.all(func(id: int) -> bool: return pile.is_on_floor(id)), "and land back on it")
-	_buy_through(2, 3) # Unmask II
-	flipped = hands.flip_pile()
-	_check(flipped.size() == 16, "Unmask II flips 16, got %d" % flipped.size())
-	_land_tossed(pile)
-	_check(flipped.all(func(id: int) -> bool: return pile._face_up[id] == 1), "and every one lands face up")
+	# Snap.
+	_check(is_equal_approx(hands.glide_seconds(0.24), 0.24) and is_equal_approx(hands.current_reach(), 2.6),
+		"at Level 1: glides and reach as they are")
+	Progression.reach_level(5)
+	_check(is_equal_approx(hands.glide_seconds(0.24), 0.24), "no Snap at Level 5")
+	Progression.reach_level(6)
+	_check(is_equal_approx(hands.glide_seconds(0.24), 0.12), "Snap (Level 6): glides twice as fast")
 	Progression.reset()
-	_buy_through(2, 1)
-	_check(hands.flip_pile().size() == 8, "Unmask I flips 8")
-	_land_tossed(pile)
 
-	# Harmonize: hold 3, wheel cycles the top.
-	_check(hands.hand_size() == 1, "one card at a time to start")
-	_buy_through(4, 1)
-	_check(hands.hand_size() == 3, "Harmonize I holds 3")
-	for i in 3:
-		pile.pick_up(ids[40 + i])
-		hands._take_in_hand(ids[40 + i])
-	_check(hands.held_card_id == ids[42] and hands.behind == [ids[41], ids[40]] and not hands.has_room(),
-		"each card picked up goes on top, and then the hand is full")
+	# One card at a time picked up; the wheel cycles a ripped stack.
+	_check(hands.hand_size() == 1, "you pick up one card at a time")
+	pile.pick_up(ids[40])
+	hands._take_in_hand(ids[40])
+	_check(not hands.has_room(), "so with one in hand there's no room for more")
+	hands.behind.assign([ids[41], ids[42]]) # As a ripped pack is held.
 	hands.cycle_hand(1)
-	_check(hands.held_card_id == ids[41] and hands.behind == [ids[40], ids[42]], "the wheel brings the next card up")
+	_check(hands.held_card_id == ids[41] and hands.behind == [ids[42], ids[40]], "the wheel brings the next card up")
 	hands.cycle_hand(-1)
-	_check(hands.held_card_id == ids[42], "and back")
+	_check(hands.held_card_id == ids[40], "and back")
 	hands._release_top()
 	_check(hands.held_card_id == ids[41] and hands.hand_count() == 2, "when the top card goes, the next comes up")
 
-	# Teleport: the top card files itself, wherever its binder is.
-	_buy_through(1, 1)
-	binder.close()
-	var mana := Progression.mana
-	_check(hands.cast_teleport() and hands.held_card_id == ids[40], "Teleport sends the top card off")
-	await get_tree().create_timer(1.5).timeout
-	_check(binder.contents.is_locked(41), "and it files itself, even in a closed binder")
-	_check(Progression.mana == mana + Progression.CARD_LOCKED, "earning its Mana")
-	_check(not hands.cast_teleport(), "then it recharges")
-
-	# Chain Lightning: the next lock-in lights a missing card from its page.
-	binder.open()
-	binder.show_pocket(40)
-	_buy_through(3, 1)
-	_check(Progression.arm("Chain Lightning") and Progression.is_armed("Chain Lightning"), "Chain Lightning arms")
-	_check(main.sorcery_lines().has("4: Chain Lightning (armed)"), "and says so in the corner: %s" % main.sorcery_lines())
-	hands._file(binder, 40, ids[40])
-	var page_cards := range(36, 45).map(func(i: int) -> int: return ids[i]).filter(func(id: int) -> bool: return pile.is_glowing(id))
-	_check(page_cards.size() == 1 and not Progression.is_armed("Chain Lightning"),
-		"the lock-in sets it off: 1 missing card from the page glows, got %d" % page_cards.size())
-	pile._process(hands.chain_lightning_glow_seconds + 1.0)
-	_check(not pile.is_glowing(page_cards[0]), "the glow fades")
-
-	holder.free()
-	pile.free()
-	Progression.reset()
-	Progression.allow_debt = OS.is_debug_build()
-
-
-func _test_step_three_upgrades() -> void:
-	Progression.reset()
-	var pile := PileWorld.new()
-	add_child(pile)
-	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 9)
-	var binder := Binder.new()
-	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
-	pile.add_child(binder)
-	pile.binders.append(binder)
-	binder.put_down(pile, Vector3(4.0, 0.75, 2.0), 0.0)
-	binder.open()
-	var ids := _first_binder_cards()
-	var hands := Hands.new()
-	var camera := Camera3D.new()
-	camera.name = "Camera3D"
-	var holder := CharacterBody3D.new()
-	holder.add_child(camera)
-	holder.add_child(hands)
-	holder.process_mode = Node.PROCESS_MODE_DISABLED
-	add_child(holder)
-	hands.pile = pile
-
-	# Tithe: missing cards for the binder you look at glow.
+	# Without Shunt a click on the wrong pocket leaves the card in hand.
 	hands._aim = Hands.Aim.BINDER
 	hands._aim_binder = binder
-	hands._aim_pocket = -1
-	_check(hands.cast_tithe().is_empty(), "Tithe does nothing before it's learned")
-	_buy_through(0, 2)
-	var lit := hands.cast_tithe()
-	_check(lit.size() == 5 and lit.all(func(id: int) -> bool: return pile.is_glowing(id) and ids.has(id)),
-		"Tithe I lights 5 of the binder's missing cards, got %d" % lit.size())
-	_check(not Progression.can_cast("Tithe"), "and recharges")
-	pile._process(5.5)
-	_check(not lit.any(func(id: int) -> bool: return pile.is_glowing(id)), "the glow lasts 5 s")
+	binder.show_pocket(41)
+	hands._aim_pocket = 43
+	_check(hands.shunt_pocket(binder) == -1 and hands._try_file_held_card() and hands.held_card_id == ids[41]
+		and binder.contents.card_at(43) == -1 and not hands._gliding(), "without Shunt the wrong pocket refuses the card")
 
-	# Without Shunt, a click on the wrong pocket does nothing: the card stays
-	# in hand. Its own pocket takes it.
-	pile.pick_up(ids[5])
-	hands._take_in_hand(ids[5])
-	binder.show_pocket(5)
-	hands._aim_pocket = 7
-	_check(hands._try_file_held_card() and hands.held_card_id == ids[5] and binder.contents.card_at(7) == -1
-		and not hands._gliding(), "a click on the wrong pocket leaves the card in hand")
-	hands._aim_pocket = 5
-	_check(hands._try_file_held_card(), "a click on its own pocket files it")
+	# Shunt I (Level 3): anywhere on the open pages.
+	Progression.reach_level(3)
+	_check(hands.shunt_pocket(binder) == 41 and hands._try_file_held_card(), "Shunt I files a card clicked anywhere on its open pages")
 	hands._glide.custom_step(10.0)
-	_check(binder.contents.is_locked(5) and hands.held_card_id == -1, "and it locks in")
-
-	# Shunt: click anywhere on the right open pages.
-	_buy_through(3, 2)
-	pile.pick_up(ids[4])
-	hands._take_in_hand(ids[4])
-	binder.show_pocket(4)
-	_check(hands.shunt_pocket(binder) == 4, "Shunt finds the held card's own pocket on the open pages")
-	hands._aim_pocket = 7 # The wrong pocket, on the same page.
-	_check(hands._try_file_held_card(), "a click on the wrong pocket files it")
-	hands._glide.custom_step(10.0)
-	_check(binder.contents.is_locked(4) and binder.contents.card_at(7) == -1, "into its own pocket")
-	pile.pick_up(ids[40])
-	hands._take_in_hand(ids[40])
-	_check(hands.shunt_pocket(binder) == -1, "but not when its page isn't open")
-	hands._release_top()
-	pile.drop(ids[40], Vector3(2, 0, 2), 0.0)
-
-	# Abundance: the next unfiled cards come to hand behind the top one.
-	_buy_through(4, 2) # Harmonize I and Abundance I
-	pile.pick_up(ids[10])
-	hands._take_in_hand(ids[10])
-	binder.insert(11, ids[11]) # Already filed: skipped.
-	var brought := hands.cast_abundance()
-	_check(brought == [ids[12], ids[13]] and hands.behind == brought and hands.hand_count() == 3,
-		"Abundance brings the next unfiled cards, in order, until the hand is full; got %s" % [brought])
-	_check(not pile.is_on_floor(ids[12]) and not Progression.can_cast("Abundance"), "out of the pile, and recharges")
-	await get_tree().create_timer(1.5).timeout
-	_check(hands._incoming == 0, "the cards arrive")
-
-	holder.free()
-	pile.free()
-	Progression.reset()
-	Progression.allow_debt = OS.is_debug_build()
-
-
-func _test_step_four_upgrades() -> void:
-	Progression.reset()
-	var pile := PileWorld.new()
-	add_child(pile)
-	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
-	var binder := Binder.new()
-	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
-	pile.add_child(binder)
-	pile.binders.append(binder)
-	binder.put_down(pile, Vector3(4.0, 0.75, 2.0), 0.0)
-	binder.open()
-	var ids := _first_binder_cards()
-	var hands := Hands.new()
-	var camera := Camera3D.new()
-	camera.name = "Camera3D"
-	var holder := CharacterBody3D.new()
-	holder.add_child(camera)
-	holder.add_child(hands)
-	holder.process_mode = Node.PROCESS_MODE_DISABLED
-	add_child(holder)
-	hands.pile = pile
-
-	# Enlightened Tutor II: a floor card you've never held, read in full.
-	hands._aim = Hands.Aim.FLOOR
-	hands._aim_floor_card = ids[50]
-	_buy_through(0, 1)
-	_check(hands.shown_card_id() == -1 and hands.shown_set_card_id() == ids[50], "Enlightened Tutor I shows only the set")
-	_buy_through(0, 3)
-	_check(hands.shown_card_id() == ids[50], "Enlightened Tutor II shows the whole card")
-
-	# Brainstorm: finishing a page by hand sends a missing card home.
+	_check(binder.contents.is_locked(41) and binder.contents.card_at(43) == -1, "into its own pocket")
 	binder.show_pocket(0)
-	for i in 8:
-		pile.pick_up(ids[i])
-		binder.insert(i, ids[i])
-	pile.pick_up(ids[8])
-	_check(hands.brainstorm(binder).is_empty(), "no Brainstorm before it's learned")
-	_buy_through(1, 3)
-	var locked := binder.contents.locked_count
-	hands._file(binder, 8, ids[8]) # The last card of page 1, by hand.
-	await get_tree().create_timer(1.5).timeout
-	_check(binder.contents.locked_count == locked + 2,
-		"the page's last card and 1 Brainstormed card lock in, got %d" % (binder.contents.locked_count - locked))
-	var count_before := binder.contents.locked_count
-	_check(hands.brainstorm(binder).size() == 1, "Brainstorm I sends 1 card")
-	await get_tree().create_timer(1.5).timeout
-	_check(binder.contents.locked_count == count_before + 1, "which files itself")
+	_check(hands.held_card_id == ids[42] and hands.shunt_pocket(binder) == -1, "but not when its page isn't open")
 
-	holder.free()
-	pile.free()
+	# Shunt II (Level 10): any page, open or closed.
+	Progression.reach_level(10)
+	hands._aim_pocket = 2
+	_check(hands.shunt_pocket(binder) == 42 and hands._try_file_held_card(), "Shunt II files onto the right binder at the wrong pages")
+	hands._glide.custom_step(10.0)
+	_check(binder.contents.is_locked(42) and binder.spread == BinderLayout.spread_of_page(42 / BinderLayout.POCKETS_PER_PAGE),
+		"turning to its page")
+	binder.close()
+	pile.pick_up(ids[44])
+	hands._take_in_hand(ids[44])
+	_check(hands.shunt_pocket(binder) == 44 and hands._try_file_held_card(), "and into a closed binder")
+	hands._glide.custom_step(10.0)
+	_check(binder.contents.is_locked(44), "through the cover")
+
+	# Tithe (Level 4): the Needed card's binder glows, and opens at its page.
 	Progression.reset()
-	Progression.allow_debt = OS.is_debug_build()
+	pile.pick_up(ids[50])
+	hands._take_in_hand(ids[50])
+	_check(hands.update_tithe() == null and not binder.tithe, "no Tithe glow before Level 4")
+	Progression.reach_level(4)
+	_check(hands.update_tithe() == binder and binder.tithe, "Tithe lights the binder the Needed card in hand belongs to")
+	binder.show_pocket(0)
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._toggle_binder()
+	_check(binder.is_open() and binder.spread == BinderLayout.spread_of_page(50 / BinderLayout.POCKETS_PER_PAGE),
+		"and opening that binder turns to the card's page")
+	hands._release_top()
+	_check(hands.update_tithe() == null and not binder.tithe, "empty hands, no glow")
+	var spare := Collection.add(ids[41]) # A duplicate: its pocket is filled.
+	hands._take_in_hand(spare)
+	_check(hands.update_tithe() == null, "and a Duplicate lights nothing")
+	hands._release_top()
 
-
-func _test_steps_five_to_seven() -> void:
-	Progression.reset()
-	var pile := PileWorld.new()
-	add_child(pile)
-	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 13)
-	var binder := Binder.new()
-	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
-	pile.add_child(binder)
-	pile.binders.append(binder)
-	binder.put_down(pile, Vector3(4.0, 0.75, 2.0), 0.0)
-	binder.open()
-	var ids := _first_binder_cards()
-	var hands := Hands.new()
-	var camera := Camera3D.new()
-	camera.name = "Camera3D"
-	var holder := CharacterBody3D.new()
-	holder.add_child(camera)
-	holder.add_child(hands)
-	holder.process_mode = Node.PROCESS_MODE_DISABLED
-	add_child(holder)
-	hands.pile = pile
-
-	# Teleport II: the whole hand.
-	_buy_through(4, 1) # Harmonize I
-	_buy_through(1, 4) # Teleport II
+	# Teleport (Level 15): every card in hand flies home.
+	Progression.reach_level(15)
 	for i in 3:
 		pile.pick_up(ids[60 + i])
 		hands._take_in_hand(ids[60 + i])
-	_check(hands.cast_teleport() and hands.hand_count() == 0, "Teleport II sends the whole hand")
+		if i > 0:
+			hands.behind.push_front(hands.held_card_id)
+	hands._hold(ids[62])
+	binder.close()
+	var mana := Progression.mana
+	_check(hands.cast_teleport() and hands.hand_count() == 0, "Teleport sends the whole hand")
 	await get_tree().create_timer(1.5).timeout
 	_check(binder.contents.is_locked(60) and binder.contents.is_locked(61) and binder.contents.is_locked(62),
-		"and every card files itself")
-
-	# Shunt II and III.
-	_buy_through(3, 4) # Shunt II
-	binder.show_pocket(0)
-	pile.pick_up(ids[70])
-	hands._take_in_hand(ids[70])
-	hands._aim = Hands.Aim.BINDER
-	hands._aim_binder = binder
-	hands._aim_pocket = 2
-	_check(hands.shunt_pocket(binder) == 70, "Shunt II files onto the right binder open at the wrong pages")
-	_check(hands._try_file_held_card(), "a click files it")
-	hands._glide.custom_step(10.0)
-	_check(binder.contents.is_locked(70), "into its own pocket, turning to its page")
-	binder.close()
-	pile.pick_up(ids[71])
-	hands._take_in_hand(ids[71])
-	_check(hands.shunt_pocket(binder) == -1, "Shunt II needs the binder open")
-	_buy_through(3, 6) # Shunt III
-	_check(hands.shunt_pocket(binder) == 71 and hands._try_file_held_card(), "Shunt III files into a closed binder")
-	hands._glide.custom_step(10.0)
-	_check(binder.contents.is_locked(71), "through the cover")
-	binder.open()
-
-	# Demonic Consultation: flipped cards for an open binder hover.
-	_buy_through(2, 4) # Demonic Consultation I
-	var point := Vector3(6.0, 0.0, 6.0)
-	for i in 2: # Two of the binder's cards on top of the pile there.
-		pile.pick_up(ids[80 + i])
-		pile.drop(ids[80 + i], point, 0.0)
-	hands._aim = Hands.Aim.FLOOR
-	hands._aim_point = point
-	var flipped := hands.flip_pile()
-	var hovering := pile.get_children().filter(func(c: Node) -> bool: return c is HoveringCard)
-	var hovered_ids := hovering.map(func(c: HoveringCard) -> int: return c.card_id)
-	_check(hovered_ids.has(ids[80]) and hovered_ids.has(ids[81]) and hovered_ids.all(func(id: int) -> bool: return ids.has(id)),
-		"flipped cards whose binder is open hover; got %s" % [hovered_ids])
-	var card: HoveringCard = hovering[0]
-	_check(is_equal_approx(card.seconds_left, 5.0), "for 5 s")
-	_check(pile.take_from_anywhere(card.card_id) != null, "a hovering card can be grabbed")
-	binder.close()
-	for c in hovering:
-		if not c.is_queued_for_deletion():
-			c._process(0.1)
-	_check(hovered_ids.slice(1).all(func(id: int) -> bool: return pile.is_on_floor(id)), "closing the binder drops the rest")
-	_land_tossed(pile)
-
-	# Serra's Blessing: Tithe always on for the open binder you look at.
-	binder.open()
-	hands._aim = Hands.Aim.BINDER
-	hands._aim_binder = binder
-	_buy_through(0, 6)
-	hands._update_blessing(0.0)
-	var glowing := ids.filter(func(id: int) -> bool: return pile.is_glowing(id))
-	var on_floor := ids.filter(func(id: int) -> bool: return pile.is_on_floor(id))
-	_check(glowing.size() == on_floor.size() and not glowing.is_empty(),
-		"Serra's Blessing lights every missing card (%d of %d)" % [glowing.size(), on_floor.size()])
-	hands._aim = Hands.Aim.NONE
-	hands._update_blessing(1.0)
-	_check(hands._blessed == binder, "and keeps on after you look away")
-	binder.close()
-	hands._update_blessing(1.0)
-	_check(hands._blessed == null, "until the binder is closed")
+		"and every card files itself, even in a closed binder")
+	_check(Progression.mana == mana + 3 * Progression.CARD_LOCKED, "earning its Mana")
+	_check(not Progression.can_cast("Teleport"), "then it recharges")
 
 	holder.free()
 	pile.free()
 	Progression.reset()
-	Progression.allow_debt = OS.is_debug_build()
 
 
-## Cards lying on a table work just like cards on the floor: tosses and
-## flips land on it, magic finds them, and their details follow the same
-## rules.
+## Howling Mine's free product, Black Market's sale price, and the pack
+## odds perks (Lucky Clover, the 75% nudge with Demonic Tutor, Ancestral
+## Recall).
+func _test_money_and_odds_perks() -> void:
+	Progression.reset()
+	Collection.reset()
+	var main := preload("res://scripts/main.gd")
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.setup(Rect2(0, 0, 12, 8), [] as Array[Rect2])
+	var made: Array[Binder] = []
+	for i in 2:
+		var binder := Binder.new()
+		binder.setup(CardDatabase.all_binders()[i], Color.RED, pile)
+		pile.add_child(binder)
+		made.append(binder)
+	var first_cards := CardDatabase.cards_in_set(made[0].binder.set_code)
+	made[0].contents.insert(0, Collection.add(first_cards[made[0].binder.first - 1].id))
+	_check(main.howling_mine_gifts(7, made).is_empty(), "no free product before Howling Mine")
+	Progression.reach_level(5)
+	var second := made[1].binder.set_code
+	_check(main.howling_mine_set(made) == second, "the free product is of the set you're furthest from finishing")
+	_check(main.howling_mine_gifts(7, made) == [["pack", second], ["pack", second], ["pack", second]],
+		"Howling Mine I: three packs every morning")
+	Progression.reach_level(16)
+	_check(main.howling_mine_gifts(6, made).size() == 3 and main.howling_mine_gifts(14, made).back() == ["booster_box", second],
+		"Howling Mine II: a booster box every seventh morning too")
+	for binder in made:
+		binder.free()
+	pile.free()
+
+	Progression.reset()
+	var card := CardDatabase.get_card(0)
+	var cents := Prices.sale_cents(card)
+	Progression.reach_level(8)
+	_check(Prices.sale_cents(card) == maxi(1, roundi(card.value * 110.0)) and Prices.sale_cents(card) >= cents,
+		"Black Market: sales pay 10%% more (%d -> %d cents)" % [cents, Prices.sale_cents(card)])
+
+	# Lucky Clover.
+	Progression.reset()
+	_check(PackContents.mythic_chance() == 8.0 and is_equal_approx(PackContents.play_mythic_chance(), 7.0), "mythics 1 in 8 (Play 1 in 7)")
+	Progression.reach_level(11)
+	_check(PackContents.mythic_chance() == 6.0 and is_equal_approx(PackContents.play_mythic_chance(), 5.25),
+		"Lucky Clover: 1 in 6 (Play 5.25)")
+	var rare_slot: Dictionary = PackContents.era_slots("draft", PackedInt32Array([100, 60, 50, 15, 5])).back()
+	_check(is_equal_approx(rare_slot.weights[CardData.Rarity.RARE], 5.0), "and the draft rare slot weighs rares 5 to 1")
+
+	# The nudge and Demonic Tutor.
+	Progression.reset()
+	Collection.reset()
+	var code := made_code()
+	var cards := CardDatabase.cards_in_set(code)
+	_check(PackContents.needed_weight(code) == 1.0, "owning nothing, no nudge")
+	for i in ceili(cards.size() * 0.75):
+		Collection.add(cards[i].id)
+	_check(is_equal_approx(PackContents.needed_weight(code), 1.25), "owning 75% of a set, cards you lack are 1.25x as likely")
+	Progression.reach_level(14)
+	_check(is_equal_approx(PackContents.needed_weight(code), 1.5), "and Demonic Tutor makes it 1.5x")
+	var missing := PackContents.unowned(code)
+	_check(missing.size() == cards.size() - ceili(cards.size() * 0.75), "the unowned cards are the rest")
+	# Over many packs, the slots lean toward cards you lack.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 41
+	var fresh := [0, 0]
+	for run in [1.0, 3.0]:
+		rng.seed = 41
+		for pack in 300:
+			for id in PackContents.draw_from(PackContents.pools(code), PackContents.slots(code), rng, run, missing):
+				if missing.has(id):
+					fresh[0 if run == 1.0 else 1] += 1
+	_check(fresh[1] > fresh[0] * 1.3, "weighted slots pull more unowned cards (%d vs %d)" % [fresh[1], fresh[0]])
+
+	# Ancestral Recall.
+	Progression.reset()
+	var list := PackContents.slots(code)
+	rng.seed = 3
+	var state := rng.state
+	_check(PackContents.with_recall(list, rng) == list and rng.state == state, "no bonus rare, and no roll, before Level 17")
+	Progression.reach_level(17)
+	var bonus := 0
+	for i in 1500:
+		if PackContents.with_recall(list, rng).size() > list.size():
+			bonus += 1
+	_check(bonus > 60 and bonus < 140, "Ancestral Recall: about 1 pack in 15 gets a bonus rare slot (%d in 1500)" % bonus)
+	_check(list.size() == PackContents.slots(code).size(), "without changing the set's own slots")
+	Progression.reset()
+	Collection.reset()
+
+
+## The first binder's set, for the odds checks.
+func made_code() -> String:
+	return CardDatabase.all_binders()[0].set_code
+
+
+## Cards lying on a table work just like cards on the floor: tosses land
+## on it, a card falling past it goes to the floor.
 func _test_table_cards() -> void:
 	Progression.reset()
 	var pile := PileWorld.new()
@@ -2909,13 +2659,8 @@ func _test_table_cards() -> void:
 	pile.land(ids[2], Vector3(center.x + 1.0, 0.0, center.y), 0.0)
 	_check(pile.is_on_floor(ids[2]) and pile.loose_card(ids[2]) == null, "off the table, it lands on the pile")
 
-	# Magic finds table cards like floor cards.
-	var binder := Binder.new()
-	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
-	pile.add_child(binder)
-	pile.binders.append(binder)
-	binder.put_down(pile, Vector3(2.0, 0.75, 2.0), 0.0)
-	binder.open()
+	# Right-click with a ripped pack's worth in hand: every card goes,
+	# scattering onto the table or the floor around it.
 	var hands := Hands.new()
 	var camera := Camera3D.new()
 	camera.name = "Camera3D"
@@ -2924,48 +2669,26 @@ func _test_table_cards() -> void:
 	holder.add_child(hands)
 	holder.process_mode = Node.PROCESS_MODE_DISABLED
 	add_child(holder)
+	holder.global_position = Vector3(center.x - 0.9, top_y + 0.2, center.y)
+	camera.rotation.y = -PI / 2 # Facing +x, over the table.
 	hands.pile = pile
-	hands._aim = Hands.Aim.BINDER
-	hands._aim_binder = binder
-	hands._aim_pocket = -1
-	_buy_through(0, 5) # Tithe III: every missing card
-	var lit := hands.cast_tithe()
-	_check(lit.has(ids[0]) and lit.has(ids[1]) and pile.is_glowing(ids[0]), "Tithe finds cards lying on a table")
-	pile.pick_up(ids[0])
-	_check(not pile.is_glowing(ids[0]) and on_table.is_queued_for_deletion() and not pile.is_lying(ids[0]),
-		"picking one up stops its glow and takes it off the table")
-
-	# Details: a card you set down on a table is a mystery again without
-	# Remember the Fallen, as on the floor.
-	Progression.reset()
-	hands.seen_cards[ids[1]] = true
-	hands._aim = Hands.Aim.LOOSE_CARD
-	hands._aim_loose_card = edge
-	_check(hands.shown_card_id() == -1, "without Remember the Fallen, a table card you've held is a mystery")
-	_buy_through(0, 0)
-	_check(hands.shown_card_id() == ids[1], "with it, it's named")
-	hands.seen_cards.erase(ids[1])
-	_buy_through(0, 1)
-	_check(hands.shown_card_id() == -1 and hands.shown_set_card_id() == ids[1],
-		"Enlightened Tutor shows a table card's set")
-
-	# A pile flip aimed at the table flips the cards there, not the floor under it.
-	for i in range(3, 6):
-		pile.pick_up(ids[i])
-		pile.land(ids[i], Vector3(center.x + 0.02 * i, top_y, center.y + 0.3), 0.0)
-	hands._aim = Hands.Aim.SURFACE
-	hands._aim_point = Vector3(center.x + 0.08, top_y, center.y + 0.3)
-	var flipped := hands.flip_pile()
-	_check(flipped.size() == 3 and flipped.all(func(id: int) -> bool: return ids.slice(3, 6).has(id)),
-		"a pile flip on a table flips the cards lying there, got %s" % [flipped])
+	var grip: Array[int] = []
+	grip.assign(ids.slice(10, 16))
+	for id in grip:
+		pile.pick_up(id)
+	hands._hold(grip[0])
+	hands.behind.assign(grip.slice(1))
+	_check(hands.toss_held() and hands.hand_count() == 0 and hands.held_card_id == -1, "right-click empties the whole hand")
+	var flying := pile.get_children().filter(func(c: Node) -> bool: return c is TossedCard and not c.is_queued_for_deletion())
+	_check(flying.size() == grip.size(), "every card in it is tossed, got %d" % flying.size())
 	_land_tossed(pile)
-	_check(flipped.all(func(id: int) -> bool: return pile.loose_card(id) != null),
-		"and they land back on the table")
+	_check(grip.all(func(id: int) -> bool: return pile.is_lying(id)), "and they all land, on the table or the floor")
+	_check(grip.any(func(id: int) -> bool: return pile.loose_card(id) != null), "some on the table in front of you")
+	_check(not hands.toss_held(), "with empty hands right-click does nothing")
 
 	holder.free()
 	pile.free()
 	Progression.reset()
-	Progression.allow_debt = OS.is_debug_build()
 
 
 ## A tossed binder flies through other binders without moving them, lands
@@ -3046,11 +2769,64 @@ func _test_binder_toss() -> void:
 	hands.pile = pile
 	hands._carry(tossed)
 	hands._glide.custom_step(10.0)
-	hands.toss_binder()
+	hands.toss_held()
 	_check(hands.carried_binder == null and tossed.state == Binder.State.TOSSED and tossed.get_parent() == pile,
 		"right-click throws the carried binder")
 	await _fly_binder(tossed)
 	_check(tossed.state == Binder.State.CLOSED and tossed.global_position.x > 3.2, "it lands in front of you")
+
+	# Packs, boxes and the laptop: lobbed, landing ahead of you, intact.
+	var path := "user://test_achievements.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Achievements.load_from(path)
+	holder.global_position = Vector3(3.0, 1.0, 3.0)
+	var code := CardDatabase.all_binders()[0].set_code
+	var pack := BoosterPack.new()
+	pack.setup(code)
+	pack.lie(pile, Vector3(3.3, 0.0, 3.0), 0.0)
+	hands._take_pack_node(pack)
+	hands._glide.custom_step(10.0)
+	_check(hands.toss_held() and hands.held_pack == null and pack.get_parent() == pile and not pack.is_lying(),
+		"right-click lobs the pack in hand; in the air nothing can aim at it")
+	var products := ShopSave.snapshot_products(pile, hands, holder)
+	_check(products.any(func(p: Array) -> bool: return p[0] == "pack" and (p[2] as Transform3D).is_equal_approx(pack.get_meta("lands_at"))),
+		"a save in mid-air keeps it where it will land")
+	await get_tree().create_timer(hands.lob_seconds + 0.2).timeout
+	_check(pack.is_lying() and pack.global_position.x > 3.5 and pack.global_position.y < 0.05 and not pack.has_meta("lands_at"),
+		"it lands lying on the floor ahead (x=%.2f)" % pack.global_position.x)
+	var box: ProductBox = preload("res://scripts/main.gd").place_box(pile, ProductBox.Kind.BOOSTER, code, Vector3(3.3, 0.0, 3.6), 0.0)
+	hands.take_box(box)
+	hands._glide.custom_step(10.0)
+	_check(hands.toss_held() and hands.held_box == null and box.collision_layer == 0, "a booster box goes the same way")
+	await get_tree().create_timer(hands.lob_seconds + 0.2).timeout
+	_check(box.collision_layer == Binder.PHYSICS_LAYER and box.kind == ProductBox.Kind.BOOSTER and box.global_position.x > 3.5
+		and absf(box.global_basis.y.y - 1.0) < 0.001, "and lands upright, still sealed, ready to pick up")
+	var laptop := Laptop.new()
+	laptop.build()
+	pile.add_child(laptop)
+	laptop.global_position = Vector3(3.3, 0.0, 2.4)
+	var laptop_index := Achievements.other_index("other:laptop_toss")
+	hands.take_box(laptop)
+	hands._glide.custom_step(10.0)
+	_check(not Achievements.is_unlocked(laptop_index), "Hey, That's Expensive waits for a toss")
+	_check(hands.toss_held() and Achievements.is_unlocked(laptop_index), "tossing the laptop unlocks Hey, That's Expensive")
+	_check(ShopSave.snapshot_laptop(pile, hands, holder) == laptop.get_meta("lands_at"), "in mid-air, a save puts the laptop where it lands")
+	await get_tree().create_timer(hands.lob_seconds + 0.2).timeout
+	_check(laptop.collision_layer == Binder.PHYSICS_LAYER and laptop.get_parent() == pile, "the laptop lands and can be picked up again")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Achievements.load_from(Achievements.SAVE_PATH)
+
+	# Mid-reveal, right-click waits.
+	var ids := _first_binder_cards()
+	for id in ids.slice(0, 3):
+		pile.pick_up(id)
+	hands._hold(ids[0])
+	hands.behind.assign(ids.slice(1, 3))
+	hands.revealing = 2
+	_check(not hands.toss_held() and hands.hand_count() == 3, "while a pack's cards are still being revealed, right-click does nothing")
+	hands.revealing = 0
+	_check(hands.toss_held() and hands.hand_count() == 0, "once they're all shown, it tosses the lot")
+	_land_tossed(pile)
 	holder.free()
 	pile.free()
 
@@ -3388,10 +3164,7 @@ func _test_shop_save() -> void:
 	var shelf: ShelfUnit = main._shelves()[0]
 	var shelved := pile.binders[1]
 	shelf.shelve(shelf.space_for(shelved.binder.set_code), shelved)
-	Progression.allow_debt = true
-	Progression.buy(4, 0)
-	Progression.buy(4, 1)
-	Progression.allow_debt = false
+	Progression.reach_level(10)
 	Progression.earn(500)
 	player.global_position = Vector3(3.0, 0.1, 5.0)
 	player.rotation.y = 1.2
@@ -3430,8 +3203,8 @@ func _test_shop_save() -> void:
 	var same_shelf := pile.binders[1]
 	_check(same_shelf.state == Binder.State.SHELVED and same_shelf.shelf_unit != null
 		and same_shelf.shelf_unit.shelved[same_shelf.shelf_space] == same_shelf, "the shelved binder is back on its shelf")
-	_check(Progression.mana == before_mana and Progression.rank("Harmonize") == 1 and Progression.rank("Spider Climb") == 1,
-		"Mana and unlocks come back")
+	_check(Progression.mana == before_mana and Progression.level() == 10 and Progression.rank("Shunt") == 3,
+		"Mana, and with it the level and its abilities, come back")
 	_check(player.global_position.distance_to(Vector3(3.0, 0.1, 5.0)) < 0.01 and is_equal_approx(player.rotation.y, 1.2),
 		"you stand where you stood, looking the same way")
 	_check(not pile.is_lying(ids[11]) and main._falling.size() == 1, "the card that was in the air waits to land")
@@ -3443,7 +3216,7 @@ func _test_shop_save() -> void:
 	for code in before.binders:
 		for key in ["state", "pockets", "spread"]:
 			binders_same = binders_same and after.binders[code][key] == before.binders[code][key]
-	_check(binders_same and after.hand == before.hand and after.progression.bought == before.progression.bought
+	_check(binders_same and after.hand == before.hand and after.progression.mana == before.progression.mana
 		and after.falling.is_empty(), "saved again, every binder, the hand and the unlocks are the same")
 
 	# Copies are saved by set code and number, in copy order.
@@ -3566,11 +3339,8 @@ func _test_rare_cards() -> void:
 	await _finish_glide(hands)
 
 	# Binder magic doesn't touch it.
-	_buy_through(1, 1) # Teleport
-	_buy_through(4, 2) # Harmonize, Abundance
-	Progression.allow_debt = false
+	Progression.reach_level(15) # Teleport
 	_check(not hands.cast_teleport(), "Teleport fizzles on a rare card")
-	_check(hands.cast_abundance().is_empty(), "holding a rare card, Abundance brings nothing")
 	_check(hands.held_card_id == rare[0].id and hands.behind.is_empty(), "and it stays in hand")
 	var binder := pile.binders[0]
 	var pockets := BinderContents.new(binder.binder)

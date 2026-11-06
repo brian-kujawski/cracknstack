@@ -12,11 +12,6 @@ extends Control
 ## top centre, a new day a report in the middle, and a shipping box's fill
 ## floats over the box itself after a moment's look. Main feeds it.
 
-## Needed / Duplicate on the card plate is an unlock: built now, behind
-## this switch. Turn it on (true) once the criteria exist (a cost or a
-## level, needed_tag_unlocked) and it waits for them.
-const NEEDED_TAG_GATED := false
-const NEEDED_TAG_LEVEL := 2
 
 ## How long the "+$0.85" beside Money stays, and its fade.
 const DELTA_SHOWN := 1.6
@@ -98,9 +93,10 @@ func _init() -> void:
 	add_child(debug_label)
 
 
-## Whether Needed / Duplicate shows on the card plate (NEEDED_TAG_GATED).
+## Whether Needed / Duplicate shows on the card plate: from Fact or Fiction
+## (Level 2).
 static func needed_tag_unlocked() -> bool:
-	return not NEEDED_TAG_GATED or Progression.level() >= NEEDED_TAG_LEVEL
+	return Progression.rank("Fact or Fiction") > 0
 
 
 # --- Top left: Money, chapter, level ----------------------------------------
@@ -168,7 +164,12 @@ func set_status(money: int, chapter: Dictionary, level: int, progress: int, per_
 		(chapter_block.find_child("Caption", true, false) as Label).text = String(chapter.name).to_upper()
 		HudStyle.set_counter(chapter_block, chapter.organized, chapter.pockets)
 	level_label.text = str(level)
-	HudStyle.set_counter(mana_block, progress, per_level)
+	if per_level > 0:
+		HudStyle.set_counter(mana_block, progress, per_level)
+	else:
+		# The top level: a full bar.
+		HudStyle.set_counter(mana_block, 1, 1)
+		(mana_block.find_child("Count", true, false) as Label).text = "Max"
 
 
 ## "+$0.85" beside Money for a moment (a sale). Sales close together add up.
@@ -227,16 +228,6 @@ func show_card(card: CardData, copy_status := CopyStatus.NONE) -> void:
 	row.add_child(rarity)
 	row.add_child(HudStyle.label(Progression.money_text(Prices.sale_cents(card)), 26))
 	lines.add_child(row)
-	card_plate.visible = true
-
-
-## All you know is the card's set (Enlightened Tutor): "Khans of Tarkir" /
-## "KTK #???".
-func show_set_only(card: CardData) -> void:
-	var lines := _card_lines()
-	var set_data := CardDatabase.get_set(card.set_code)
-	lines.add_child(HudStyle.name_label(set_data.name, 32))
-	lines.add_child(HudStyle.label("%s #???" % set_data.code, HudStyle.FONT_SIZE, HudStyle.MUTED))
 	card_plate.visible = true
 
 
@@ -595,15 +586,13 @@ func _build_sorcery_bar() -> void:
 	add_child(sorcery_bar)
 
 
-## Mana colours under each sorcery's slot, in SORCERIES order: Tithe white,
-## Teleport blue, Demonic Tutor black, Chain Lightning red, Abundance green.
-const SORCERY_COLOURS := [Color(0.937, 0.902, 0.784), Color(0.31, 0.56, 0.85), Color(0.61, 0.49, 0.74),
-	Color(0.86, 0.33, 0.25), Color(0.36, 0.7, 0.4)]
+## The Mana colour under each sorcery's slot, by name.
+const SORCERY_COLOURS := {"Teleport": Color(0.31, 0.56, 0.85), "Serra's Blessing": Color(0.937, 0.902, 0.784)}
 const SLOT := 76.0
 
 
-## One slot per learned sorcery: its icon, its key, a dark sweep while it
-## recharges (with the seconds left) and a gold glow while it's armed.
+## One slot per learned sorcery: its icon, its key, and a dark sweep while
+## it recharges (with the seconds left).
 func refresh_sorceries() -> void:
 	var learned := []
 	for i in sorceries.size():
@@ -649,13 +638,10 @@ func _sorcery_slot(index: int) -> Control:
 func _draw_slot(slot: Control, index: int) -> void:
 	var node: String = sorceries[index][0]
 	var r := Rect2(Vector2.ZERO, slot.size)
-	var armed := Progression.is_armed(node)
-	if armed:
-		slot.draw_rect(r.grow(5), Color(HudStyle.GOLD_BRIGHT, 0.35))
 	slot.draw_rect(r, HudStyle.PLATE)
-	slot.draw_rect(Rect2(0, r.size.y - 4, r.size.x, 4), SORCERY_COLOURS[index % SORCERY_COLOURS.size()])
-	slot.draw_rect(r, HudStyle.GOLD_BRIGHT if armed else HudStyle.GOLD, false, 2.0)
-	_draw_icon(slot, index, r.get_center() + Vector2(0, -3), 17.0)
+	slot.draw_rect(Rect2(0, r.size.y - 4, r.size.x, 4), SORCERY_COLOURS.get(node, HudStyle.GOLD))
+	slot.draw_rect(r, HudStyle.GOLD, false, 2.0)
+	_draw_icon(slot, node, r.get_center() + Vector2(0, -3), 17.0)
 	var ranks: Array = Progression.COOLDOWNS.get(node, [])
 	var rank := Progression.rank(node)
 	var cooldown: float = ranks[clampi(rank - 1, 0, ranks.size() - 1)] if not ranks.is_empty() and rank > 0 else 0.0
@@ -671,40 +657,22 @@ func _draw_slot(slot: Control, index: int) -> void:
 		slot.draw_colored_polygon(points, Color(0, 0, 0, 0.66))
 
 
-## Each sorcery's line drawing: Tithe a sun, Teleport a swirl, Demonic
-## Tutor a card with an arrow into it, Chain Lightning a bolt, Abundance a
-## leaf.
-func _draw_icon(slot: Control, index: int, c: Vector2, s: float) -> void:
+## Each sorcery's line drawing: Teleport a swirl, anything else (Serra's
+## Blessing, to come) a sun.
+func _draw_icon(slot: Control, node: String, c: Vector2, s: float) -> void:
 	var ink := HudStyle.TEXT
 	var w := 2.4
-	match index:
-		0:
+	match node:
+		"Teleport":
+			slot.draw_arc(c, s * 0.9, -PI * 0.4, PI * 1.4, 28, ink, w, true)
+			slot.draw_arc(c, s * 0.48, PI * 0.6, PI * 2.4, 20, ink, w, true)
+			slot.draw_circle(c, 2.0, ink)
+		_:
 			slot.draw_arc(c, s * 0.42, 0, TAU, 24, ink, w, true)
 			for i in 8:
 				var a := TAU * i / 8
 				var d := Vector2(cos(a), sin(a))
 				slot.draw_line(c + d * s * 0.62, c + d * s * 0.95, ink, w, true)
-		1:
-			slot.draw_arc(c, s * 0.9, -PI * 0.4, PI * 1.4, 28, ink, w, true)
-			slot.draw_arc(c, s * 0.48, PI * 0.6, PI * 2.4, 20, ink, w, true)
-			slot.draw_circle(c, 2.0, ink)
-		2:
-			slot.draw_rect(Rect2(c - Vector2(s * 0.55, s * 0.85), Vector2(s * 1.1, s * 1.5)), ink, false, w)
-			slot.draw_line(c + Vector2(0, -s * 0.5), c + Vector2(0, s * 0.25), ink, w, true)
-			slot.draw_polyline(PackedVector2Array([c + Vector2(-s * 0.3, 0), c + Vector2(0, s * 0.3), c + Vector2(s * 0.3, 0)]), ink, w, true)
-		3:
-			slot.draw_polyline(PackedVector2Array([c + Vector2(s * 0.25, -s), c + Vector2(-s * 0.35, s * 0.05),
-				c + Vector2(s * 0.2, s * 0.05), c + Vector2(-s * 0.3, s)]), ink, w, true)
-		_:
-			var leaf := PackedVector2Array()
-			for i in 13:
-				var t := float(i) / 12
-				leaf.append(c + Vector2(lerpf(-s * 0.7, s * 0.7, t), -sin(t * PI) * s * 0.55).rotated(-0.6))
-			for i in range(12, -1, -1):
-				var t := float(i) / 12
-				leaf.append(c + Vector2(lerpf(-s * 0.7, s * 0.7, t), sin(t * PI) * s * 0.55).rotated(-0.6))
-			slot.draw_polyline(leaf, ink, w, true)
-			slot.draw_line(c + Vector2(-s * 0.9, 0).rotated(-0.6), c + Vector2(s * 0.7, 0).rotated(-0.6), ink, w * 0.7, true)
 
 
 # --- The crosshair ---------------------------------------------------------------

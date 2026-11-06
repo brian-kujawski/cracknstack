@@ -1,11 +1,5 @@
 extends Node
-## Achievements (autoload: Achievements). Every upgrade in the M7 tree is
-## named after a real Magic card, and filing that card (locking it into its
-## own pocket, by hand or by Teleport) unlocks its achievement. Most of these
-## cards come from sets beyond Khans of Tarkir, so they arrive with the
-## bigger import (M8).
-##
-## Then one for each rare card (RareCards), unlocked when it goes in its
+## Achievements (autoload: Achievements). One for each rare card (RareCards), unlocked when it goes in its
 ## shadow box in the display cabinets, and one more for putting all of them
 ## there; their titles and lines are in RARE.
 ##
@@ -18,6 +12,12 @@ extends Node
 ## a bulk box (cards_found). Which of the seven have been found is kept with
 ## the unlocks, so the second one can span games.
 ##
+## Then the odd ones out, in OTHER: tossing the laptop, so far.
+##
+## Icons 001 to 016 are free: they were the old upgrade tree's sixteen card
+## achievements, taken out with the tree. The rest kept their numbers, so
+## the first rare card's icon is still 017 (FIRST_ICON).
+##
 ## Unlocked achievements belong to the player, not to one game: they're kept
 ## in user://achievements.cfg, apart from save files, and New Game doesn't
 ## clear them.
@@ -29,31 +29,12 @@ const ICON_PATH := "res://assets/achievements/achievement%03d%s.png"
 const LOCKED_TITLE := "???"
 const LOCKED_TEXT := "This achievement is locked."
 
-## Every achievement, one per card the upgrade tree is named after, by colour
-## (white, blue, black, red, green) and in each colour in buying order:
-## [card name, colour]. Icons are numbered in this order, from 001.
-const LIST := [
-	["Remember the Fallen", 0],
-	["Enlightened Tutor", 0],
-	["Tithe", 0],
-	["Serra's Blessing", 0],
-	["Snap", 1],
-	["Teleport", 1],
-	["Brainstorm", 1],
-	["Demonic Tutor", 2],
-	["Unmask", 2],
-	["Demonic Consultation", 2],
-	["Fervor", 3],
-	["Chain Lightning", 3],
-	["Shunt", 3],
-	["Spider Climb", 4],
-	["Harmonize", 4],
-	["Abundance", 4],
-]
+## Icon number of the first achievement (index 0); see the note above.
+const FIRST_ICON := 17
 
 ## The rare card achievements, in RareCards order, then the one for all of
 ## them: [title, line shown once unlocked]. Placeholders, yours to write.
-## Icons carry on numbering after LIST's (017 is the first rare card's).
+## Their icons start at 017 (FIRST_ICON).
 const RARE := [
 	["Rare Card 01", "Put Rare Card 01 on display."],
 	["Rare Card 02", "Put Rare Card 02 on display."],
@@ -111,15 +92,17 @@ const BANNED := [
 	["Banned Card", "Found one of the seven cards Wizards of the Coast banned from every format in 2020 for racist imagery or text."],
 	["All Seven", "Found all seven cards Wizards of the Coast banned in 2020 for racist content. They stay in this game as part of Magic's history."],
 ]
+## The odd ones out: [key, title, line shown once unlocked]. Icons carry on
+## after the banned cards' (068 on). The lines are placeholders, yours to
+## write.
+const OTHER := [
+	["other:laptop_toss", "Hey, That's Expensive", "Tossed the laptop."],
+]
 
-## colour() of the rare card achievements, which belong to no colour, of
-## the wall art's and of the banned cards'.
-const RARE_GROUP := -1
-const WALL_ART_GROUP := -2
-const BANNED_GROUP := -3
-
-## Key (a card name, "rare:NN" / "rare:all", or "art:NN") -> [set name it was filed
-## from ("" for rare cards), date unlocked "YYYY-MM-DD"].
+## Key ("rare:NN" / "rare:all", "art:NN", "banned:first" / "banned:all" or
+## an OTHER key) -> [set name it was filed from (""), date unlocked
+## "YYYY-MM-DD"]. Keys from removed achievements (the old tree's card names)
+## are kept but never shown.
 var _unlocked := {}
 ## Names of the BANNED_CARDS found so far -> true.
 var _banned_found := {}
@@ -131,33 +114,22 @@ func _ready() -> void:
 
 
 func count() -> int:
-	return _banned_start() + BANNED.size()
+	return _other_start() + OTHER.size()
 
 
-## The achievement's name: the card it's named after, or a rare one's or
-## the wall art's title.
+## The achievement's name: a rare card's, the wall art's or its own title.
 func card_name(index: int) -> String:
-	if index < LIST.size():
-		return LIST[index][0]
+	if is_other(index):
+		return OTHER[index - _other_start()][1]
 	if is_banned(index):
 		return BANNED[index - _banned_start()][0]
 	if is_wall_art(index):
 		return WallArt.LIST[index - _wall_art_start()][0]
-	return RARE[index - LIST.size()][0]
-
-
-## Its colour in the upgrade tree, or RARE_GROUP, WALL_ART_GROUP or
-## BANNED_GROUP.
-func colour(index: int) -> int:
-	if index < LIST.size():
-		return LIST[index][1]
-	if is_banned(index):
-		return BANNED_GROUP
-	return WALL_ART_GROUP if is_wall_art(index) else RARE_GROUP
+	return RARE[index][0]
 
 
 func is_rare(index: int) -> bool:
-	return index >= LIST.size() and index < _wall_art_start()
+	return index >= 0 and index < _wall_art_start()
 
 
 func is_wall_art(index: int) -> bool:
@@ -165,13 +137,17 @@ func is_wall_art(index: int) -> bool:
 
 
 func is_banned(index: int) -> bool:
-	return index >= _banned_start()
+	return index >= _banned_start() and index < _other_start()
+
+
+func is_other(index: int) -> bool:
+	return index >= _other_start() and index < count()
 
 
 ## The achievement for rare card `number` (from 1), and the one for all of
 ## them.
 func rare_index(number: int) -> int:
-	return LIST.size() + number - 1
+	return number - 1
 
 
 func all_rare_index() -> int:
@@ -192,56 +168,72 @@ func all_banned_index() -> int:
 	return _banned_start() + 1
 
 
+## The OTHER achievement saved under `other_key`, or -1.
+func other_index(other_key: String) -> int:
+	for i in OTHER.size():
+		if OTHER[i][0] == other_key:
+			return _other_start() + i
+	return -1
+
+
 func _wall_art_start() -> int:
-	return LIST.size() + RARE.size()
+	return RARE.size()
 
 
 func _banned_start() -> int:
 	return _wall_art_start() + WallArt.count()
 
 
-## What an unlock is saved under: the card's name, for the rare cards their
-## number ("rare:07") or "rare:all", and for the wall art its frame's
-## ("art:03"), and the banned cards' "banned:first" and "banned:all", so
+func _other_start() -> int:
+	return _banned_start() + BANNED.size()
+
+
+## What an unlock is saved under: for the rare cards their number
+## ("rare:07") or "rare:all", for the wall art its frame's ("art:03"), the
+## banned cards' "banned:first" and "banned:all", and OTHER's own keys, so
 ## renaming them loses nothing.
 func key(index: int) -> String:
-	if index < LIST.size():
-		return LIST[index][0]
+	if is_other(index):
+		return OTHER[index - _other_start()][0]
 	if is_banned(index):
 		return "banned:first" if index == first_banned_index() else "banned:all"
 	if is_wall_art(index):
 		return "art:%02d" % (index - _wall_art_start() + 1)
 	if index == all_rare_index():
 		return "rare:all"
-	return "rare:%02d" % (index - LIST.size() + 1)
+	return "rare:%02d" % (index + 1)
 
 
 func is_unlocked(index: int) -> bool:
 	return _unlocked.has(key(index))
 
 
-## The tile's title: the card's name once unlocked, ??? until then.
+## The tile's title: its name once unlocked, ??? until then.
 func title(index: int) -> String:
 	return card_name(index) if is_unlocked(index) else LOCKED_TITLE
 
 
-## The tile's explainer: "Filed Tithe from Visions." once unlocked (a rare
-## one's own line).
+## The tile's explainer, once unlocked.
 func description(index: int) -> String:
 	if not is_unlocked(index):
 		return LOCKED_TEXT
 	if is_rare(index):
-		return RARE[index - LIST.size()][1]
+		return RARE[index][1]
 	if is_wall_art(index):
 		return WallArt.LIST[index - _wall_art_start()][1]
 	if is_banned(index):
 		return BANNED[index - _banned_start()][1]
-	return "Filed %s from %s." % [card_name(index), _unlocked[key(index)][0]]
+	return OTHER[index - _other_start()][2]
+
+
+## The number on the achievement's icon files (017 for index 0).
+static func icon_number(index: int) -> int:
+	return index + FIRST_ICON
 
 
 ## The icon for the achievement's state. A missing pair falls back to 001's.
 func icon(index: int) -> Texture2D:
-	return load(icon_path(index + 1, is_unlocked(index)))
+	return load(icon_path(icon_number(index), is_unlocked(index)))
 
 
 ## achievementNNN.png or achievementNNN_locked.png, or 001's if that number
@@ -289,19 +281,9 @@ func banned_card_found(name: String) -> void:
 		unlock(all_banned_index(), "")
 
 
-func index_of(name: String) -> int:
-	for index in LIST.size():
-		if LIST[index][0] == name:
-			return index
-	return -1
-
-
-## A card was locked into its own pocket. Matched by name, whichever set's
-## printing it is.
-func card_filed(card: CardData) -> void:
-	var index := index_of(card.name)
-	if index >= 0 and not is_unlocked(index):
-		unlock(index, CardDatabase.get_set(card.set_code).name)
+## The laptop went flying (Hands.toss_held).
+func laptop_tossed() -> void:
+	unlock(other_index("other:laptop_toss"), "")
 
 
 func unlock(index: int, set_name: String) -> void:
@@ -322,7 +304,7 @@ func save(path := _path) -> void:
 
 
 ## Reads unlocked achievements from `path`, which later saves go to too.
-## Names no longer in LIST are kept, in case they come back.
+## Keys no achievement uses any more are kept, in case they come back.
 func load_from(path: String) -> void:
 	_path = path
 	_unlocked.clear()
