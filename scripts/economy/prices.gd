@@ -18,9 +18,20 @@ const PACK_ROUNDING := 25
 const BULK_ROUNDING := 100
 
 
-## What card `card` sells for: its value, never less than a cent.
+## Black Market (Level 8): every sale pays this much more.
+const BLACK_MARKET_RATE := 1.1
+
+
+## What card `card` sells for: its value times sell_rate(), never less than
+## a cent.
 static func sale_cents(card: CardData) -> int:
-	return maxi(1, roundi(card.value * 100.0))
+	return maxi(1, roundi(card.value * 100.0 * sell_rate()))
+
+
+## What sales pay, as a share of a card's value: 1, or more with Black
+## Market (listings and the storefront will add to it).
+static func sell_rate() -> float:
+	return BLACK_MARKET_RATE if Progression.rank("Black Market") > 0 else 1.0
 
 
 ## The average value (dollars) of each rarity's cards in set `code`

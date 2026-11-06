@@ -101,6 +101,14 @@ func copies_of(card_id: int) -> PackedInt32Array:
 
 
 ## Every copy's card id, by copy id (copied on write), for a save.
+## Whether any copy of card `card_id` is still yours (not sold).
+func owns(card_id: int) -> bool:
+	for copy in copies_of(card_id):
+		if not is_sold(copy):
+			return true
+	return false
+
+
 func card_ids() -> PackedInt32Array:
 	return _cards
 

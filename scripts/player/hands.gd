@@ -1,7 +1,7 @@
 class_name Hands
 extends Node
-## The player's hands. One thing at a time: a card (a few, with Harmonize)
-## or a binder.
+## The player's hands. One thing at a time: a card (or a ripped pack's
+## stack), a binder, a pack, a box or the laptop.
 ##
 ## Keys and buttons are named here by their Controls actions (shown in
 ## comments as the default bindings). Left-click is context sensitive:
@@ -17,9 +17,11 @@ extends Node
 ## Putting something down happens when the button comes back up. Hold the
 ## button and a ghost shows where it will go, following your aim, so you can
 ## place it carefully; a quick click just puts it where you're looking.
-## Right-click tosses a held card back onto the pile (or a table, if it
-## comes down on one), or a carried binder, which tumbles through the air
-## past other binders and settles on whatever it comes down on. F brings
+## Right-click always empties your hand (toss_held()): every card in hand
+## scatters onto the pile (or a table, if it comes down on one), and a
+## binder, pack, box or the laptop tumbles through the air past other things
+## and settles on whatever it comes down on. With empty hands, mid-glide or
+## mid-reveal it does nothing. F brings
 ## the held card up close to inspect it (F again lowers it); while it's up
 ## close, R turns it over to show its back and T turns it a quarter turn
 ## clockwise (for split cards, printed sideways), and lowering it always turns
@@ -28,33 +30,18 @@ extends Node
 ## that card up close the same way, and F again sends it home. E opens or closes the binder
 ## you're looking at, and the mouse wheel turns its pages.
 ##
-## Right-click with empty hands, aimed at the pile or cards on a table, flips
-## them: a few of the top cards there jump up, spin and land face up or down
-## at random. Cards on tables count as lying about just like floor cards, for
+## Cards on tables count as lying about just like floor cards, for
 ## everything below.
 ##
-## Upgrades bought with Mana (see Progression) change some of this: Snap
-## speeds up every glide, Spider Climb lengthens your reach, Remember the
-## Fallen names cards you've held wherever you see them again, Enlightened
-## Tutor shows the set of a card lying about that you look at (at rank II,
-## the whole card), and Unmask flips more
-## cards, more of them face up; with Demonic Consultation, flipped cards for
-## an open binder hover, ready to grab. Harmonize lets you hold several cards: a
-## quick click on another card picks it up too (hold the button to put the
-## top one down instead), and the wheel cycles which is on top when you're
-## not aiming at an open binder. Brainstorm sends missing cards flying into
-## a binder when you finish one of its pages by hand. Shunt files the card in hand into its own
-## pocket wherever you click on its open pages. Sorceries: Tithe (1) lights
-## up missing cards for the binder you hold or look at (with Serra's
-## Blessing, always), Teleport (2) sends
-## the top card to its binder, Demonic Tutor (3) brings the card for the
-## aimed pocket up out of the pile, Chain Lightning (4) makes your next
-## lock-in light up a missing card from that page where it lies, and
-## Abundance (5) fills your hand with the cards that come next.
+## Abilities from levels (see Progression) change some of this: Snap speeds
+## up every glide, Shunt files the card in hand into its own pocket wherever
+## you click on its binder (Shunt I: its open pages; Shunt II: anywhere on
+## the binder, open or closed), Tithe lights the binder a Needed card in hand
+## belongs to and opens it at that card's page, and the sorcery Teleport (1)
+## sends every card in hand to its binder.
 ##
 ## Rare cards have no binder, so nothing above that sends cards to their
-## binders or brings them to hand ever touches them, and holding one,
-## Abundance brings nothing.
+## binders ever touches them.
 ##
 ## Cards and binders glide between the world and the hand rather than jumping;
 ## while one is on its way, the hands take no new orders.
@@ -85,10 +72,9 @@ extends Node
 ## with empty hands for a new box, and E on the door ends the day.
 
 signal held_changed(card: CardData, binder: BinderRange)
-## The card whose details to show: the one in hand, or else a card you're
-## looking at that you've held before (null for none). With `set_only`, all
-## you know is its set (Enlightened Tutor).
-signal shown_card_changed(card: CardData, set_only: bool)
+## The card whose details to show: the one in hand or up close (null for
+## none).
+signal shown_card_changed(card: CardData)
 ## What the binder under the crosshair holds and what you can do with it.
 signal hint_changed(text: String)
 ## The first rare card of the game came to hand (the shop explains them).
@@ -111,9 +97,8 @@ signal card_revealed(id: int)
 
 enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX, LOOSE_PACK, SHIPPING, DOOR }
 
-## How far from the eye the player can reach, and with Spider Climb.
+## How far from the eye the player can reach.
 @export var reach := 2.6
-@export var spider_climb_reach := 3.4
 ## Toss: each throw picks its forward and upward speed (m/s) and its
 ## end-over-end flip rate (flips per second) at random between min and max.
 ## A gentle lob, not a throw.
@@ -138,6 +123,14 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX,
 @export var binder_toss_flips_per_second_min := 0.5
 @export var binder_toss_flips_per_second_max := 1.3
 @export var binder_toss_wobble_per_second_max := 0.3
+## Tossing a handful of cards: each card's speed forward and sideways is
+## off by up to this much (m/s), so they scatter.
+@export var toss_scatter := 0.35
+## A lobbed pack or box lands this far ahead (metres, on the level), rising
+## this high over a straight line on the way, and takes this long.
+@export var lob_distance := 1.2
+@export var lob_height := 0.35
+@export var lob_seconds := 0.6
 @export var zoom_seconds := 0.18
 ## How long a card or binder takes to come to hand or go where it's put, and
 ## how high a put-down arcs at its midpoint (metres). Deliberately unhurried,
@@ -151,25 +144,12 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX,
 ## A rare card glides to just in front of its shadow box, this far out, then
 ## slides back into it.
 @export var shadow_box_entry := 0.12
-## Demonic Tutor: the card flies up out of the pile in an arc this high, and
-## takes this long plus this much per metre (at most the cap).
-@export var tutor_lift := 0.5
-@export var tutor_seconds := 0.3
-@export var tutor_seconds_per_metre := 0.08
-@export var tutor_seconds_max := 1.0
 ## Teleport: the card flies to its binder in an arc this high, taking this
 ## long plus this much per metre (at most the cap).
 @export var teleport_lift := 0.6
 @export var teleport_seconds := 0.35
 @export var teleport_seconds_per_metre := 0.06
 @export var teleport_seconds_max := 1.2
-## Chain Lightning: how long the cards it finds glow.
-@export var chain_lightning_glow_seconds := 15.0
-## Pile flip: cards jump up at this speed (m/s), drift sideways up to this
-## speed, and tumble at the toss's flip rates.
-@export var flip_up_speed_min := 1.6
-@export var flip_up_speed_max := 2.2
-@export var flip_drift_speed_max := 0.4
 ## Holding the button this long before letting go shows the ghost.
 @export var ghost_after_seconds := 0.12
 ## How far a card up close can tilt each way (degrees), on both axes. Kept
@@ -219,28 +199,9 @@ const ZOOMED_SCREEN_FILL := 0.75
 ## table top while you lean over one.
 const CARRIED_POSITION := Vector3(0.22, -0.07, -0.44)
 const CARRIED_ROTATION := Vector3(0.7, -0.5, 0.0)
-## How many times faster every glide is at each rank of Snap (none, I, II).
+## How many times faster every glide is at each rank of Snap (none, -, the
+## one rank there is: Snap opens at rank 2, twice as fast).
 const SNAP_SPEEDUP := [1.0, 1.5, 2.0]
-## Cards you can hold at each rank of Harmonize (none, I, II, III).
-const HAND_SIZES := [1, 3, 7, 15]
-## Pile flip at each rank of Unmask (none, I, II): cards tossed, and the
-## chance each lands face up.
-const FLIP_COUNTS := [4, 8, 16]
-const FLIP_FACE_UP_CHANCE := [0.5, 0.75, 1.0]
-## Brainstorm at each rank (I, II, III): cards it pulls in.
-const BRAINSTORM_CARDS := [1, 3, 9]
-## Serra's Blessing tops up its glow this often.
-const BLESSING_REFRESH_SECONDS := 0.5
-## Demonic Consultation at each rank (I, II): how long flipped cards for an
-## open binder hover.
-const CONSULTATION_SECONDS := [5.0, 15.0]
-## Tithe at each rank (I, II, III): missing cards lit (0 for all of them)
-## and for how long.
-const TITHE_CARDS := [5, 10, 0]
-const TITHE_SECONDS := [5.0, 10.0, 15.0]
-## Chain Lightning at each rank (I, II, III): missing cards from the page it
-## lights. 0 means all of them.
-const CHAIN_LIGHTNING_CARDS := [1, 3, 0]
 ## Cards held behind the top one fan out up and to the right, this far apart;
 ## past MAX_FANNED only the count is felt, not seen.
 const FAN_STEP := Vector3(0.007, 0.006, -0.002)
@@ -250,11 +211,8 @@ const MAX_FANNED := 6
 var pile: PileWorld
 ## The top card in hand, or -1.
 var held_card_id := -1
-## The rest of the hand, behind the top card in order (Harmonize).
+## The rest of the hand, behind the top card in order (a ripped pack).
 var behind: Array[int] = []
-## Cards still flying into the hand (Abundance). They're already in
-## `behind`; the fan shows once they've all arrived.
-var _incoming := 0
 var carried_binder: Binder
 ## The booster pack in hand (a prototype), or null.
 var held_pack: BoosterPack
@@ -281,8 +239,8 @@ const EMERGE_DEPTH := 1.08
 ## The display cabinets (the shop sets them), whose shadow boxes hold the
 ## rare cards.
 var cabinets: Array[DisplayCabinet] = []
-## Every copy you've held at least once, by copy id. With Remember the Fallen
-## you know one of these wherever you see it again.
+## Every copy you've held at least once, by copy id (the first rare card's
+## note looks here).
 var seen_cards := {}
 
 @onready var _camera: Camera3D = get_parent().get_node("Camera3D")
@@ -339,11 +297,10 @@ var _aim_pack: BoosterPack
 var _hovered_binder: Binder
 var _hint := ""
 var _shown_card: CardData
-var _shown_set_only := false
-## Serra's Blessing: the binder whose missing cards glow, and when it next
-## refreshes them.
-var _blessed: Binder
-var _blessing_refresh := 0.0
+## Tithe: the binder lit, and the top card and level it was worked out for.
+var _tithe_binder: Binder
+var _tithe_for := -1
+var _tithe_level := 0
 ## Ripping: how far along (0 to 1), and whether Space is being held for it.
 var _rip := 0.0
 var _ripping := false
@@ -405,9 +362,12 @@ func _physics_process(delta: float) -> void:
 	if pile == null:
 		return
 	_update_aim()
+	if held_card_id != _tithe_for or Progression.level() != _tithe_level:
+		_tithe_for = held_card_id
+		_tithe_level = Progression.level()
+		update_tithe()
 	pile.set_highlight(_aim_lying_card() if has_room() else -1)
 	_update_hover()
-	_update_blessing(delta)
 	_update_ghost(delta)
 	_update_hint()
 
@@ -452,13 +412,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		press_rip()
 	elif event.is_action_pressed(Controls.USE_HAND):
 		_use_hand()
-	elif event.is_action_pressed(Controls.TOSS) and held_card_id >= 0:
-		_toss()
-		_release_top()
-	elif event.is_action_pressed(Controls.TOSS) and carried_binder != null:
-		toss_binder()
 	elif event.is_action_pressed(Controls.TOSS):
-		flip_pile()
+		toss_held()
 	elif event.is_action_pressed(Controls.INTERACT) and _shipping_box_at_hand() != null:
 		_shipping_box_at_hand().seal()
 	elif event.is_action_pressed(Controls.INTERACT) and _laptop_at_hand() != null:
@@ -479,16 +434,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_flip(1)
 	elif event.is_action_pressed(Controls.FLIP_PREVIOUS):
 		_flip(-1)
-	elif event.is_action_pressed(Controls.CAST_TITHE):
-		cast_tithe()
-	elif event.is_action_pressed(Controls.CAST_ABUNDANCE):
-		cast_abundance()
 	elif event.is_action_pressed(Controls.CAST_TELEPORT):
 		cast_teleport()
-	elif event.is_action_pressed(Controls.CAST_DEMONIC_TUTOR):
-		cast_demonic_tutor()
-	elif event.is_action_pressed(Controls.CAST_CHAIN_LIGHTNING):
-		Progression.arm("Chain Lightning")
 
 
 ## The laptop, if it's in hand or you're aiming at it; else null.
@@ -514,9 +461,10 @@ func _hands_empty() -> bool:
 	return held_card_id < 0 and carried_binder == null and held_pack == null and held_box == null
 
 
-## How many cards you can hold, with Harmonize.
+## How many cards you can pick up into an empty hand: one. A ripped pack
+## comes into your hand whole, past this.
 func hand_size() -> int:
-	return HAND_SIZES[Progression.rank("Harmonize")]
+	return 1
 
 
 func hand_count() -> int:
@@ -593,10 +541,7 @@ func _pick_up_aimed() -> bool:
 		Aim.LOOSE_CARD:
 			var card := _aim_loose_card
 			var from := card.card_pose()
-			if pile.is_lying(card.card_id):
-				pile.pick_up(card.card_id)
-			else:
-				card.queue_free() # Hovering (Demonic Consultation).
+			pile.pick_up(card.card_id)
 			_take_in_hand(card.card_id, from)
 			return true
 	return false
@@ -698,169 +643,17 @@ func _file(binder: Binder, pocket: int, id: int) -> void:
 		return
 	Progression.card_filed_by_hand()
 	_locked_in(binder, pocket)
-	if binder.contents.is_page_complete(pocket / BinderLayout.POCKETS_PER_PAGE):
-		brainstorm(binder)
 
 
-## Brainstorm: a page just finished by hand pulls missing cards for this
-## binder's other pages up out of the pile, at random, and they fly into
-## their pockets. Pages they finish don't set it off again, so it never
-## chains. Returns the cards sent.
-func brainstorm(binder: Binder) -> Array[int]:
-	var rank := Progression.rank("Brainstorm")
-	if rank == 0:
-		return []
-	var missing := _missing_lying(binder)
-	missing.shuffle()
-	missing = missing.slice(0, BRAINSTORM_CARDS[rank - 1])
-	for id in missing:
-		var pocket := Collection.card(id).collector_number - binder.binder.first
-		var from := pile.card_pose(id)
-		pile.pick_up(id)
-		_fly_to_pocket(id, from, binder, pocket, func() -> void:
-			FeedbackSounds.play(pile, binder.global_position, FeedbackSounds.Kind.CARD_LOCKED))
-	return missing
-
-
-## A card locked into its pocket, by hand or by Teleport: the chime, Chain
-## Lightning if it's armed, and the card's achievement if it has one.
+## A card locked into its pocket, by hand or by Teleport: the chime.
 func _locked_in(binder: Binder, pocket: int) -> void:
 	var page := pocket / BinderLayout.POCKETS_PER_PAGE
-	Achievements.card_filed(Collection.card(binder.contents.card_at(pocket)))
-	if Progression.fire("Chain Lightning"):
-		_strike_chain_lightning(binder, page)
 	var sound := FeedbackSounds.Kind.CARD_LOCKED
 	if binder.contents.is_complete():
 		sound = FeedbackSounds.Kind.BINDER_COMPLETE
 	elif binder.contents.is_page_complete(page):
 		sound = FeedbackSounds.Kind.PAGE_COMPLETE
 	FeedbackSounds.play(pile, binder.to_global(binder.pocket_position(pocket)), sound)
-
-
-## Chain Lightning goes off: missing cards from this binder page that lie
-## about (on the floor or a table) glow where they are, some or all of them
-## by rank.
-func _strike_chain_lightning(binder: Binder, page: int) -> Array[int]:
-	var first := page * BinderLayout.POCKETS_PER_PAGE
-	var missing: Array[int] = []
-	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
-	var near := pile.to_local(binder.global_position)
-	for pocket in range(first, mini(first + BinderLayout.POCKETS_PER_PAGE, binder.contents.capacity())):
-		var id := pile.lying_copy(cards[binder.binder.first + pocket - 1].id, near)
-		if not binder.contents.is_locked(pocket) and id >= 0:
-			missing.append(id)
-	missing.shuffle()
-	var count: int = CHAIN_LIGHTNING_CARDS[maxi(Progression.rank("Chain Lightning"), 1) - 1]
-	if count > 0:
-		missing = missing.slice(0, count)
-	pile.glow(missing, chain_lightning_glow_seconds)
-	return missing
-
-
-## Serra's Blessing: Tithe is always on, at full strength, for the binder you
-## carry, or else the last open binder you looked at, for as long as it
-## stays open. The glow is topped up now and then, so it lingers a moment
-## after you move on.
-func _update_blessing(delta: float) -> void:
-	if Progression.rank("Serra's Blessing") == 0:
-		_blessed = null
-		return
-	if carried_binder != null:
-		_blessed = carried_binder
-	elif _aim == Aim.BINDER and _aim_binder.is_open():
-		_blessed = _aim_binder
-	elif _blessed != null and not _blessed.is_open():
-		_blessed = null
-	_blessing_refresh -= delta
-	if _blessed == null or _blessing_refresh > 0.0:
-		return
-	_blessing_refresh = BLESSING_REFRESH_SECONDS
-	pile.glow(_missing_lying(_blessed), BLESSING_REFRESH_SECONDS * 2.0)
-
-
-## The cards a binder still needs that are lying about, on the floor or a
-## table: for each empty pocket, the copy of its card lying nearest the
-## binder.
-func _missing_lying(binder: Binder) -> Array[int]:
-	var missing: Array[int] = []
-	var cards := CardDatabase.cards_in_set(binder.binder.set_code)
-	var near := pile.to_local(binder.global_position)
-	for pocket in binder.contents.capacity():
-		if binder.contents.card_at(pocket) >= 0:
-			continue
-		var id := pile.lying_copy(cards[binder.binder.first + pocket - 1].id, near)
-		if id >= 0:
-			missing.append(id)
-	return missing
-
-
-## Tithe: missing cards for the binder you're carrying or looking at, picked
-## at random from wherever they lie, on the floor or a table, glow for a
-## while. How many
-## and how long go up with rank. Returns the cards lit.
-func cast_tithe() -> Array[int]:
-	var binder := carried_binder if carried_binder != null else (_aim_binder if _aim == Aim.BINDER else null)
-	if binder == null or not Progression.can_cast("Tithe"):
-		return []
-	var missing := _missing_lying(binder)
-	if missing.is_empty():
-		return []
-	var rank := Progression.rank("Tithe")
-	missing.shuffle()
-	if TITHE_CARDS[rank - 1] > 0:
-		missing = missing.slice(0, TITHE_CARDS[rank - 1])
-	Progression.cast("Tithe")
-	pile.glow(missing, TITHE_SECONDS[rank - 1])
-	return missing
-
-
-## Abundance: holding a card, the unfiled cards that come next in its set,
-## in collector order, rise from wherever they lie into your hand behind
-## it, until your hand is full. Holding KTK #012 with room for two more
-## brings up #013 and #014. Cards locked in, or nowhere to be had (in
-## flight), are skipped. Returns the cards brought.
-func cast_abundance() -> Array[int]:
-	if not Progression.can_cast("Abundance") or held_card_id < 0 or not has_room() or _gliding():
-		return []
-	if Collection.is_rare(held_card_id):
-		return [] # Rare cards come one at a time.
-	var top := Collection.card(held_card_id)
-	var cards := CardDatabase.cards_in_set(top.set_code)
-	var brought: Array[int] = []
-	var poses := []
-	for number in range(top.collector_number + 1, cards.size() + 1):
-		if hand_count() + brought.size() >= hand_size():
-			break
-		var binder := pile.binder_for_card(cards[number - 1])
-		if binder != null and binder.contents.is_locked(number - binder.binder.first):
-			continue
-		var id := pile.copy_to_take(cards[number - 1].id, pile.to_local(_camera.global_position))
-		if id < 0:
-			continue
-		var from = pile.take_from_anywhere(id)
-		if from != null:
-			brought.append(id)
-			poses.append(from)
-	if brought.is_empty():
-		return []
-	Progression.cast("Abundance")
-	var old := behind.duplicate()
-	behind.assign(brought + old)
-	for i in brought.size():
-		var id := brought[i]
-		seen_cards[id] = true
-		var from: Transform3D = poses[i]
-		var card := _card_copy(id)
-		var flight := minf(tutor_seconds + tutor_seconds_per_metre * from.origin.distance_to(_camera.global_position),
-			tutor_seconds_max)
-		_incoming += 1
-		Glide.start(card, from, func() -> Transform3D: return _camera.global_transform * _fan_views[0].transform,
-			glide_seconds(flight), tutor_lift).tween_callback(func() -> void:
-				card.queue_free()
-				_incoming -= 1
-				_refresh_fan())
-	_refresh_fan()
-	return brought
 
 
 ## Teleport: the top card in hand flies to its own binder, wherever it is
@@ -917,66 +710,6 @@ func _fly_to_pocket(id: int, from: Transform3D, binder: Binder, pocket: int, lan
 				true, [binder.get_rid()]))
 
 
-## Demonic Tutor: aimed at an empty pocket of an open binder with room in
-## hand, its card rises from wherever it lies into your hand, on top. Filing
-## it is up to you. Returns whether it was cast.
-func cast_demonic_tutor() -> bool:
-	if not Progression.can_cast("Demonic Tutor") or not has_room() or _gliding():
-		return false
-	if _aim != Aim.BINDER or not _aim_binder.is_open() or _aim_pocket < 0 \
-			or _aim_binder.contents.card_at(_aim_pocket) >= 0:
-		return false
-	var binder := _aim_binder.binder
-	var id := pile.copy_to_take(CardDatabase.cards_in_set(binder.set_code)[binder.first + _aim_pocket - 1].id,
-		pile.to_local(_camera.global_position))
-	if id < 0:
-		return false
-	var from = pile.take_from_anywhere(id)
-	if from == null:
-		return false
-	Progression.cast("Demonic Tutor")
-	var flight := minf(tutor_seconds + tutor_seconds_per_metre * from.origin.distance_to(_camera.global_position),
-		tutor_seconds_max)
-	_take_in_hand(id, from, flight, tutor_lift)
-	return true
-
-
-## The pile flip: aimed at the floor (or a table) with empty hands, the
-## topmost cards there jump up, spin and fall back down, each landing face
-## up or down at random. Unmask flips more of them, and more land face up.
-## Returns the cards flipped.
-func flip_pile() -> Array[int]:
-	if not _hands_empty() or _aim not in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
-		return []
-	var rank := Progression.rank("Unmask")
-	var ids := pile.flip_cards(_aim_point, FLIP_COUNTS[rank])
-	var consultation := Progression.rank("Demonic Consultation")
-	for id in ids:
-		var from := pile.card_pose(id)
-		var binder := pile.binder_for(id)
-		if consultation > 0 and binder != null and binder.is_open():
-			# Demonic Consultation: it hangs in the air, ready to grab.
-			var lying := pile.card_position(id)
-			pile.pick_up(id)
-			var hovering := HoveringCard.new()
-			pile.add_child(hovering)
-			hovering.hover(id, pile, pile.to_global(lying), _yaw_facing_player(pile.to_global(lying)), binder,
-				CONSULTATION_SECONDS[consultation - 1])
-			continue
-		pile.pick_up(id)
-		var card := TossedCard.new()
-		pile.add_child(card)
-		card.exclude = [(get_parent() as CollisionObject3D).get_rid()]
-		card.land_face_up = 1 if randf() < FLIP_FACE_UP_CHANCE[rank] else 0
-		var drift := Vector2.from_angle(randf() * TAU) * randf() * flip_drift_speed_max
-		var velocity := Vector3(drift.x, randf_range(flip_up_speed_min, flip_up_speed_max), drift.y)
-		var flips := randf_range(toss_flips_per_second_min, toss_flips_per_second_max) * (1 if randf() < 0.5 else -1)
-		var spin := randf_range(-toss_spin_per_second_max, toss_spin_per_second_max)
-		card.launch(id, pile, _card_material(id), from.translated(Vector3.UP * 0.01), velocity,
-			Vector3(flips, 0.0, spin) * TAU)
-	return ids
-
-
 func _toggle_binder() -> void:
 	if carried_binder != null or _aim != Aim.BINDER:
 		return
@@ -984,6 +717,36 @@ func _toggle_binder() -> void:
 		_aim_binder.close()
 	elif _aim_binder.state == Binder.State.CLOSED:
 		_aim_binder.open()
+		var pocket := tithe_pocket(_aim_binder)
+		if pocket >= 0:
+			_aim_binder.show_pocket(pocket)
+
+
+## Tithe: opening a binder with a Needed card of it in hand turns to that
+## card's page. Its pocket, or -1 without Tithe or such a card.
+func tithe_pocket(binder: Binder) -> int:
+	if Progression.rank("Tithe") == 0 or held_card_id < 0 or Collection.is_rare(held_card_id):
+		return -1
+	if pile.binder_for(held_card_id) != binder or not collection_needs(held_card_id):
+		return -1
+	return Collection.card(held_card_id).collector_number - binder.binder.first
+
+
+## Tithe: the binder the Needed card on top of your hand belongs to glows,
+## wherever it is; nothing glows without one. Checked when the top card
+## changes. Returns the binder lit, or null.
+func update_tithe() -> Binder:
+	var lit: Binder = null
+	if Progression.rank("Tithe") > 0 and held_card_id >= 0 and not Collection.is_rare(held_card_id) \
+			and collection_needs(held_card_id):
+		lit = pile.binder_for(held_card_id)
+	if lit != _tithe_binder:
+		if is_instance_valid(_tithe_binder):
+			_tithe_binder.set_tithe(false)
+		_tithe_binder = lit
+		if lit != null:
+			lit.set_tithe(true)
+	return lit
 
 
 ## The wheel turns the pages of the open binder you're aiming at, or else
@@ -1184,9 +947,9 @@ func glide_seconds(seconds: float) -> float:
 	return seconds / SNAP_SPEEDUP[Progression.rank("Snap")]
 
 
-## How far you can reach now, with Spider Climb.
+## How far you can reach.
 func current_reach() -> float:
-	return spider_climb_reach if Progression.rank("Spider Climb") > 0 else reach
+	return reach
 
 
 ## On the floor, nudges a footprint at `point` clear of walls, shelves and
@@ -1314,44 +1077,18 @@ func _update_hint() -> void:
 		_hint = text
 		hint_changed.emit(text)
 	var id := shown_card_id()
-	var set_only := id < 0 and shown_set_card_id() >= 0
-	if set_only:
-		id = shown_set_card_id()
 	var shown: CardData = Collection.card(id) if id >= 0 else null
-	if shown != _shown_card or set_only != _shown_set_only:
+	if shown != _shown_card:
 		_shown_card = shown
-		_shown_set_only = set_only
-		shown_card_changed.emit(shown, set_only)
+		shown_card_changed.emit(shown)
 
 
-## The card whose details to show: the one in hand, or else, with Remember
-## the Fallen, one you're looking at that you've held before, lying about
-## (on the floor or a table). -1 for none.
+## The card whose details to show: the one up close from a pocket, or the
+## one in hand. -1 for none.
 func shown_card_id() -> int:
 	if _viewed_id >= 0:
 		return _viewed_id
-	if held_card_id >= 0:
-		return held_card_id
-	if not _hands_empty():
-		return -1
-	var id := -1
-	var lying := _aim_lying_card()
-	# Enlightened Tutor II reads every card lying about at a glance.
-	if lying >= 0 and Progression.rank("Enlightened Tutor") >= 2:
-		return lying
-	if Progression.rank("Remember the Fallen") == 0:
-		return -1
-	if lying >= 0:
-		id = lying
-	return id if seen_cards.has(id) else -1
-
-
-## With Enlightened Tutor, a card lying about that you look at with empty
-## hands shows its set, even one you've never held. -1 for none.
-func shown_set_card_id() -> int:
-	if not _hands_empty() or Progression.rank("Enlightened Tutor") == 0:
-		return -1
-	return _aim_lying_card()
+	return held_card_id
 
 
 ## The card lying under the crosshair, on the floor or a table (or hovering
@@ -1457,17 +1194,66 @@ func _pocket_hint(binder: Binder, pocket: int) -> String:
 	return "%s\n%s" % [number, Collection.card(binder.contents.card_at(pocket)).name]
 
 
-func _toss() -> void:
+## Right-click: empties your hand, whatever is in it. Every card in hand
+## scatters (a ripped pack's whole stack too), a binder tumbles, and a pack,
+## a box or the laptop is lobbed (see lob_product); tossing the laptop has
+## its own achievement. Nothing happens with empty hands, while something
+## glides, or while a pack is being ripped or its cards are still being
+## revealed. Returns whether anything left your hand.
+func toss_held() -> bool:
+	if _gliding() or revealing > 0 or _ripping or _viewed_id >= 0:
+		return false
+	if held_card_id >= 0:
+		var hand: Array[int] = [held_card_id]
+		hand.append_array(behind)
+		var poses: Array[Transform3D] = [_held_view.global_transform]
+		for i in behind.size():
+			poses.append(_fan_views[i].global_transform if i < _fan_views.size() else _held_view.global_transform)
+		behind.clear()
+		_revealed_all = false
+		_hold(-1)
+		for i in hand.size():
+			_toss_card(hand[i], poses[i], 0.0 if hand.size() == 1 else toss_scatter)
+		return true
+	if carried_binder != null:
+		toss_binder()
+		return true
+	if held_pack != null:
+		if held_pack.tear > 0.0:
+			return false
+		var pack := held_pack
+		held_pack = null
+		_hold(-1)
+		held_pack_changed.emit("")
+		lob_product(pack)
+		return true
+	if held_box != null:
+		var box := held_box
+		held_box = null
+		held_pack_changed.emit("")
+		lob_product(box)
+		if box is Laptop:
+			Achievements.laptop_tossed()
+		return true
+	return false
+
+
+## One card out of your hand, from the global pose `from`, tumbling onto the
+## pile or a table (TossedCard). `scatter` (m/s) spreads a handful sideways
+## and in speed, so a dropped stack fans out instead of landing in a heap.
+func _toss_card(id: int, from: Transform3D, scatter := 0.0) -> void:
 	var forward := -_camera.global_transform.basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
 	var card := TossedCard.new()
 	# The tossed card gets its own material so the next pick-up can change
 	# the hand without changing the card in flight.
-	var material := _card_material(held_card_id)
+	var material := _card_material(id)
 	pile.add_child(card)
 	card.exclude = [(get_parent() as CollisionObject3D).get_rid()]
-	var velocity := forward * randf_range(toss_forward_speed_min, toss_forward_speed_max) \
+	var side := forward.cross(Vector3.UP)
+	var velocity := forward * (randf_range(toss_forward_speed_min, toss_forward_speed_max) + randf_range(-scatter, scatter)) \
+			+ side * randf_range(-scatter, scatter) \
 			+ Vector3.UP * randf_range(toss_up_speed_min, toss_up_speed_max)
 	# Turns per second around the card's own axes: mostly end over end
 	# (left-right axis), with a little roll (long axis) and flat spin (face
@@ -1475,7 +1261,78 @@ func _toss() -> void:
 	var flips := randf_range(toss_flips_per_second_min, toss_flips_per_second_max) * (1 if randf() < 0.5 else -1)
 	var roll := randf_range(-toss_roll_per_second_max, toss_roll_per_second_max)
 	var spin := randf_range(-toss_spin_per_second_max, toss_spin_per_second_max)
-	card.launch(held_card_id, pile, material, _held_view.global_transform, velocity, Vector3(flips, roll, spin) * TAU)
+	card.launch(id, pile, material, from, velocity, Vector3(flips, roll, spin) * TAU)
+
+
+## Lobs a pack or a box (the laptop and shipping boxes included) out of your
+## hand in a scripted arc, like a binder's toss without the physics: it
+## flies over everything, turning over once, and comes down where it would
+## be put down that far ahead (lob_landing), short of any wall. A booster
+## box stays sealed and a shipping box keeps its cards. While it flies
+## nothing can aim at it, and a save puts it where it's landing ("lands_at").
+func lob_product(product: Node3D) -> void:
+	var from := product.global_transform
+	var to := lob_landing(product)
+	var yaw := _camera.global_rotation.y
+	product.get_parent().remove_child(product)
+	pile.add_child(product)
+	product.global_transform = from
+	product.set_meta("lands_at", to)
+	var box := product as ProductBox
+	var flips := 1.0 if randf() < 0.5 else -1.0
+	var axis := Vector3.RIGHT if randf() < 0.5 else Vector3.BACK
+	var tween := product.create_tween()
+	product.set_meta("lob", tween)
+	tween.tween_method(func(t: float) -> void:
+		var pose := from.interpolate_with(to, t)
+		pose.origin += Vector3.UP * 4.0 * lob_height * t * (1.0 - t)
+		pose.basis = pose.basis * Basis(axis, TAU * flips * t)
+		product.global_transform = pose, 0.0, 1.0, lob_seconds)
+	tween.tween_callback(func() -> void:
+		product.global_transform = to
+		product.remove_meta("lands_at")
+		product.remove_meta("lob")
+		if box != null:
+			box.collision_layer = Binder.PHYSICS_LAYER
+		elif product is BoosterPack:
+			(product as BoosterPack).lie(pile, to.origin - Vector3.UP * BoosterPack.THICKNESS / 2, yaw))
+
+
+## Where a lobbed pack or box comes down (global): lob_distance ahead of you
+## on the level, or short of the first wall or shelf in the way, then on the
+## table there or the pile, kept clear like anything put down there.
+func lob_landing(product: Node3D) -> Transform3D:
+	var forward := -_camera.global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var eye := _camera.global_position
+	var player := (get_parent() as CollisionObject3D).get_rid()
+	var space := _camera.get_world_3d().direct_space_state
+	var distance := lob_distance
+	var ahead := space.intersect_ray(PhysicsRayQueryParameters3D.create(eye, eye + forward * lob_distance, 1, [player]))
+	if not ahead.is_empty():
+		distance = maxf(0.25, eye.distance_to(ahead.position) - 0.3)
+	var point := eye + forward * distance
+	var down := space.intersect_ray(PhysicsRayQueryParameters3D.create(point, Vector3(point.x, -1.0, point.z), 1, [player]))
+	var ground_y: float = down.position.y if not down.is_empty() and down.normal.y >= 0.7 else 0.0
+	var yaw := _camera.global_rotation.y
+	var local := pile.to_local(Vector3(point.x, ground_y, point.z))
+	var p := Vector2(local.x, local.z)
+	if product is BoosterPack:
+		var half := Vector2(BoosterPack.SIZE.x, BoosterPack.SIZE.y) / 2
+		var y := pile.height_at(p) if ground_y < 0.05 else local.y
+		if ground_y >= 0.05:
+			p = pile.onto_surface(p, yaw, half)
+		return BoosterPack.lying_pose(pile.to_global(Vector3(p.x, y, p.y)), yaw)
+	var box := product as ProductBox
+	var half_box := box.half_footprint()
+	var y_box := local.y
+	if ground_y < 0.05:
+		p = pile.clear_point(p, half_box, yaw)
+		y_box = pile.height_under(p, half_box, yaw)
+	else:
+		p = pile.onto_surface(p, yaw, half_box)
+	return pile.global_transform * Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, y_box, p.y))
 
 
 ## Throws the carried binder forward in a lob (see Binder.toss).
@@ -2145,7 +2002,7 @@ func _refresh_fan() -> void:
 ## Shows the cards behind the top one, fanned out, except while inspecting.
 func _show_fan() -> void:
 	for i in _fan_views.size():
-		_fan_views[i].visible = i < behind.size() and _zoom_amount < 0.05 and _incoming == 0
+		_fan_views[i].visible = i < behind.size() and _zoom_amount < 0.05
 
 
 ## Puts card `id` on top of the hand in place of the top card (-1 for none;

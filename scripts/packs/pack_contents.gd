@@ -64,6 +64,17 @@ const REVEAL: Array[int] = [BASIC, CardData.Rarity.COMMON, CardData.Rarity.UNCOM
 const MYTHIC_CHANCE := 8
 ## Play Boosters: about one rare slot in this many is a mythic.
 const PLAY_MYTHIC_CHANCE := 7
+## Lucky Clover (Level 11): draft-era mythics one rare slot in this many
+## instead, and Play Boosters' scaled the same way.
+const CLOVER_MYTHIC_CHANCE := 6.0
+## Once you own this share of a set's cards, each pack slot is this much
+## likelier to give a card you don't own yet than one you do (silent, no
+## ability), and Demonic Tutor (Level 14) multiplies that by its own.
+const NUDGE_FROM := 0.75
+const NUDGE_WEIGHT := 1.25
+const TUTOR_WEIGHT := 1.2
+## Ancestral Recall (Level 17): one pack in this many has a bonus rare slot.
+const RECALL_CHANCE := 15
 ## Cards on an early print sheet (11 x 11). Basic lands filled what the
 ## set's commons or uncommons left over.
 const SHEET := 121
@@ -177,23 +188,60 @@ static func era_slots(kind: String, sizes: PackedInt32Array) -> Array[Dictionary
 			_add(list, 1, {BASIC: 1.0})
 			_add(list, 10, {c: 1.0})
 			_add(list, 3, {u: 1.0})
-			_add(list, 1, {r: MYTHIC_CHANCE - 1.0, m: 1.0})
+			_add(list, 1, {r: mythic_chance() - 1.0, m: 1.0})
 		"epilogue":
 			_add(list, 3, {u: 1.0})
-			_add(list, 1, {r: MYTHIC_CHANCE - 1.0, m: 1.0})
+			_add(list, 1, {r: mythic_chance() - 1.0, m: 1.0})
 			_add(list, 1, {u: 0.6, r: 0.35, m: 0.05})
 		"play":
 			_add(list, 1, {BASIC: 1.0})
 			_add(list, 7, {c: 1.0})
 			_add(list, 3, {u: 1.0})
 			_add(list, 2, {c: PLAY_WILDCARD[0], u: PLAY_WILDCARD[1], r: PLAY_WILDCARD[2], m: PLAY_WILDCARD[3]})
-			_add(list, 1, {r: PLAY_MYTHIC_CHANCE - 1.0, m: 1.0})
+			_add(list, 1, {r: play_mythic_chance() - 1.0, m: 1.0})
 		_:
 			_add(list, 1, {BASIC: 1.0}, c)
 			_add(list, 10, {c: 1.0})
 			_add(list, 3, {u: 1.0})
 			_add(list, 1, {r: 1.0})
 	return list
+
+
+## One rare slot in this many is a mythic, in a draft-era booster: 8, or
+## 6 with Lucky Clover.
+static func mythic_chance() -> float:
+	return CLOVER_MYTHIC_CHANCE if Progression.rank("Lucky Clover") > 0 else float(MYTHIC_CHANCE)
+
+
+## The same for a Play Booster: about 7, or 5.25 with Lucky Clover.
+static func play_mythic_chance() -> float:
+	return PLAY_MYTHIC_CHANCE * mythic_chance() / MYTHIC_CHANCE
+
+
+## How much likelier each pack slot of `code` is to give a card you don't
+## own yet than one you do: 1, 1.25 once you own NUDGE_FROM of the set,
+## times 1.2 with Demonic Tutor.
+static func needed_weight(code: String) -> float:
+	var weight := TUTOR_WEIGHT if Progression.rank("Demonic Tutor") > 0 else 1.0
+	var cards := CardDatabase.cards_in_set(code)
+	if cards.is_empty():
+		return weight
+	var owned := 0
+	for card in cards:
+		if Collection.owns(card.id):
+			owned += 1
+	if float(owned) / cards.size() >= NUDGE_FROM:
+		weight *= NUDGE_WEIGHT
+	return weight
+
+
+## The cards of `code` you don't own yet: id -> true.
+static func unowned(code: String) -> Dictionary:
+	var missing := {}
+	for card in CardDatabase.cards_in_set(code):
+		if not Collection.owns(card.id):
+			missing[card.id] = true
+	return missing
 
 
 ## A slot of `count` cards. `instead` is the rarity it takes when none of
@@ -250,19 +298,35 @@ static func sells_packs(code: String) -> bool:
 	return size > 0 and CardDatabase.cards_in_set(code).size() >= size
 
 
-## A booster pack of `code`, in reveal order.
+## A booster pack of `code`, in reveal order. Your collection and level
+## shape it: see needed_weight() and with_recall().
 static func draw(code: String, rng: RandomNumberGenerator) -> PackedInt32Array:
-	return PackedInt32Array(draw_from(pools(code), slots(code), rng))
+	var weight := needed_weight(code)
+	return PackedInt32Array(draw_from(pools(code), with_recall(slots(code), rng), rng,
+		weight, unowned(code) if weight != 1.0 else {}))
 
 
 ## BOX_PACKS packs of `code`, each in reveal order.
 static func booster_box(code: String, rng: RandomNumberGenerator) -> Array[PackedInt32Array]:
 	var from := pools(code)
 	var list := slots(code)
+	var weight := needed_weight(code)
+	var missing := unowned(code) if weight != 1.0 else {}
 	var packs: Array[PackedInt32Array] = []
 	for i in BOX_PACKS:
-		packs.append(PackedInt32Array(draw_from(from.duplicate(true), list, rng)))
+		packs.append(PackedInt32Array(draw_from(from.duplicate(true), with_recall(list, rng), rng, weight, missing)))
 	return packs
+
+
+## Ancestral Recall: one pack in RECALL_CHANCE gets a bonus rare slot (a
+## mythic as often as any rare slot). `list` itself isn't changed. Without
+## it, `list` as it is, and the rng untouched.
+static func with_recall(list: Array[Dictionary], rng: RandomNumberGenerator) -> Array[Dictionary]:
+	if Progression.rank("Ancestral Recall") == 0 or rng.randi_range(1, RECALL_CHANCE) != 1:
+		return list
+	var more := list.duplicate()
+	_add(more, 1, {CardData.Rarity.RARE: mythic_chance() - 1.0, CardData.Rarity.MYTHIC: 1.0})
+	return more
 
 
 ## A bulk box of `count` cards of `code`, in no order, mixed by `shares`
@@ -293,8 +357,11 @@ static func bulk_box(code: String, rng: RandomNumberGenerator, count := BULK_SIZ
 ## A pack drawn slot by slot from `from` (pools(): ids by rarity, then
 ## basic lands), which is emptied as cards are drawn so no card comes
 ## twice; basic lands stay, as there were many of each on a sheet. In
-## reveal order (REVEAL), each pool's cards in the order drawn.
-static func draw_from(from: Array[Array], list: Array[Dictionary], rng: RandomNumberGenerator) -> Array[int]:
+## reveal order (REVEAL), each pool's cards in the order drawn. Cards in
+## `missing` (id -> true) are `weight` times as likely to be picked within
+## their pool as the rest.
+static func draw_from(from: Array[Array], list: Array[Dictionary], rng: RandomNumberGenerator,
+		weight := 1.0, missing := {}) -> Array[int]:
 	var drawn: Array[Array] = [[], [], [], [], []]
 	for slot in list:
 		for i in slot.count:
@@ -302,12 +369,28 @@ static func draw_from(from: Array[Array], list: Array[Dictionary], rng: RandomNu
 			if pool_index < 0:
 				continue
 			var pool: Array = from[pool_index]
-			var at := rng.randi_range(0, pool.size() - 1)
+			var at := _pick(pool, rng, weight, missing)
 			drawn[pool_index].append(pool[at] if pool_index == BASIC else pool.pop_at(at))
 	var pack: Array[int] = []
 	for pool_index in REVEAL:
 		pack.append_array(drawn[pool_index])
 	return pack
+
+
+## Where in `pool` a slot's card comes from: evenly, or with cards in
+## `missing` `weight` times as likely.
+static func _pick(pool: Array, rng: RandomNumberGenerator, weight: float, missing: Dictionary) -> int:
+	if weight == 1.0 or missing.is_empty():
+		return rng.randi_range(0, pool.size() - 1)
+	var total := 0.0
+	for id in pool:
+		total += weight if missing.has(id) else 1.0
+	var roll := rng.randf() * total
+	for at in pool.size():
+		roll -= weight if missing.has(pool[at]) else 1.0
+		if roll < 0.0:
+			return at
+	return pool.size() - 1
 
 
 static func _roll_pool(chances: Dictionary, rng: RandomNumberGenerator) -> int:

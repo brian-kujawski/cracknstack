@@ -7,7 +7,7 @@ extends MenuScreen
 ## Reset puts the open tab back to its defaults, after asking.
 ##
 ## The Controls tab lists the keys for reference only; they can't be
-## rebound. Sorceries show as "Sorcery 1" to "Sorcery 5" until learned in the
+## rebound. Sorceries show as "Sorcery 1" and so on until learned in the
 ## current game, so the page never names one before you've seen it.
 
 const Main := preload("res://scripts/main.gd")
@@ -89,7 +89,6 @@ const KEY_ROWS := [
 		["", [Controls.INSPECT]],
 		["", [Controls.INTERACT]],
 		["Turn pages", [Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS]],
-		["", [Controls.UPGRADES]],
 		["", [Controls.RADIO]],
 		["", [Controls.PAUSE]],
 	]],

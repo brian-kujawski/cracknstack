@@ -52,6 +52,8 @@ const CLOSE_AFTER_COMPLETE := 1.2
 ## diagonal, so its edge is what bounces). Landing, it tips flat onto the
 ## spot it settles on over SETTLE_SECONDS. Gravity is a quarter stronger
 ## than a card's so the binder comes down with some weight to it.
+## Tithe's glow on the cover and spine (set_tithe): a soft white-gold.
+const TITHE_GLOW := Color(1.0, 0.93, 0.75, 0.35)
 const TOSS_GRAVITY := 9.8 * 1.25
 const TOSS_AIR_DRAG := 1.2
 const TOSS_BOUNCE := 0.35
@@ -141,6 +143,10 @@ var _lifted_pocket := -1
 ## Running pocket and page flashes. They're tied to a pocket view, not a
 ## pocket, so they're stopped whenever the spread changes.
 var _flashes: Array[Tween] = []
+## Whether Tithe lights this binder now (set_tithe).
+var tithe := false
+## The status glow under Tithe's (complete, wrong space, flashes).
+var _status_glow := Color.BLACK
 ## In flight (TOSSED): metres per second, and radians per second around the
 ## binder's own axes. `_toss_exclude` is what it doesn't bounce off (the
 ## player).
@@ -584,7 +590,21 @@ func _refresh_complete_look() -> void:
 func _set_status_glow(glow: Color) -> void:
 	if glow.a <= 0.0 and contents.is_complete():
 		glow = Color(1.0, 0.8, 0.35, 0.5)
-	_cover_material.set_shader_parameter("glow", Color(glow.r, glow.g, glow.b) * glow.a)
+	_status_glow = glow
+	var shown := Color(glow.r, glow.g, glow.b) * glow.a
+	if tithe:
+		var lit := Color(TITHE_GLOW.r, TITHE_GLOW.g, TITHE_GLOW.b) * TITHE_GLOW.a
+		shown = Color(maxf(shown.r, lit.r), maxf(shown.g, lit.g), maxf(shown.b, lit.b))
+	_cover_material.set_shader_parameter("glow", shown)
+
+
+## Tithe: the binder a Needed card in hand belongs to glows, wherever it is
+## (Hands). The glow sits over whatever status glow it has.
+func set_tithe(on: bool) -> void:
+	if on == tithe:
+		return
+	tithe = on
+	_set_status_glow(_status_glow)
 
 
 func _flash_status(peak: Color) -> void:

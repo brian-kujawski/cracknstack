@@ -41,14 +41,14 @@ const END_DAY_FADE_OUT := 0.8
 const END_DAY_HOLD := 0.8
 const END_DAY_FADE_IN := 1.2
 const MORNING_HOUR := 8.0
+## Howling Mine: free packs every morning, and from rank II a booster box
+## every this many days.
+const HOWLING_MINE_PACKS := 3
+const HOWLING_MINE_BOX_EVERY := 7
 ## Sorceries in key order, each with the action that casts it. Only learned
 ## ones show, in the HUD's sorcery bar.
 const SORCERIES := [
-	["Tithe", Controls.CAST_TITHE],
 	["Teleport", Controls.CAST_TELEPORT],
-	["Demonic Tutor", Controls.CAST_DEMONIC_TUTOR],
-	["Chain Lightning", Controls.CAST_CHAIN_LIGHTNING],
-	["Abundance", Controls.CAST_ABUNDANCE],
 ]
 
 @onready var _store: Node3D = $Store
@@ -141,7 +141,7 @@ func _ready() -> void:
 	if _finished and not ENDING_RETURN_MESSAGE.is_empty():
 		_show_return_message()
 	_hands.shown_card_changed.connect(_on_shown_card_changed)
-	_hands.held_pack_changed.connect(func(_code: String) -> void: _on_shown_card_changed(null, false))
+	_hands.held_pack_changed.connect(func(_code: String) -> void: _on_shown_card_changed(null))
 	_hands.hint_changed.connect(_on_hint_changed)
 	_hands.card_revealed.connect(func(id: int) -> void:
 		hud.show_value_tag(Collection.card(id), Collection.copies_of(Collection.card_id(id)).size() == 1))
@@ -149,15 +149,15 @@ func _ready() -> void:
 		today_earned += cents
 		hud.show_money_delta(cents))
 	_hands.rare_card_found.connect(func() -> void: add_child(RareCardNote.new()))
-	_on_shown_card_changed(null, false)
+	_on_shown_card_changed(null)
 	Progression.mana_changed.connect(func(_mana: int) -> void: _update_stats())
 	Progression.money_changed.connect(_update_stats.unbind(1))
 	_hands.sale_confirm_requested.connect(func(box: ShippingBox) -> void:
 		add_child(SellConfirm.new(func() -> void: _hands.sell_held_card(box, true))))
 	_hands.end_day_requested.connect(end_day)
-	Progression.unlocked.connect(func(_colour: int, _step: int) -> void: _update_stats())
 	Progression.sorceries_changed.connect(_update_stats)
-	Progression.level_changed.connect(func(level: int) -> void: hud.show_banner("Level up", "Level %d" % level))
+	Progression.level_changed.connect(func(level: int) -> void:
+		hud.show_banner("Level up", "Level %d" % level, level_up_text(level)))
 	_update_stats()
 	Achievements.unlocked.connect(_on_achievement_unlocked)
 	var radio_menu := RadioMenu.new()
@@ -330,6 +330,8 @@ func start_new_day() -> int:
 			deliver(order[0], order[1])
 	orders.clear()
 	day_number += 1
+	for gift in howling_mine_gifts(day_number, _pile.binders):
+		deliver(gift[0], gift[1])
 	var organized := cards_organized(_pile.binders)
 	last_day_earned = today_earned
 	last_day_organized = maxi(organized - today_start_organized, 0)
@@ -338,6 +340,38 @@ func start_new_day() -> int:
 	if Settings.day_seconds() > 0.0:
 		_day.set_hour(MORNING_HOUR)
 	return shipped
+
+
+## Howling Mine's free product on the morning of day `day`, as [kind, set
+## code] deliveries: three packs every morning (Howling Mine I), and a
+## booster box every seventh morning too (Howling Mine II), of the set
+## you're furthest from finishing (howling_mine_set). None without it.
+static func howling_mine_gifts(day: int, binders: Array[Binder]) -> Array:
+	var rank := Progression.rank("Howling Mine")
+	var code := howling_mine_set(binders)
+	var gifts := []
+	if rank == 0 or code == "":
+		return gifts
+	for i in HOWLING_MINE_PACKS:
+		gifts.append(["pack", code])
+	if rank >= 2 and day % HOWLING_MINE_BOX_EVERY == 0:
+		gifts.append(["booster_box", code])
+	return gifts
+
+
+## The unlocked, unfinished set with the smallest share of its binder
+## filled ("" if every unlocked binder is complete).
+static func howling_mine_set(binders: Array[Binder]) -> String:
+	var best := ""
+	var best_share := INF
+	for binder in unlocked_binders(binders):
+		if binder.contents.is_complete():
+			continue
+		var share := float(binder.contents.locked_count) / maxi(binder.contents.capacity(), 1)
+		if share < best_share:
+			best_share = share
+			best = binder.binder.set_code
+	return best
 
 
 ## Product turns up inside the door: kind "pack", "booster_box" or
@@ -568,7 +602,7 @@ func _hang_wall_art(fade: bool) -> void:
 ## left out of release exports.
 func _update_stats() -> void:
 	hud.set_status(Progression.money, current_chapter(_pile.binders), Progression.level(),
-		Progression.level_progress(), Progression.LEVEL_MANA)
+		Progression.level_progress(), Progression.level_span())
 	hud.debug_label.visible = OS.is_debug_build()
 	if OS.is_debug_build():
 		var debug := "%d fps · %d draw calls" % [
@@ -647,9 +681,17 @@ static func cards_organized(binders: Array[Binder], cabinets: Array = []) -> int
 	return count
 
 
+## What the level-up banner says a level opened: each ability's title and
+## what it does, one per line ("" for a level that opens none).
+static func level_up_text(level: int) -> String:
+	var lines := PackedStringArray()
+	for row in Progression.abilities_at(level):
+		lines.append("%s: %s" % [row[3], row[4]])
+	return "\n".join(lines)
+
+
 ## One line per learned sorcery: its key and name, and while it recharges,
-## the seconds left, or "armed" while it waits to go off.
-## "3: Demonic Tutor (42 s)"
+## the seconds left. "1: Teleport (12 s)"
 static func sorcery_lines() -> PackedStringArray:
 	var lines := PackedStringArray()
 	for entry in SORCERIES:
@@ -657,9 +699,7 @@ static func sorcery_lines() -> PackedStringArray:
 			continue
 		var line := "%s: %s" % [Controls.label(entry[1]), entry[0]]
 		var left := Progression.recharge_left(entry[0])
-		if Progression.is_armed(entry[0]):
-			line += " (armed)"
-		elif left > 0.0:
+		if left > 0.0:
 			line += " (%d s)" % ceili(left)
 		lines.append(line)
 	return lines
@@ -674,7 +714,7 @@ func _on_achievement_unlocked(index: int) -> void:
 ## The card plate: the box or pack in hand, or the card shown (with its
 ## Needed / Duplicate chip). A shipping box shows nothing here; its fill
 ## floats over it (Hud).
-func _on_shown_card_changed(card: CardData, set_only: bool) -> void:
+func _on_shown_card_changed(card: CardData) -> void:
 	hud.card_changed(card)
 	if _hands.held_box is ShippingBox:
 		hud.clear_card()
@@ -684,8 +724,6 @@ func _on_shown_card_changed(card: CardData, set_only: bool) -> void:
 		hud.show_product(pack_details(_hands.held_pack.set_code))
 	elif card == null:
 		hud.clear_card()
-	elif set_only:
-		hud.show_set_only(card)
 	else:
 		hud.show_card(card, _hands.copy_status(_hands.shown_card_id()))
 
