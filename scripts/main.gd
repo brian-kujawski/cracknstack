@@ -44,6 +44,9 @@ const MORNING_HOUR := 8.0
 ## Howling Mine: free packs every morning, and from rank II a booster box
 ## every this many days.
 const HOWLING_MINE_PACKS := 3
+## Quicken: an express order arrives this many hours (on the clock) after
+## it's placed.
+const QUICKEN_HOURS := 1.0
 const HOWLING_MINE_BOX_EVERY := 7
 ## Sorceries in key order, each with the action that casts it. Only learned
 ## ones show, in the HUD's sorcery bar.
@@ -78,8 +81,13 @@ var _spot_tops := {}
 var _spot := 0
 ## While open_chapter unlocks a chapter's sets (one banner for them all).
 var _opening_chapter := false
-## Card Shop orders waiting for the morning: [kind, set code] each.
+## Card Shop orders waiting for the morning: [kind, set code] each (a
+## tool's is ["tool", its id], a single's ["single", "SET:number"]). An
+## express order (Quicken) carries the hour it's due as a third value, and
+## turns up inside the door then, or the next morning at the latest.
 var orders: Array = []
+## The day Quicken last sped up an order (one a day).
+var quickened_day := 0
 ## Which day it is: the first is day 1, and each End Day adds one.
 var day_number := 1
 var _ending_day := false
@@ -115,6 +123,7 @@ func _ready() -> void:
 	laptop = place_laptop(_pile, saved.get("laptop"))
 	_hands.shipping_station = _store.shipping_station
 	orders = saved.get("orders", []).duplicate(true)
+	quickened_day = int(saved.get("quickened_day", 0))
 	day_number = int(saved.get("day", 1))
 	today_earned = int(saved.get("today_earned", 0))
 	today_start_organized = int(saved.get("today_start_organized", cards_organized(_pile.binders)))
@@ -173,6 +182,7 @@ func _ready() -> void:
 	add_child(laptop_screen)
 	laptop_screen.day = _day
 	laptop_screen.stats = laptop_stats
+	laptop_screen.pending = func() -> Array: return orders
 	laptop_screen.ordered.connect(place_order)
 	_hands.laptop_used.connect(laptop_screen.open.bind(false))
 	if SceneFlow.take_opening_request():
@@ -195,6 +205,7 @@ func capture_save() -> Dictionary:
 func snapshot_save() -> Dictionary:
 	var taken := ShopSave.snapshot(_pile, _hands, $Player, _day, _falling)
 	taken["orders"] = orders.duplicate(true)
+	taken["quickened_day"] = quickened_day
 	taken["day"] = day_number
 	taken["today_earned"] = today_earned
 	taken["today_start_organized"] = today_start_organized
@@ -272,10 +283,68 @@ static func current_chapter(binders: Array[Binder]) -> Dictionary:
 
 
 ## A Card Shop order (LaptopScreen.ordered, already paid for): kind
-## "pack", "booster_box" or "bulk_box", of set `code`. It turns up inside
-## the door the next morning.
+## "pack", "booster_box" or "bulk_box", of set `code`, "tool" (code its id)
+## or "single" (code "SET:number"). It turns up inside the door the next
+## morning; with Quicken, the first order of the day comes within the hour
+## (QUICKEN_HOURS on the clock) instead.
 func place_order(kind: String, code: String) -> void:
+	if Progression.rank("Quicken") > 0 and quickened_day != day_number:
+		quickened_day = day_number
+		if Settings.day_seconds() <= 0.0:
+			_deliver_order([kind, code]) # The clock's stopped: it comes now.
+			return
+		orders.append([kind, code, minf(_day.hour + QUICKEN_HOURS, 23.9)])
+		return
 	orders.append([kind, code])
+
+
+## Express orders whose hour has come arrive now. Returns how many.
+func deliver_express() -> int:
+	var due := orders.filter(func(order: Array) -> bool: return order.size() > 2 and _day.hour >= float(order[2]))
+	for order in due:
+		orders.erase(order)
+		_deliver_order(order)
+	return due.size()
+
+
+## One order turns up: product of its set, a single card, or a tool.
+func _deliver_order(order: Array) -> void:
+	var kind: String = order[0]
+	var code: String = order[1]
+	if kind == "tool":
+		Progression.give_tool(code)
+		if code == "sorting_tray":
+			deliver_tray()
+		return
+	if kind == "single":
+		var parts := code.split(":")
+		var card := CardDatabase.find_card(parts[0], int(parts[1])) if parts.size() == 2 else null
+		if card != null:
+			deliver_single(card)
+		return
+	if CardDatabase.get_set(code) != null:
+		deliver(kind, code)
+
+
+## A single from the Card Shop: a new copy of `card`, lying face up inside
+## the door. Returns its copy id.
+func deliver_single(card: CardData) -> int:
+	var spot := _next_delivery_spot()
+	var id := Collection.add(card.id)
+	_pile.drop(id, Vector3(spot.x, 0.0, spot.y), _delivery_yaw())
+	return id
+
+
+## The sorting tray, delivered inside the door. Returns it.
+func deliver_tray() -> SortingTray:
+	var spot := _next_delivery_spot()
+	var tray := SortingTray.new()
+	tray.build()
+	_pile.add_child(tray)
+	tray.global_transform = _pile.global_transform * Transform3D(Basis(Vector3.UP, _delivery_yaw()),
+		Vector3(spot.x, _spot_top(), spot.y))
+	_raise_spot(_spot_top() + SortingTray.SIZE.y)
+	return tray
 
 
 ## E on the door: the screen fades to black, the night passes
@@ -326,8 +395,7 @@ func start_new_day() -> int:
 			child.queue_free()
 			shipped += 1
 	for order: Array in orders:
-		if CardDatabase.get_set(order[1]) != null:
-			deliver(order[0], order[1])
+		_deliver_order(order)
 	orders.clear()
 	day_number += 1
 	for gift in howling_mine_gifts(day_number, _pile.binders):
@@ -575,6 +643,7 @@ func _process(delta: float) -> void:
 	_stats_timer += delta
 	if _stats_timer >= 0.5:
 		_stats_timer = 0.0
+		deliver_express()
 		_update_stats()
 		_announce_complete_binders()
 		_hang_wall_art(true)
@@ -682,11 +751,17 @@ static func cards_organized(binders: Array[Binder], cabinets: Array = []) -> int
 
 
 ## What the level-up banner says a level opened: each ability's title and
-## what it does, one per line ("" for a level that opens none).
+## what it does, one per line, then the tools now on the laptop ("" for a
+## level that opens neither).
 static func level_up_text(level: int) -> String:
 	var lines := PackedStringArray()
 	for row in Progression.abilities_at(level):
 		lines.append("%s: %s" % [row[3], row[4]])
+	var tools := PackedStringArray()
+	for entry in Tools.opened_at(level):
+		tools.append(entry[1])
+	if not tools.is_empty():
+		lines.append("New on the laptop: %s" % ", ".join(tools))
 	return "\n".join(lines)
 
 

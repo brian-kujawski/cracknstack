@@ -122,7 +122,7 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 	var products := snapshot_products(pile, hands, player)
 	hand.append_array(PackedInt32Array(hands.behind))
 	return {
-		"copies": [Collection.card_ids(), Collection.all_flags()],
+		"copies": [Collection.card_ids().duplicate(), Collection.all_flags().duplicate()],
 		"products": products,
 		"laptop": snapshot_laptop(pile, hands, player),
 		"cards": pile.snapshot_cards(),
@@ -274,10 +274,26 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 				placed[id] = 1
 				break
 
+	# The sorting tray, with the copies on it (each copy in one place only).
+	for entry in saved.get("products", []):
+		if entry[0] != "tray":
+			continue
+		var on: Array[int] = []
+		for index in entry[1]:
+			var id := ids[index] if index >= 0 and index < ids.size() else -1
+			if id >= 0 and placed[id] == 0:
+				placed[id] = 1
+				on.append(id)
+		var tray := SortingTray.new()
+		tray.build(on)
+		pile.add_child(tray)
+		tray.global_transform = entry[2]
+
+	# The hand, whole: a ripped pack's cards are all held at once.
 	var hand: Array[int] = []
 	for index in saved.get("hand", PackedInt32Array()):
 		var id := ids[index] if index >= 0 and index < ids.size() else -1
-		if id >= 0 and placed[id] == 0 and hand.size() < hands.hand_size():
+		if id >= 0 and placed[id] == 0:
 			placed[id] = 1
 			hand.append(id)
 	if hands.carried_binder == null:
@@ -310,7 +326,9 @@ static func restore(saved: Dictionary, pile: PileWorld, hands: Hands, player: No
 
 ## Unopened product lying about, as [kind, set code, global pose]: boxes
 ## ("booster_box", "bulk_box") and loose packs ("pack"). Shipping boxes are
-## saved as ["shipping", cards in it, global pose, sealed]. A box or an untorn
+## saved as ["shipping", cards in it, global pose, sealed, how many it
+## holds], the sorting tray as ["tray", copy ids on it, global pose]. A box
+## or an untorn
 ## pack in hand is saved lying at your feet; a pack you've started to tear
 ## is lost with the rest of its rip.
 static func snapshot_products(pile: PileWorld, hands: Hands, player_node: Node) -> Array:
@@ -324,7 +342,9 @@ static func snapshot_products(pile: PileWorld, hands: Hands, player_node: Node) 
 		# Lobbed and still in the air (Hands.lob_product): saved where it lands.
 		var at: Transform3D = child.get_meta("lands_at", child.global_transform) if child is Node3D else Transform3D()
 		if child is ShippingBox:
-			products.append(["shipping", child.cards, at, child.sealed])
+			products.append(["shipping", child.cards, at, child.sealed, child.capacity])
+		elif child is SortingTray:
+			products.append(["tray", PackedInt32Array(child.cards), at])
 		elif child is ProductBox:
 			products.append([_box_kind(child), child.set_code, at])
 		elif child is BoosterPack and (child.is_lying() or child.has_meta("lands_at")):
@@ -332,7 +352,10 @@ static func snapshot_products(pile: PileWorld, hands: Hands, player_node: Node) 
 	var feet := player.global_position - player.global_basis.z * 0.5
 	feet.y = 0.0
 	if hands.held_box is ShippingBox:
-		products.append(["shipping", hands.held_box.cards, Transform3D(player.global_basis, feet), hands.held_box.sealed])
+		products.append(["shipping", hands.held_box.cards, Transform3D(player.global_basis, feet), hands.held_box.sealed,
+			hands.held_box.capacity])
+	elif hands.held_box is SortingTray:
+		products.append(["tray", PackedInt32Array(hands.held_box.cards), Transform3D(player.global_basis, feet)])
 	elif hands.held_box != null and not hands.held_box is Laptop:
 		products.append([_box_kind(hands.held_box), hands.held_box.set_code, Transform3D(player.global_basis, feet)])
 	if hands.held_pack != null and hands.held_pack.tear <= 0.0:
@@ -364,10 +387,13 @@ static func restore_products(saved: Array, pile: PileWorld) -> void:
 	for entry in saved:
 		if entry[0] == "shipping":
 			var shipping := ShippingBox.new()
-			shipping.build(int(entry[1]), entry.size() > 3 and entry[3])
+			# Saves from before bigger boxes hold the plain box's 50.
+			shipping.build(int(entry[1]), entry.size() > 3 and entry[3], int(entry[4]) if entry.size() > 4 else ShippingBox.CAPACITY)
 			pile.add_child(shipping)
 			shipping.global_transform = entry[2]
 			continue
+		if entry[0] == "tray":
+			continue # restore() puts it back, with its copies.
 		var code: String = entry[1]
 		if CardDatabase.get_set(code) == null or code == RareCards.SET_CODE:
 			continue

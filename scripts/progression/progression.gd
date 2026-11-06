@@ -23,6 +23,8 @@ signal money_changed(cents: int)
 signal sorceries_changed
 ## A set was unlocked: the shop delivers its binder and starter packs.
 signal set_unlocked(code: String)
+## A tool arrived.
+signal tools_changed
 ## The level went up; `level` is the new one.
 signal level_changed(level: int)
 
@@ -46,13 +48,16 @@ const ABILITIES := [
 	[4, "Tithe", 1, "Tithe", "Hold a Needed card and its binder glows. Take it out and it opens at the card's page."],
 	[5, "Howling Mine", 1, "Howling Mine I", "Three free packs arrive every morning."],
 	[6, "Snap", 2, "Snap", "Cards and binders move twice as fast."],
+	[7, "Burning Wish", 1, "Burning Wish I", "A set's singles go on sale at 90% collected, at 1.3x value."],
 	[8, "Black Market", 1, "Black Market", "Sales pay 10% more."],
 	[10, "Shunt", 3, "Shunt II", "Click the right binder anywhere, open or closed, to file a card."],
 	[11, "Lucky Clover", 1, "Lucky Clover", "Mythics turn up 1 time in 6 instead of 1 in 8."],
+	[12, "Quicken", 1, "Quicken", "The first order each day arrives within the hour."],
 	[14, "Demonic Tutor", 1, "Demonic Tutor", "Each pack slot is a little more likely to be a card you still need."],
 	[15, "Teleport", 2, "Teleport", "Cast: the cards in your hand fly to their binders and file themselves."],
 	[16, "Howling Mine", 2, "Howling Mine II", "A free booster box arrives every seventh morning too."],
 	[17, "Ancestral Recall", 1, "Ancestral Recall", "1 pack in 15 has a bonus extra rare."],
+	[18, "Burning Wish", 2, "Burning Wish II", "Singles go on sale at 80% collected, at 1.2x value."],
 ]
 
 ## Each sorcery's cooldown in seconds, by rank. Tuning guesses.
@@ -82,6 +87,10 @@ var _unlocked_sets := {}
 ## One-time messages already shown in this game: key -> true (the sale
 ## confirmation's first, shorter wording).
 var _notes := {}
+## Tools bought from the laptop (Tools): id -> true once delivered, and
+## ids paid for and waiting for the morning.
+var _tools := {}
+var _tools_ordered := {}
 ## Whether sets lock at all. Checks written before set locking turn it off.
 var locks_sets := true
 
@@ -96,6 +105,8 @@ func reset() -> void:
 	money = 0
 	_paid.clear()
 	_recharging.clear()
+	_tools.clear()
+	_tools_ordered.clear()
 	_unlocked_sets.clear()
 	_notes.clear()
 	mana_changed.emit(mana)
@@ -126,6 +137,27 @@ static func money_text(cents: int) -> String:
 		grouped = "," + dollars.right(3) + grouped
 		dollars = dollars.left(dollars.length() - 3)
 	return "%s$%s%s.%02d" % ["-" if cents < 0 else "", dollars, grouped, absi(cents) % 100]
+
+
+## Whether tool `id` (Tools.LIST) is yours.
+func has_tool(id: String) -> bool:
+	return _tools.has(id)
+
+
+## Whether tool `id` is paid for and on its way.
+func is_tool_ordered(id: String) -> bool:
+	return _tools_ordered.has(id)
+
+
+func mark_tool_ordered(id: String) -> void:
+	_tools_ordered[id] = true
+
+
+## Tool `id` has arrived (or is given outright, in tests): it's yours.
+func give_tool(id: String) -> void:
+	_tools_ordered.erase(id)
+	_tools[id] = true
+	tools_changed.emit()
 
 
 ## Whether one-time message `key` has been shown in this game.
@@ -160,7 +192,8 @@ func save_state() -> Dictionary:
 		recharging[node] = PackedFloat32Array(_recharging[node])
 	return {"mana": mana, "money": money, "paid": PackedStringArray(_paid.keys()),
 		"recharging": recharging, "sets": PackedStringArray(_unlocked_sets.keys()),
-		"notes": PackedStringArray(_notes.keys())}
+		"notes": PackedStringArray(_notes.keys()), "tools": PackedStringArray(_tools.keys()),
+		"tools_ordered": PackedStringArray(_tools_ordered.keys())}
 
 
 ## Puts back what save_state() kept. Saves from the old upgrade tree, where
@@ -180,6 +213,10 @@ func restore_state(saved: Dictionary) -> void:
 		_unlocked_sets[code] = true
 	for key in saved.get("notes", PackedStringArray()):
 		_notes[key] = true
+	for id in saved.get("tools", PackedStringArray()):
+		_tools[id] = true
+	for id in saved.get("tools_ordered", PackedStringArray()):
+		_tools_ordered[id] = true
 	mana_changed.emit(mana)
 	money_changed.emit(money)
 	sorceries_changed.emit()

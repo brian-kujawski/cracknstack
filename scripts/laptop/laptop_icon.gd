@@ -2,7 +2,7 @@ class_name LaptopIcon
 extends Control
 ## A little picture on the laptop, drawn in flat blocks like an old 32 x 32
 ## icon (scaled up): a booster pack for the Card Shop, a binder for My
-## Collection, a notepad for To Do, a page for Instructions, an "i" for a
+## Collection, a toolbox for Tools, a notepad for To Do, a page for Instructions, an "i" for a
 ## message box, and the Start button's mark (a card back's oval).
 
 const SIZE := 64.0
@@ -33,6 +33,16 @@ func _draw() -> void:
 			for y in [4, 7, 10]:
 				block.call(1, y, 3, 1, Color8(200, 200, 200))
 			block.call(7, 5, 5, 3, Color8(230, 210, 140))
+		"tools":
+			# A wrench over a toolbox.
+			block.call(1, 8, 14, 7, Color8(0, 0, 0))
+			block.call(2, 9, 12, 5, Color8(180, 30, 30))
+			block.call(2, 11, 12, 1, Color8(120, 20, 20))
+			block.call(6, 6, 4, 3, Color8(0, 0, 0))
+			block.call(7, 7, 2, 2, Color8(180, 30, 30))
+			block.call(3, 2, 3, 3, Color8(200, 200, 200))
+			block.call(4, 3, 1, 1, Color8(0, 128, 128))
+			block.call(5, 4, 7, 2, Color8(160, 160, 160))
 		"story":
 			# A notepad: lined page under a spiral.
 			block.call(3, 2, 10, 13, Color8(0, 0, 0))
