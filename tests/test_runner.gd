@@ -487,8 +487,37 @@ func _test_tools_and_singles() -> void:
 	for id in spares:
 		hands.restore_hand([id])
 		_check(hands.drop_on_tray(tray), "a duplicate goes on the tray")
-		hands._glide.custom_step(10.0)
 	_check(tray.cards == spares and tray.details().contains("3 cards"), "the tray holds them: " + tray.details())
+
+	# Holding the button on the tray: one at once, the next after the
+	# delay, then one each repeat, stopping at a Needed card.
+	var still_needed := Collection.add(CardDatabase.get_card(_first_binder_cards()[1]).id)
+	var held: Array[int] = []
+	for i in 5:
+		held.append(Collection.add(card.id))
+	var hand: Array[int] = held.slice(0, 3)
+	hand.append(still_needed)
+	hands.restore_hand(hand)
+	hands._aim = Hands.Aim.BOX
+	hands._aim_box = tray
+	_check(hands.start_tray_drops(tray) and tray.cards.size() == 4, "a press drops the top card at once")
+	hands.repeat_tray_drop(hands.tray_repeat_delay - 0.05, true)
+	_check(tray.cards.size() == 4, "the next waits for the delay")
+	hands.repeat_tray_drop(0.06, true)
+	_check(tray.cards.size() == 5, "then it goes on")
+	hands.repeat_tray_drop(hands.tray_repeat_seconds + 0.01, true)
+	_check(tray.cards.size() == 6, "and the next a repeat later")
+	for i in 5:
+		hands.repeat_tray_drop(hands.tray_repeat_seconds + 0.01, true)
+	_check(tray.cards.size() == 6 and hands.held_card_id == still_needed, "it stops at a Needed card, left in hand")
+	hands.restore_hand([held[3], held[4]])
+	hands.start_tray_drops(tray)
+	hands.repeat_tray_drop(1.0, false)
+	hands.repeat_tray_drop(1.0, true)
+	_check(tray.cards.size() == 7 and hands.held_card_id == held[4], "letting go stops it")
+	tray.take(4)
+	hands.restore_hand([])
+	_check(tray.cards == spares, "(back to the three spares)")
 
 	# Saved and loaded: the tray keeps its cards.
 	var saved: Dictionary = main.capture_save()

@@ -176,6 +176,11 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX,
 ## shipping box (sleeved and labelled on the way), and then to drop in.
 ## Snap speeds both up; later unlocks can shorten them.
 @export var sell_seconds := 0.3
+## Holding the button on the sorting tray keeps dropping cards on it: the
+## first at once, the next this many seconds later, then one every
+## tray_repeat_seconds, until the hand's empty or a Needed card comes up.
+@export var tray_repeat_delay := 0.25
+@export var tray_repeat_seconds := 0.1
 @export var sell_drop_seconds := 0.18
 
 ## Where the held card sits relative to the camera: low and to the right,
@@ -277,6 +282,10 @@ var _glide: Tween
 ## While the button is held to put something down: how long it's been held.
 ## -1 when not placing.
 var _placing := -1.0
+## Seconds until the held button drops the next card on _tray_held_at
+## (-1 when it isn't held there).
+var _tray_repeat := -1.0
+var _tray_held_at: SortingTray
 ## Whether a quick click (let go before the ghost shows) picks up the card
 ## you're aiming at instead of putting the top card down.
 var _pick_on_release := false
@@ -517,7 +526,7 @@ func _use_hand() -> void:
 			sell_held_card(_aim_box)
 			return
 		if _aim == Aim.BOX and _aim_box is SortingTray:
-			drop_on_tray(_aim_box)
+			start_tray_drops(_aim_box)
 			return
 		if _try_display_held_card() or _try_file_held_card():
 			return
@@ -1547,9 +1556,36 @@ func drop_on_tray(tray: SortingTray) -> bool:
 	_release_top()
 	var to := tray.card_slot_pose()
 	tray.add(id)
-	_glide = Glide.start(card, from, func() -> Transform3D: return to, glide_seconds(sell_seconds), put_down_lift)
-	_glide.tween_callback(card.queue_free)
+	# Its own glide, not the hand's: holding the button drops the next one
+	# while this one is still on its way.
+	var glide := Glide.start(card, from, func() -> Transform3D: return to, glide_seconds(sell_seconds), put_down_lift)
+	glide.tween_callback(card.queue_free)
 	return true
+
+
+## The button's pressed on the sorting tray: the top card goes on, and if
+## it did, more follow while it's held (repeat_tray_drop).
+func start_tray_drops(tray: SortingTray) -> bool:
+	if not drop_on_tray(tray):
+		return false
+	_tray_held_at = tray
+	_tray_repeat = tray_repeat_delay
+	return true
+
+
+## While the button's held on the sorting tray, the next card goes on when
+## it's due. Letting go, looking away, or a Needed card (or no card) on top
+## of the hand stops it.
+func repeat_tray_drop(delta: float, held: bool) -> void:
+	if _tray_repeat < 0.0:
+		return
+	if not held or not is_instance_valid(_tray_held_at) or _aim != Aim.BOX or _aim_box != _tray_held_at:
+		_tray_repeat = -1.0
+		return
+	_tray_repeat -= delta
+	if _tray_repeat > 0.0 or _gliding():
+		return # Not due yet, or something else in hand is still moving.
+	_tray_repeat = maxf(_tray_repeat + tray_repeat_seconds, 0.0) if drop_on_tray(_tray_held_at) else -1.0
 
 
 ## The sorting tray in hand, clicking a shipping box: the tray's stack is
@@ -1843,6 +1879,7 @@ static func rip_tear(amount: float) -> float:
 func _process(delta: float) -> void:
 	if _pack_effects == null:
 		return
+	repeat_tray_drop(delta, Input.is_action_pressed(Controls.USE_HAND) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED)
 	if _ripping and (held_pack == null or not Input.is_action_pressed(Controls.RIP)):
 		_ripping = false
 	if _ripping and not _gliding():
