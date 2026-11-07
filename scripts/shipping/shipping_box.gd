@@ -205,6 +205,19 @@ func add_card(id := -1) -> void:
 	_refresh()
 
 
+## Many sold cards have dropped in at once (a sorting tray), as many of
+## `ids` as there's room for, the last of those on top. Only that one is
+## drawn: each face shown is a large image read from disk, so drawing every
+## card in turn stalls the game. Returns how many went in.
+func add_cards(ids: Array[int]) -> int:
+	var fits := mini(ids.size(), capacity - cards) if has_room() else 0
+	if fits <= 0:
+		return 0
+	cards += fits - 1
+	add_card(ids[fits - 1])
+	return fits
+
+
 ## Shuts and tapes it. Returns whether it was sealed now.
 func seal() -> bool:
 	if not can_seal():
