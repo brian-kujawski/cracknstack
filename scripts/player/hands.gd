@@ -1556,14 +1556,18 @@ func drop_on_tray(tray: SortingTray) -> bool:
 ## sold into the box in one go, top card first, as many as it has room for.
 ## Returns the cents paid.
 func sell_tray(tray: SortingTray, box: ShippingBox) -> int:
+	# All in one go: taking cards off the tray, or dropping them in the box,
+	# one at a time redraws its top card each time, and each of those reads
+	# a card image from disk (a freeze of seconds for a full box).
+	var room := box.capacity - box.cards if box.has_room() else 0
+	var sold := tray.take(mini(room, tray.cards.size()))
+	var each := Sales.sell_all(sold)
+	box.add_cards(sold)
 	var paid := 0
-	while not tray.cards.is_empty() and box.has_room():
-		var id: int = tray.take(1)[0]
-		var cents := Sales.sell(id)
-		box.add_card(id)
-		seen_cards.erase(id)
-		paid += cents
-		card_sold.emit(id, cents)
+	for i in sold.size():
+		seen_cards.erase(sold[i])
+		paid += each[i]
+		card_sold.emit(sold[i], each[i])
 	if paid > 0:
 		FeedbackSounds.play(pile, box.global_position, FeedbackSounds.Kind.CARD_SOLD)
 	held_pack_changed.emit(tray.set_code) # The corner's count changes.

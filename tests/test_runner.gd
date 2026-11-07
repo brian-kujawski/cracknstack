@@ -507,6 +507,9 @@ func _test_tools_and_singles() -> void:
 		"the tray sells into the box, as many as it has room for")
 	_check(Collection.is_sold(spares[2]) and Collection.is_sold(spares[1]) and not Collection.is_sold(spares[0]),
 		"top card first")
+	_check(shipping.cards == shipping.capacity and shipping._top_card.get_meta("card_id") == spares[1],
+		"the box counts them all and shows the last one in on top")
+	_check(shipping.add_cards([spares[0]]) == 0 and shipping.cards == shipping.capacity, "a full box takes no more")
 	main.free()
 
 	# Loading puts the tray back with its copies.
