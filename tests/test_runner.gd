@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_tools_and_singles", &"_test_hud", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_tools_and_singles", &"_test_card_sorter", &"_test_hud", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
 
 var _failures := 0
 var _checks := 0
@@ -94,6 +94,7 @@ func _ready() -> void:
 	await _run(_test_laptop)
 	await _run(_test_selling)
 	await _run(_test_tools_and_singles)
+	await _run(_test_card_sorter)
 	await _run(_test_hud)
 	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	_clear_test_saves()
@@ -252,7 +253,7 @@ func _test_selling() -> void:
 	var hands: Hands = main.get_node("Player/Hands")
 	var pile: PileWorld = main.get_node("Pile")
 	var station: ShippingStation = main._store.shipping_station
-	_check(station != null and station.global_position.z > 7.0 and station.on_mat(station.global_position),
+	_check(station != null and station.global_position.x > 11.0 and station.global_position.z > 4.5 and station.on_mat(station.global_position),
 		"the shipping corner is just inside the door")
 
 	# A new box from the crate, put down on the floor.
@@ -628,6 +629,187 @@ func _labels_text(node: Node) -> String:
 ## The HUD (Hud): placeholder levels, how hint lines are drawn, the card
 ## plate's chip, the chapter count, the shipping box pop-up, the End Day
 ## preview and the morning report.
+func _test_card_sorter() -> void:
+	Progression.reset()
+	Collection.reset()
+	_check(Tools.level_of("sorter") == 3 and Tools.price_cents("sorter") == 15000, "the sorter opens at Level 3 for $150")
+	Progression.reach_level(6)
+	Progression.earn_money(1000000)
+	_check(not Tools.can_order("surplus_chute") and not Tools.can_order("sorter_mk2"), "its upgrades need the sorter first")
+	Progression.mark_tool_ordered("sorter")
+	_check(Tools.can_order("surplus_chute") and Tools.can_order("sorter_mk2"), "once it's on order they can be ordered too")
+	Progression.reset()
+	Collection.reset()
+
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	var hands: Hands = main.get_node("Player/Hands")
+	var pile: PileWorld = main.get_node("Pile")
+	var player: Node3D = main.get_node("Player")
+	var store_script := preload("res://scripts/store/store_builder.gd")
+	var door := Vector3(store_script.WIDTH, 0, store_script.DOOR_Z)
+	_check(player.global_position.distance_to(door) < 1.2 and -player.global_basis.z.x < -0.9,
+		"a new game starts just inside the door on the right-hand wall, facing into the room")
+	_check(main.sorter == null and CardSorter.find(pile) == null, "no sorter to start with")
+
+	# Ordered, it's fixed on the table by the shipping corner the next morning.
+	main.place_order("tool", "sorter")
+	Progression.mark_tool_ordered("sorter")
+	main.start_new_day()
+	var sorter: CardSorter = main.sorter
+	var table: Vector2 = store_script.TABLE_CENTERS[CardSorter.INSTALL_TABLE]
+	_check(sorter != null and Progression.has_tool("sorter") and CardSorter.find(pile) == sorter
+		and Vector2(sorter.global_position.x, sorter.global_position.z).distance_to(table) < 0.01
+		and is_equal_approx(sorter.global_position.y, store_script.TABLE_SIZE.y), "the sorter turns up on its table")
+	var station: ShippingStation = main._store.shipping_station
+	_check(sorter.global_basis.z.x > 0.9 and table.distance_to(Vector2(station.global_position.x, station.global_position.z))
+		< store_script.TABLE_CENTERS[1].distance_to(Vector2(station.global_position.x, station.global_position.z)),
+		"facing the door, on the table nearer the shipping corner than the laptop's")
+	_check(sorter.needed_tray.box_size() == SortingTray.SIZE and sorter.surplus_tray.box_size() == SortingTray.SIZE,
+		"its pockets are trays like the Sorting Tray")
+	_check(sorter.find_child("Readout", true, false).text == "READY", "its readout says READY")
+
+	# Feeding a hand in: needed cards to Needed, the rest to Surplus.
+	var code: String = pile.binders.filter(func(b: Binder) -> bool: return Progression.is_set_unlocked(b.binder.set_code)).front().binder.set_code
+	var cards := CardDatabase.cards_in_set(code)
+	var a := Collection.add(cards[2].id)
+	var a2 := Collection.add(cards[2].id)
+	var b := Collection.add(cards[0].id)
+	var filed := Collection.add(cards[1].id)
+	var binder := pile.binder_for(filed)
+	binder.contents.insert(cards[1].collector_number - binder.binder.first, filed)
+	var spare := Collection.add(cards[1].id)
+	hands.restore_hand([a, a2, b, spare])
+	_check(hands.feed_sorter() == 4 and hands.held_card_id < 0 and hands.behind.is_empty() and sorter.queue.size() == 4,
+		"clicking the sorter feeds it the whole hand")
+	hands._glide.custom_step(10.0)
+	_check(sorter.find_child("Readout", true, false).text.begins_with("SORTING"), "it says it's sorting")
+	sorter._process(0.5 / CardSorter.CARDS_PER_SECOND)
+	_check(sorter.queue.size() == 4, "it reads at about %.1f cards a second" % CardSorter.CARDS_PER_SECOND)
+	sorter._process(4.0 / CardSorter.CARDS_PER_SECOND)
+	_check(sorter.queue.is_empty() and sorter.needed_tray.cards == [a, b] and sorter.surplus_tray.cards == [a2, spare],
+		"needed cards go to Needed (one copy each), the rest to Surplus: %s / %s" % [sorter.needed_tray.cards, sorter.surplus_tray.cards])
+	_check(pile.binder_for(a).contents.card_at(cards[2].collector_number - binder.binder.first) < 0, "nothing is filed for you")
+
+	# Taking the Needed stack into hand.
+	_check(hands.use_sorter_pocket(sorter.needed_tray) == 2 and hands.held_card_id == b and hands.behind == [a]
+		and sorter.needed_tray.cards.is_empty(), "with empty hands, a pocket's stack comes into hand, top card first")
+	_check(hands.use_sorter_pocket(sorter.surplus_tray) == 0, "not into a full hand")
+	hands.restore_hand([])
+
+	# Stops: a full pocket.
+	var extra: Array[int] = []
+	for i in CardSorter.POCKET - 2:
+		extra.append(Collection.add(cards[1].id))
+	sorter.feed(extra)
+	sorter.feed([Collection.add(cards[1].id)])
+	for i in CardSorter.POCKET:
+		sorter.sort_next()
+	_check(sorter.surplus_tray.cards.size() == CardSorter.POCKET and sorter.queue.size() == 1 and sorter.stop_reason == "SURPLUS FULL",
+		"it stops when Surplus is full")
+	sorter._process(0.01)
+	var readout: Label3D = sorter.find_child("Readout", true, false)
+	_check(readout.text == "SURPLUS FULL" and readout.modulate.r > readout.modulate.g, "its readout blinks amber")
+
+	# The Sorting Tray in hand takes the Surplus stack.
+	var hand_tray: SortingTray = main.deliver_tray()
+	hands.take_box(hand_tray)
+	hands._glide.custom_step(10.0)
+	_check(hands.use_sorter_pocket(sorter.surplus_tray) == CardSorter.POCKET and hand_tray.cards.size() == CardSorter.POCKET
+		and sorter.surplus_tray.cards.is_empty(), "the Sorting Tray in hand takes the Surplus stack")
+	sorter._process(0.01)
+	_check(sorter.stop_reason == "", "and the sorter starts again")
+	sorter._process(1.0)
+	_check(sorter.queue.is_empty() and sorter.surplus_tray.cards.size() == 1, "and finishes")
+	hands.put_down_box()
+	hands._glide.custom_step(10.0)
+
+	# The surplus chute: surplus is sold into the box at its side.
+	main.place_order("tool", "surplus_chute")
+	main.start_new_day()
+	var docked := sorter.docked_box()
+	_check(Progression.has_tool("surplus_chute") and sorter.find_child("Chute", true, false).visible and docked != null and docked.cards == 0,
+		"the chute arrives with an empty shipping box at its side")
+	var money := Progression.money
+	var dupe := Collection.add(cards[1].id)
+	sorter.feed([dupe])
+	sorter.sort_next()
+	_check(Collection.is_sold(dupe) and docked.cards == 1 and Progression.money == money + Prices.sale_cents(cards[1])
+		and main.today_earned >= Prices.sale_cents(cards[1]), "surplus is sold down the chute")
+	var sold_out: Array[int] = []
+	for i in docked.capacity - docked.cards:
+		sold_out.append(Collection.add(cards[1].id))
+	sold_out.append(Collection.add(cards[1].id))
+	sorter.feed(sold_out)
+	while sorter.sort_next():
+		pass
+	_check(not docked.has_room() and sorter.surplus_tray.cards.size() == 2, "once the box is full, surplus goes to the pocket again")
+	docked.seal()
+	_check(sorter.docked_box() == null, "a sealed box isn't the chute's any more")
+	# A new box put down near the chute snaps into place there.
+	var fresh := ShippingBox.new()
+	fresh.build()
+	pile.add_child(fresh)
+	fresh.global_position = Vector3(0, -5, 0)
+	docked.global_position += Vector3(0, 0, 0.5)
+	hands.take_box(fresh)
+	hands._glide.custom_step(10.0)
+	var near := sorter.dock_pose().origin + Vector3(0.1, 0, 0.1)
+	hands._aim = Hands.Aim.SURFACE
+	hands._aim_point = near
+	_check(sorter.snaps_to_dock(near), "a box put down near the chute")
+	hands.put_down_box()
+	hands._glide.custom_step(10.0)
+	_check(sorter.docked_box() == fresh, "snaps into place at it")
+
+	# Mk II: twice as fast, one set at a time, in number order.
+	main.place_order("tool", "sorter_mk2")
+	main.start_new_day()
+	_check(sorter.is_mk2() and is_equal_approx(sorter.cards_per_second(), CardSorter.CARDS_PER_SECOND * 2.0)
+		and sorter.find_child("Mk2Badge", true, false).visible, "the Mk II sorts twice as fast")
+	sorter.surplus_tray.set_cards([])
+	var other_code := ""
+	for set_data in CardDatabase.sets_in_shelf_order():
+		if set_data.code != code and pile.binders.any(func(bd: Binder) -> bool: return bd.binder.set_code == set_data.code):
+			other_code = set_data.code
+			break
+	var high := Collection.add(cards[5].id)
+	var low := Collection.add(cards[3].id)
+	var mid := Collection.add(cards[4].id)
+	var foreign := Collection.add(CardDatabase.cards_in_set(other_code)[0].id)
+	var after := Collection.add(cards[6].id)
+	sorter.feed([high, low, mid, foreign, after])
+	for i in 4:
+		sorter.sort_next()
+	_check(sorter.needed_tray.cards.size() == 3 and sorter.queue == [foreign, after] and sorter.stop_reason.begins_with("NEW SET: %s" % other_code),
+		"a card of another set stops it: " + sorter.stop_reason.replace("\n", " / "))
+	var taken := sorter.take_needed()
+	_check(taken == [low, mid, high], "Needed comes out in collector-number order")
+	sorter._process(0.01)
+	_check(sorter.stop_reason == "", "and once it's taken out the sorter goes on")
+	sorter.sort_next()
+	_check(sorter.needed_tray.cards == [foreign] and sorter.blocker(after).begins_with("NEW SET"), "with the next set")
+
+	# Saved and loaded: the hopper and both pockets keep their cards.
+	sorter.surplus_tray.set_cards([Collection.add(cards[1].id)])
+	var saved: Dictionary = main.capture_save()
+	main.free()
+	Collection.reset()
+	main = load(SceneFlow.SHOP_SCENE).instantiate()
+	Saves._pending = saved
+	add_child(main)
+	await get_tree().physics_frame
+	pile = main.get_node("Pile")
+	sorter = main.sorter
+	_check(sorter != null and sorter.queue.size() == 1 and sorter.needed_tray.cards.size() == 1 and sorter.surplus_tray.cards.size() == 1
+		and sorter.is_mk2() and sorter.has_chute() and not pile.is_lying(sorter.queue[0])
+		and (main.get_node("Player/Hands") as Hands).sorter == sorter, "a load brings the sorter back with its cards")
+	main.free()
+	Progression.reset()
+	Collection.reset()
+
+
 func _test_hud() -> void:
 	# Levels: Level L at 85 (L - 1)^2 Mana earned.
 	Progression.reset()
@@ -822,11 +1004,11 @@ func _test_set_unlock_delivery() -> void:
 		"a new game opens Chapter 1, and only its set")
 	var delivered: Binder = pile.binders.filter(func(b: Binder) -> bool: return b.binder.set_code == first).front()
 	_check(delivered.visible and delivered.state == Binder.State.CLOSED and delivered.get_parent() == pile
-		and delivered.global_position.z > 5.5 and delivered.global_position.z < 8.0, "its binder is delivered inside the door")
+		and delivered.global_position.x > 9.5 and delivered.global_position.z < 4.0, "its binder is delivered inside the door")
 	_check(pile.binders.all(func(b: Binder) -> bool: return b == delivered or (b.state == Binder.State.SHELVED and not b.visible)),
 		"every other binder waits out of sight on the shelf")
 	var box: Array = boxes_of.call(main, first)
-	_check(box.size() == 1 and box[0].kind == ProductBox.Kind.BOOSTER and box[0].global_position.z > 5.5 and box[0].global_position.z < 8.0,
+	_check(box.size() == 1 and box[0].kind == ProductBox.Kind.BOOSTER and box[0].global_position.x > 9.5 and box[0].global_position.z < 4.0,
 		"and a sealed booster box of it is inside the door")
 	_check(pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack).is_empty(), "no loose packs")
 
@@ -2541,7 +2723,7 @@ func _test_progression() -> void:
 	Progression.reach_level(20)
 	_check(Progression.next_unlock().is_empty(), "nothing's left at Level 20")
 	var main := preload("res://scripts/main.gd")
-	_check(main.level_up_text(3) == "Shunt I: Click anywhere on the open pages to file a card." and main.level_up_text(9) == "New on the laptop: Bulk Account"
+	_check(main.level_up_text(3) == "Shunt I: Click anywhere on the open pages to file a card.\nNew on the laptop: Card Sorter" and main.level_up_text(9) == "New on the laptop: Bulk Account"
 		and main.level_up_text(13) == "" and main.level_up_text(2).ends_with("\nNew on the laptop: Pack Knife, Bigger Shipping Boxes"),
 		"the level-up banner names what the level opened: " + main.level_up_text(3))
 	_check(LaptopScreen.next_unlock_text() == "Every ability is yours.", "My Collection says when there's nothing left")
@@ -3172,32 +3354,31 @@ func _test_display_cabinets() -> void:
 	add_child(store)
 	var slots: Array[Marker3D] = store.display_slots
 	_check(slots.size() == 36, "36 shadow boxes across the display cabinets (%d)" % slots.size())
-	var wall: float = store_script.WIDTH
 	for slot in slots:
 		var at := slot.global_position
-		# From the door (facing -z), the right-hand wall is x = WIDTH.
-		if at.x < wall - DisplayCabinet.DEPTH or at.x > wall or at.y < DisplayCabinet.BASE_HEIGHT or at.y > DisplayCabinet.CASE_TOP:
-			_check(false, "slot %s inside a cabinet on the right-hand wall (%s)" % [slot.name, at])
+		# The cabinets stand on the left-hand wall, x = 0.
+		if at.x < 0.0 or at.x > DisplayCabinet.DEPTH or at.y < DisplayCabinet.BASE_HEIGHT or at.y > DisplayCabinet.CASE_TOP:
+			_check(false, "slot %s inside a cabinet on the left-hand wall (%s)" % [slot.name, at])
 			break
-		if not slot.global_basis.z.is_equal_approx(Vector3.LEFT):
+		if not slot.global_basis.z.is_equal_approx(Vector3.RIGHT):
 			_check(false, "slot %s faces into the room" % slot.name)
 			break
-	# Slots read left to right facing the wall: towards the door, along +z.
-	_check(slots[0].global_position.z < slots[1].global_position.z, "slots run left to right")
+	# Slots read left to right facing the wall: towards the back, along -z.
+	_check(slots[0].global_position.z > slots[1].global_position.z, "slots run left to right")
 	# Each case fills its left half (1-9, three by three) before its right half (10-18).
 	_check(is_equal_approx(slots[3].global_position.z, slots[0].global_position.z)
 		and slots[3].global_position.y < slots[0].global_position.y, "rare card 4 hangs under 1")
 	_check(is_equal_approx(slots[9].global_position.y, slots[0].global_position.y)
-		and slots[9].global_position.z > slots[2].global_position.z, "rare card 10 starts the right half's top row")
+		and slots[9].global_position.z < slots[2].global_position.z, "rare card 10 starts the right half's top row")
 	_check(is_equal_approx(slots[17].global_position.y, slots[8].global_position.y)
-		and slots[17].global_position.z > slots[16].global_position.z, "rare card 18 ends the right half's bottom row")
+		and slots[17].global_position.z < slots[16].global_position.z, "rare card 18 ends the right half's bottom row")
 	_check(slots[0].global_position.y > slots[DisplayCabinet.HALF_COLUMNS].global_position.y, "top row first")
 	_check(slots[DisplayCabinet.SLOTS].global_position.z > slots[DisplayCabinet.SLOTS - 1].global_position.z, "back cabinet first")
 	# Nothing on the floor lands in a cabinet.
 	for z in store_script.CABINET_ZS:
 		var blocked := false
 		for rect in store.obstacles:
-			if rect.has_point(Vector2(wall - 0.05, z + DisplayCabinet.WIDTH / 2 - 0.02)) and rect.has_point(Vector2(wall - DisplayCabinet.DEPTH + 0.02, z - DisplayCabinet.WIDTH / 2)):
+			if rect.has_point(Vector2(0.05, z + DisplayCabinet.WIDTH / 2 - 0.02)) and rect.has_point(Vector2(DisplayCabinet.DEPTH - 0.02, z - DisplayCabinet.WIDTH / 2 + 0.02)):
 				blocked = true
 		_check(blocked, "the floor under the cabinet at z %.1f is kept clear" % z)
 	store.free()
@@ -3755,8 +3936,9 @@ func _test_shop_clock() -> void:
 	var store: Node3D = store_script.new()
 	add_child(store)
 	var clock: ShopClock = store.clock
-	_check(clock != null and clock.global_basis.z.is_equal_approx(Vector3.RIGHT) and clock.global_position.x < ShopClock.DEPTH,
-		"the clock stands against the left-hand wall, facing into the room")
+	_check(clock != null and clock.global_basis.z.is_equal_approx(Vector3.FORWARD) and clock.global_position.z > store_script.DEPTH - ShopClock.DEPTH
+		and clock.global_position.x > store_script.WINDOW_XS[0] and clock.global_position.x < store_script.WINDOW_XS[1],
+		"the clock stands against the front wall between the windows, facing into the room")
 	var foot := Vector2(clock.global_position.x, clock.global_position.z)
 	_check(store.obstacles.any(func(r: Rect2) -> bool: return r.has_point(foot)), "cards keep clear of it")
 	var shelf_end := Rect2(store_script.BACK_SHELF.x, 0, 0.1, ShelfUnit.DEPTH)
@@ -4084,12 +4266,12 @@ func _test_laptop() -> void:
 	var laptop: Laptop = main.laptop
 	var screen: LaptopScreen = main.laptop_screen
 	var store_script := preload("res://scripts/store/store_builder.gd")
-	var table: Vector2 = store_script.TABLE_CENTERS[2]
+	var table: Vector2 = store_script.TABLE_CENTERS[1]
 	var table_rect := Rect2(table - Vector2(store_script.TABLE_SIZE.x, store_script.TABLE_SIZE.z) / 2,
 		Vector2(store_script.TABLE_SIZE.x, store_script.TABLE_SIZE.z))
 	_check(laptop != null and laptop.get_parent() == pile and is_equal_approx(laptop.global_position.y, store_script.TABLE_SIZE.y)
-		and table_rect.has_point(Vector2(laptop.global_position.x, laptop.global_position.z)), "a new game puts the laptop on the front left table")
-	_check(laptop.global_basis.z.z > 0.8, "its screen faces the door")
+		and table_rect.has_point(Vector2(laptop.global_position.x, laptop.global_position.z)), "a new game puts the laptop on the front right table")
+	_check(laptop.global_basis.z.x > 0.8, "its screen faces the door")
 	var glow: SpotLight3D = laptop.find_child("Glow", true, false)
 	_check(glow != null and not glow.shadow_enabled and glow.light_energy > 0.0 and glow.light_energy < 1.0
 		and -glow.global_basis.z.dot(laptop.global_basis.z) > 0.8, "its screen casts a faint glow out in front of it")
@@ -4167,7 +4349,7 @@ func _test_laptop() -> void:
 	_check(pack != null and pack.is_lying() and pack.set_code == code, "a booster pack arrives, lying inside the door")
 	_check(boxes.size() == 2 and boxes.all(func(b: ProductBox) -> bool: return b.set_code == code)
 		and boxes.any(func(b: ProductBox) -> bool: return b.kind == ProductBox.Kind.BULK), "and a booster box and a bulk box")
-	_check(boxes.all(func(b: ProductBox) -> bool: return b.global_position.z > 6.0 and b.global_position.z < 8.0), "by the door")
+	_check(boxes.all(func(b: ProductBox) -> bool: return b.global_position.x > 9.5 and b.global_position.z < 4.0), "by the door")
 	screen.open_app("collection")
 	screen.open_app("story")
 	screen.open_app("readme")

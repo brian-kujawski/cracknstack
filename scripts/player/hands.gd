@@ -95,7 +95,7 @@ signal end_day_requested
 ## A card from a pack came up (copy `id`): the HUD tags it with its value.
 signal card_revealed(id: int)
 
-enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX, LOOSE_PACK, SHIPPING, DOOR }
+enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX, LOOSE_PACK, SHIPPING, DOOR, SORTER, SORTER_POCKET }
 
 ## How far from the eye the player can reach.
 @export var reach := 2.6
@@ -229,6 +229,8 @@ var held_box: ProductBox
 ## The shipping corner by the door, with its crate of new boxes (the shop
 ## sets it).
 var shipping_station: ShippingStation
+## The card sorter, once you have one (Main).
+var sorter: CardSorter
 ## Cards of the pack just ripped still to be shown (after the one on top).
 var revealing := 0
 ## Seconds the room stays dim after the last card of a pack is shown, so
@@ -495,6 +497,13 @@ func _gliding() -> bool:
 func _use_hand() -> void:
 	if _aim == Aim.RADIO:
 		radio_used.emit()
+		return
+	if _aim == Aim.SORTER_POCKET:
+		use_sorter_pocket(_aim_box)
+		return
+	if _aim == Aim.SORTER:
+		if held_card_id >= 0:
+			feed_sorter()
 		return
 	if held_box != null:
 		if held_box is SortingTray and _aim == Aim.BOX and _aim_box is ShippingBox:
@@ -1023,6 +1032,13 @@ func _update_aim() -> void:
 			collider = collider.shelved[at]
 	if collider is Binder and collider.state == Binder.State.SHELVED and not Progression.is_set_unlocked(collider.binder.set_code):
 		return # A locked set's binder stays on the shelf, untouchable.
+	if collider is SortingTray and (collider as Node).has_meta("sorter_pocket"):
+		_aim = Aim.SORTER_POCKET
+		_aim_box = collider
+		return
+	if collider is CardSorter:
+		_aim = Aim.SORTER
+		return
 	if collider is ProductBox:
 		_aim = Aim.BOX
 		_aim_box = collider
@@ -1610,6 +1626,50 @@ func sell_tray(tray: SortingTray, box: ShippingBox) -> int:
 	return paid
 
 
+## The whole hand goes into the card sorter's hopper, the top card first.
+## Returns how many cards went.
+func feed_sorter() -> int:
+	if sorter == null or held_card_id < 0 or _gliding():
+		return 0
+	var ids: Array[int] = [held_card_id]
+	ids.append_array(behind)
+	var card := _card_copy(held_card_id)
+	var from := _held_view.global_transform
+	behind.clear()
+	_hold(-1)
+	sorter.feed(ids)
+	var to := sorter.hopper_pose()
+	_glide = Glide.start(card, from, func() -> Transform3D: return to, glide_seconds(sell_seconds), put_down_lift)
+	_glide.tween_callback(card.queue_free)
+	return ids.size()
+
+
+## Clicking one of the sorter's pockets (`tray`): with empty hands, its
+## stack comes into your hand, top card first; with the Sorting Tray in
+## hand, the Surplus stack tips onto it. Returns how many cards moved.
+func use_sorter_pocket(tray: SortingTray) -> int:
+	if sorter == null or tray == null or tray.cards.is_empty() or _gliding():
+		return 0
+	var from := tray.card_slot_pose()
+	if held_box is SortingTray:
+		if tray != sorter.surplus_tray:
+			return 0
+		var tipped := sorter.take_surplus()
+		tipped.reverse() # Its top card stays on top.
+		for id in tipped:
+			held_box.add(id)
+		held_pack_changed.emit(held_box.set_code) # The corner's count changes.
+		return tipped.size()
+	if not _hands_empty():
+		return 0
+	var ids := sorter.take_needed() if tray == sorter.needed_tray else sorter.take_surplus()
+	behind.assign(ids.slice(1))
+	for id in ids:
+		seen_cards[id] = true
+	_hold(ids[0], from)
+	return ids.size()
+
+
 ## How long Space is held to rip a pack open now: quicker with the pack
 ## knife.
 func rip_time() -> float:
@@ -1779,6 +1839,8 @@ func box_drop_pose(box: ProductBox) -> Transform3D:
 func put_down_box() -> void:
 	var box := held_box
 	var to := box_drop_pose(box)
+	if box is ShippingBox and sorter != null and sorter.snaps_to_dock(to.origin):
+		to = sorter.dock_pose() # Into place at the surplus chute.
 	var from := box.global_transform
 	held_box = null
 	box.get_parent().remove_child(box)

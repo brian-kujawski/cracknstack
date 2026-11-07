@@ -25,16 +25,17 @@ const SAVING_ICON_SIZE := Vector2(36, 50)
 const SAVING_SHOWN := 1.0
 const SAVING_TURN := 0.6
 ## Where Card Shop orders and new sets' binders and booster boxes turn up: a
-## grid of floor spots just inside the door, on its left (in front of the
-## tables), filled in turn, column by column away from the door: the rows'
-## z, the first column's x and the step between spots. Once it's full it
+## grid of floor spots just inside the door on the right-hand wall, on its
+## back side (the shipping corner is on its front side), filled in turn,
+## column by column away from the door: the rows' x (out from the wall), the
+## first column's z and the step between spots. Once it's full it
 ## starts over, stacking on what's already there (binders and boxes take
 ## turns, so binders land on binders, boxes on boxes: a big chapter's
 ## deliveries come in piles).
-const DELIVERY_ROWS := [7.15, 6.75, 6.35, 5.95]
-const DELIVERY_X := 5.25
+const DELIVERY_ROWS := [11.15, 10.75, 10.35, 9.95]
+const DELIVERY_Z := 3.25
 const DELIVERY_STEP := 0.4
-const DELIVERY_COLUMNS := 13
+const DELIVERY_COLUMNS := 7
 ## Ending the day: the fade to black, how long it stays black, the fade
 ## back in, and the hour the new day starts at.
 const END_DAY_FADE_OUT := 0.8
@@ -99,6 +100,8 @@ var today_start_organized := 0
 ## cards filed.
 var last_day_earned := 0
 var last_day_organized := 0
+## The card sorter, once it's been delivered (null before).
+var sorter: CardSorter
 ## Binders already complete (set codes), so finishing one is announced once.
 var _complete_binders := {}
 
@@ -122,6 +125,9 @@ func _ready() -> void:
 	Progression.set_unlocked.connect(_on_set_unlocked)
 	laptop = place_laptop(_pile, saved.get("laptop"))
 	_hands.shipping_station = _store.shipping_station
+	sorter = CardSorter.find(_pile) # A save brings it back (ShopSave.restore).
+	if sorter != null:
+		_wire_sorter()
 	orders = saved.get("orders", []).duplicate(true)
 	quickened_day = int(saved.get("quickened_day", 0))
 	day_number = int(saved.get("day", 1))
@@ -154,9 +160,7 @@ func _ready() -> void:
 	_hands.hint_changed.connect(_on_hint_changed)
 	_hands.card_revealed.connect(func(id: int) -> void:
 		hud.show_value_tag(Collection.card(id), Collection.copies_of(Collection.card_id(id)).size() == 1))
-	_hands.card_sold.connect(func(_id: int, cents: int) -> void:
-		today_earned += cents
-		hud.show_money_delta(cents))
+	_hands.card_sold.connect(_on_card_sold)
 	_hands.rare_card_found.connect(func() -> void: add_child(RareCardNote.new()))
 	_on_shown_card_changed(null)
 	Progression.mana_changed.connect(func(_mana: int) -> void: _update_stats())
@@ -315,6 +319,12 @@ func _deliver_order(order: Array) -> void:
 		Progression.give_tool(code)
 		if code == "sorting_tray":
 			deliver_tray()
+		elif code == "sorter":
+			install_sorter()
+		elif sorter != null and code in ["surplus_chute", "sorter_mk2"]:
+			sorter.refresh()
+			if code == "surplus_chute":
+				deliver_chute_box()
 		return
 	if kind == "single":
 		var parts := code.split(":")
@@ -333,6 +343,38 @@ func deliver_single(card: CardData) -> int:
 	var id := Collection.add(card.id)
 	_pile.drop(id, Vector3(spot.x, 0.0, spot.y), _delivery_yaw())
 	return id
+
+
+## The card sorter turns up fixed on its table (CardSorter.INSTALL_TABLE).
+## Returns it.
+func install_sorter() -> CardSorter:
+	if sorter == null:
+		sorter = CardSorter.install(_pile)
+		_wire_sorter()
+	return sorter
+
+
+## The surplus chute comes with an empty shipping box standing ready at it.
+func deliver_chute_box() -> ShippingBox:
+	if sorter == null or sorter.docked_box() != null:
+		return null
+	var box := ShippingBox.new()
+	box.build()
+	_pile.add_child(box)
+	box.global_transform = sorter.dock_pose()
+	return box
+
+
+func _wire_sorter() -> void:
+	_hands.sorter = sorter
+	sorter.needs = _hands.collection_needs
+	sorter.card_sold.connect(_on_card_sold)
+
+
+func _on_card_sold(_id: int, cents: int) -> void:
+	today_earned += cents
+	if hud != null:
+		hud.show_money_delta(cents)
 
 
 ## The sorting tray, delivered inside the door. Returns it.
@@ -466,7 +508,7 @@ func _next_delivery_spot() -> Vector2:
 	var n := _deliveries % (DELIVERY_ROWS.size() * DELIVERY_COLUMNS)
 	_deliveries += 1
 	_spot = n
-	return Vector2(DELIVERY_X - DELIVERY_STEP * (n / DELIVERY_ROWS.size()), DELIVERY_ROWS[n % DELIVERY_ROWS.size()])
+	return Vector2(DELIVERY_ROWS[n % DELIVERY_ROWS.size()], DELIVERY_Z - DELIVERY_STEP * (n / DELIVERY_ROWS.size()))
 
 
 ## The top of what's been delivered to the latest spot (0: nothing yet).
@@ -480,7 +522,7 @@ func _raise_spot(top: float) -> void:
 
 ## Turned toward where you stand as you come in, to the right.
 func _delivery_yaw() -> float:
-	return PI / 2 + _debug_rng.randf_range(-0.3, 0.3)
+	return PI + _debug_rng.randf_range(-0.3, 0.3)
 
 
 ## Opens the chapter the player is on: the first one with a set still

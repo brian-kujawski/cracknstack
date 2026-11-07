@@ -5,7 +5,7 @@ extends ProductBox
 ## to pick it up, click to put it down on a table or the floor. It never
 ## opens like one; instead E (Controls.INTERACT), aimed at it or with it in
 ## hand, opens the laptop screen (LaptopScreen) for the Card Shop and the
-## rest. A new game starts with it on the front left work table.
+## rest. A new game starts with it on the front right work table (as you come in).
 ##
 ## Its origin is the middle of its base's underside; the screen faces +z.
 
@@ -142,10 +142,10 @@ func details() -> String:
 	return "Laptop"
 
 
-## A new game's spot for it: on the front left work table (the one nearest
-## the door on your left as you come in), screen toward the door. A floor
-## point (x, z) and a yaw.
+## A new game's spot for it: on the front right work table (the one nearest
+## the door on your right as you come in, by the deliveries), screen toward
+## the door. A floor point (x, z) and a yaw.
 static func start_spot() -> Array:
 	var tables: Array = preload("res://scripts/store/store_builder.gd").TABLE_CENTERS
-	var table: Vector2 = tables[2]
-	return [Vector2(table.x - 0.15, table.y + 0.25), deg_to_rad(20.0)]
+	var table: Vector2 = tables[1]
+	return [Vector2(table.x + 0.25, table.y + 0.15), deg_to_rad(110.0)]
