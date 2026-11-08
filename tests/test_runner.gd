@@ -2927,11 +2927,16 @@ func _test_level_abilities() -> void:
 	_check(is_equal_approx(hands.glide_seconds(0.24), 0.12), "Snap (Level 6): glides twice as fast")
 	Progression.reset()
 
-	# One card at a time picked up; the wheel cycles a ripped stack.
-	_check(hands.hand_size() == 1, "you pick up one card at a time")
+	# Up to 40 cards picked up by hand; the wheel cycles the stack.
+	_check(hands.hand_size() == 40, "you can pick up 40 cards")
 	pile.pick_up(ids[40])
 	hands._take_in_hand(ids[40])
-	_check(not hands.has_room(), "so with one in hand there's no room for more")
+	_check(hands.has_room(), "so with one in hand there's room for more")
+	var full: Array[int] = []
+	full.resize(39)
+	full.fill(ids[43])
+	hands.behind.assign(full)
+	_check(not hands.has_room(), "and with 40 in hand there's none")
 	hands.behind.assign([ids[41], ids[42]]) # As a ripped pack is held.
 	hands.cycle_hand(1)
 	_check(hands.held_card_id == ids[41] and hands.behind == [ids[42], ids[40]], "the wheel brings the next card up")
