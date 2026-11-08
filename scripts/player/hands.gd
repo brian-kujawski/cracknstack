@@ -8,8 +8,12 @@ extends Node
 ## - empty-handed: pick up the card under the crosshair (from the floor, a
 ##   table, or an unlocked card in an open binder), or pick up a closed
 ##   binder (off the floor, a table or a shelf);
+## - on a card lying on the floor or a table, with room in hand: pick it up,
+##   and keep pulling the next card under the crosshair while the button's
+##   held, until the hand's full (HAND_SIZE) or no card is under it;
 ## - holding a card: file it into the binder pocket you're looking at, or put
-##   it down where you're looking (on the floor it rejoins the pile); a rare
+##   it down where you're looking when there's no card there to pick up (on
+##   the floor it rejoins the pile); a rare
 ##   card (RareCards) goes into its own shadow box when you click either
 ##   display cabinet;
 ## - carrying a binder: set it down where you're looking, or stand it in the
@@ -184,6 +188,15 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX,
 ## A card dropped on the sorting tray glides over its slot, then drops in
 ## over this long.
 @export var tray_drop_seconds := 0.08
+## Holding the button on a card lying on the floor or a table keeps pulling
+## cards into your hand the same way: the first at once, the next this
+## many seconds later, then one every pull_repeat_seconds, until the hand's
+## full or there's no card under the crosshair.
+@export var pull_repeat_delay := 0.25
+@export var pull_repeat_seconds := 0.1
+## A card pulled in by the held button glides into your hand over this
+## long (a quicker hop than a single pick-up, so the repeat keeps pace).
+@export var pull_glide_seconds := 0.08
 @export var sell_drop_seconds := 0.18
 
 ## Where the held card sits relative to the camera: low and to the right,
@@ -291,9 +304,12 @@ var _placing := -1.0
 ## (-1 when it isn't held there).
 var _tray_repeat := -1.0
 var _tray_held_at: SortingTray
-## Whether a quick click (let go before the ghost shows) picks up the card
-## you're aiming at instead of putting the top card down.
-var _pick_on_release := false
+## Seconds until the held button pulls the next lying card into your hand
+## (-1 when it isn't held on one).
+var _pull_repeat := -1.0
+## A click that came while a card was still gliding: it picks up the card
+## under the crosshair as soon as the glide ends, held or not.
+var _pull_owed := false
 var _ghost_card: MeshInstance3D
 var _ghost_binder: MeshInstance3D
 
@@ -403,6 +419,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 	if _gliding():
+		# A click on a lying card while the last one's still on its way in
+		# isn't lost: it's picked up as soon as the glide ends.
+		if event.is_action_pressed(Controls.USE_HAND) and held_card_id >= 0 and can_pull():
+			_pull_owed = true
 		return
 	if _viewed_id >= 0:
 		# Nothing else while a card from a pocket or a shadow box is up close.
@@ -415,14 +435,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_released(Controls.USE_HAND):
 		if _placing >= 0.0:
-			var quick := _placing < ghost_after_seconds
 			_placing = -1.0
-			if quick and _pick_on_release:
-				_ghost_card.visible = false
-				_pick_up_aimed()
-			else:
-				_put_down_where_aimed()
-			_pick_on_release = false
+			_put_down_where_aimed()
 	elif _placing >= 0.0:
 		return # One thing at a time while putting something down.
 	elif event.is_action_pressed(Controls.RIP):
@@ -479,7 +493,8 @@ func _hands_empty() -> bool:
 
 
 ## How many cards your hand holds when you pick them up one by one off the
-## floor or a table (a quick click with cards in hand adds the aimed card).
+## floor or a table (a click on a lying card adds it; holding the button
+## keeps pulling, see start_pulls).
 ## A ripped pack or a tray stack comes into your hand whole, past this.
 const HAND_SIZE := 40
 
@@ -546,21 +561,61 @@ func _use_hand() -> void:
 			return
 		if _try_display_held_card() or _try_file_held_card():
 			return
-		# With room in hand, a quick click on a card picks it up as well;
-		# holding the button still puts the top card down.
-		_pick_on_release = has_room() and ((_aim == Aim.FLOOR and _aim_floor_card >= 0) or _aim == Aim.LOOSE_CARD)
-		if _pick_on_release or _can_put_down():
+		# With room in hand, a card under the crosshair always comes up;
+		# only with no card there (or a full hand) does the click put down.
+		if start_pulls():
+			return
+		if _can_put_down():
 			_placing = 0.0
 		return
 	if _aim == Aim.BINDER and not _aim_binder.is_open():
 		_carry(_aim_binder)
 		return
-	_pick_up_aimed()
+	start_pulls()
+
+
+## Whether a click would pull the card under the crosshair into your hand:
+## there's one, there's room, and nothing else has the hand busy.
+func can_pull() -> bool:
+	return has_room() and _aim_lying_card() >= 0 and revealing == 0 and not _zoomed \
+		and _viewed_id < 0 and not _ripping
+
+
+## The button's pressed on a lying card: it comes into your hand, and more
+## follow while the button's held (repeat_pulls).
+func start_pulls() -> bool:
+	if not can_pull() or not _pick_up_aimed():
+		return false
+	_pull_repeat = pull_repeat_delay
+	return true
+
+
+## While the button's held over lying cards, the next one under the
+## crosshair comes up when it's due. Letting go, a full hand, or no card
+## under the crosshair stops it. A click owed from mid-glide is paid first.
+func repeat_pulls(delta: float, held: bool) -> void:
+	if _pull_owed and not _gliding():
+		_pull_owed = false
+		if not start_pulls():
+			_pull_repeat = -1.0
+		return
+	if _pull_repeat < 0.0:
+		return
+	if not held:
+		_pull_repeat = -1.0
+		return
+	_pull_repeat -= delta
+	if _pull_repeat > 0.0 or _gliding():
+		return # Not due yet, or the last card is still on its way.
+	if not can_pull() or not _pick_up_aimed(pull_glide_seconds):
+		_pull_repeat = -1.0
+		return
+	_pull_repeat = maxf(_pull_repeat + pull_repeat_seconds, 0.0)
 
 
 ## Takes the card under the crosshair into your hand, on top: off the floor
 ## or a table. Cards in binder pockets are locked in for good.
-func _pick_up_aimed() -> bool:
+func _pick_up_aimed(seconds := -1.0) -> bool:
 	if not has_room():
 		return false
 	match _aim:
@@ -569,13 +624,13 @@ func _pick_up_aimed() -> bool:
 			if id >= 0:
 				var from := pile.card_pose(id)
 				pile.pick_up(id)
-				_take_in_hand(id, from)
+				_take_in_hand(id, from, seconds)
 				return true
 		Aim.LOOSE_CARD:
 			var card := _aim_loose_card
 			var from := card.card_pose()
 			pile.pick_up(card.card_id)
-			_take_in_hand(card.card_id, from)
+			_take_in_hand(card.card_id, from, seconds)
 			return true
 	return false
 
@@ -1957,7 +2012,9 @@ static func rip_tear(amount: float) -> float:
 func _process(delta: float) -> void:
 	if _pack_effects == null:
 		return
-	repeat_tray_drop(delta, Input.is_action_pressed(Controls.USE_HAND) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED)
+	var use_held := Input.is_action_pressed(Controls.USE_HAND) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	repeat_tray_drop(delta, use_held)
+	repeat_pulls(delta, use_held)
 	if _ripping and (held_pack == null or not Input.is_action_pressed(Controls.RIP)):
 		_ripping = false
 	if _ripping and not _gliding():

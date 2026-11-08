@@ -3049,6 +3049,64 @@ func _test_level_abilities() -> void:
 	_check(Progression.mana == mana + 3 * Progression.CARD_LOCKED, "earning its Mana")
 	_check(not Progression.can_cast("Teleport"), "then it recharges")
 
+	# Holding the button over lying cards pulls them into your hand: one at
+	# once, the next after the delay, then one each repeat, until there's
+	# no card under the crosshair or the hand's full.
+	await get_tree().create_timer(0.5).timeout
+	hands.restore_hand([])
+	var lying: Array[int] = []
+	for id in ids.slice(ids.size() - 8):
+		if pile.is_lying(id):
+			lying.append(id)
+	_check(lying.size() >= 4, "(some cards lying on the floor to pull)")
+	var aim_at := func(id: int) -> void:
+		hands._aim = Hands.Aim.FLOOR
+		hands._aim_floor_card = id
+	var settle := func() -> void:
+		if hands._glide != null:
+			hands._glide.custom_step(10.0)
+	aim_at.call(lying[0])
+	hands._use_hand()
+	_check(hands.held_card_id == lying[0] and not pile.is_lying(lying[0]), "with empty hands, a press picks up the card at once")
+	settle.call()
+	aim_at.call(lying[1])
+	hands._use_hand()
+	_check(hands.held_card_id == lying[1] and hands.hand_count() == 2 and hands._placing < 0.0,
+		"with a card in hand, a press on another picks it up at once too, nothing put down")
+	settle.call()
+	aim_at.call(lying[2])
+	hands.repeat_pulls(hands.pull_repeat_delay - 0.05, true)
+	_check(hands.hand_count() == 2, "held, the next waits for the delay")
+	hands.repeat_pulls(0.06, true)
+	_check(hands.held_card_id == lying[2] and hands.hand_count() == 3, "then it comes up")
+	settle.call()
+	aim_at.call(lying[3])
+	hands.repeat_pulls(hands.pull_repeat_seconds + 0.01, false)
+	hands.repeat_pulls(1.0, true)
+	_check(hands.hand_count() == 3 and pile.is_lying(lying[3]), "letting go stops it")
+	hands._use_hand()
+	settle.call()
+	hands._aim_floor_card = -1
+	hands._aim = Hands.Aim.NONE
+	hands.repeat_pulls(1.0, true)
+	_check(hands._pull_repeat < 0.0 and hands.hand_count() == 4, "no card under the crosshair stops it")
+	var many: Array[int] = []
+	many.resize(Hands.HAND_SIZE - 1)
+	many.fill(lying[0])
+	hands.restore_hand(many)
+	if lying.size() > 4:
+		aim_at.call(lying[4])
+		hands._use_hand()
+		settle.call()
+		_check(hands.hand_count() == Hands.HAND_SIZE and not hands.has_room(), "it fills the hand to %d" % Hands.HAND_SIZE)
+		hands.repeat_pulls(1.0, true)
+		_check(hands._pull_repeat < 0.0, "and stops there")
+	hands._pull_owed = true
+	aim_at.call(-1)
+	hands.restore_hand([])
+	hands.repeat_pulls(0.0, true)
+	_check(not hands._pull_owed and hands._pull_repeat < 0.0, "a click owed from mid-glide with nothing to pick does nothing")
+
 	holder.free()
 	pile.free()
 	Progression.reset()
