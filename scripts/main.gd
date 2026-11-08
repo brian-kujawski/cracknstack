@@ -24,18 +24,21 @@ const SAVING_ICON := "res://assets/ui/saving_icon.png"
 const SAVING_ICON_SIZE := Vector2(36, 50)
 const SAVING_SHOWN := 1.0
 const SAVING_TURN := 0.6
-## Where Card Shop orders and new sets' binders and booster boxes turn up: a
-## grid of floor spots just inside the door on the right-hand wall, on its
-## back side (the shipping corner is on its front side), filled in turn,
-## column by column away from the door: the rows' x (out from the wall), the
-## first column's z and the step between spots. Once it's full it
-## starts over, stacking on what's already there (binders and boxes take
-## turns, so binders land on binders, boxes on boxes: a big chapter's
-## deliveries come in piles).
+## Where Card Shop orders and new sets' binders and booster boxes turn up
+## (booster packs go into the INCOMING crate, StoreBuilder.pack_crate, until
+## it's full): a grid of floor spots just inside the door on the right-hand
+## wall, on its back side (the shipping corner is on its front side). Each
+## delivery takes the first clear spot, column by column away from the door:
+## the rows' x (out from the wall), the first column's z and the step
+## between spots. Once none is clear, deliveries stack on what's there, spot
+## after spot in turn (binders and boxes take turns, so binders land on
+## binders, boxes on boxes: a big chapter's deliveries come in piles).
 const DELIVERY_ROWS := [11.15, 10.75, 10.35, 9.95]
 const DELIVERY_Z := 3.25
 const DELIVERY_STEP := 0.4
 const DELIVERY_COLUMNS := 7
+## Something counts as on a delivery spot within this of it (m).
+const SPOT_REACH := 0.2
 ## Ending the day: the fade to black, how long it stays black, the fade
 ## back in, and the hour the new day starts at.
 const END_DAY_FADE_OUT := 0.8
@@ -76,9 +79,10 @@ var _debug_rng := RandomNumberGenerator.new()
 ## The laptop in the room, and its screen (the Card Shop and the rest).
 var laptop: Laptop
 var laptop_screen: LaptopScreen
-var _deliveries := 0
-## Delivery spot -> top of what this session has delivered there.
-var _spot_tops := {}
+## Deliveries stacked since a spot was last clear (which spot the next one
+## stacks on).
+var _overflow := 0
+## The spot the latest delivery went to.
 var _spot := 0
 ## While open_chapter unlocks a chapter's sets (one banner for them all).
 var _opening_chapter := false
@@ -385,7 +389,6 @@ func deliver_tray() -> SortingTray:
 	_pile.add_child(tray)
 	tray.global_transform = _pile.global_transform * Transform3D(Basis(Vector3.UP, _delivery_yaw()),
 		Vector3(spot.x, _spot_top(), spot.y))
-	_raise_spot(_spot_top() + SortingTray.standing_height())
 	return tray
 
 
@@ -487,37 +490,78 @@ static func howling_mine_set(binders: Array[Binder]) -> String:
 ## Product turns up inside the door: kind "pack", "booster_box" or
 ## "bulk_box", of set `code`. Returns what arrived.
 func deliver(kind: String, code: String) -> Node3D:
-	var spot := _next_delivery_spot()
-	var yaw := _delivery_yaw()
-	var base := _spot_top()
 	if kind == "pack":
 		var pack := BoosterPack.new()
 		pack.setup(code)
-		var y := maxf(_pile.height_at(spot), base)
-		pack.lie(_pile, Vector3(spot.x, y, spot.y), yaw)
-		_raise_spot(y + 0.005)
+		var crate: PackCrate = _store.pack_crate if _store != null else null
+		var pose: Variant = crate.next_pack_pose(_pile.get_children(), _debug_rng) if crate != null else null
+		if pose != null:
+			pack.lie(_pile, Vector3.ZERO, 0.0)
+			pack.global_transform = pose
+			return pack
+		var at := _next_delivery_spot()
+		var y := maxf(_pile.height_at(at), _spot_top())
+		pack.lie(_pile, Vector3(at.x, y, at.y), _delivery_yaw())
 		return pack
+	var spot := _next_delivery_spot()
+	var yaw := _delivery_yaw()
+	var base := _spot_top()
 	var box_kind := ProductBox.Kind.BOOSTER if kind == "booster_box" else ProductBox.Kind.BULK
 	var box := place_box(_pile, box_kind, code, Vector3(spot.x, base, spot.y), yaw)
-	_raise_spot(box.global_position.y - _pile.global_position.y + box.box_size().y)
 	return box
 
 
-## The next floor spot inside the door, in turn.
+## The next floor spot inside the door: the first clear one, or once
+## none is, the next in turn to stack on.
 func _next_delivery_spot() -> Vector2:
-	var n := _deliveries % (DELIVERY_ROWS.size() * DELIVERY_COLUMNS)
-	_deliveries += 1
-	_spot = n
+	var tops := _spot_tops()
+	_spot = -1
+	for n in tops.size():
+		if tops[n] < 0.0 and _pile.height_at(_spot_point(n)) <= 0.0005:
+			_spot = n
+			_overflow = 0
+			break
+	if _spot < 0:
+		_spot = _overflow % tops.size()
+		_overflow += 1
+	return _spot_point(_spot)
+
+
+func _spot_point(n: int) -> Vector2:
 	return Vector2(DELIVERY_ROWS[n % DELIVERY_ROWS.size()], DELIVERY_Z - DELIVERY_STEP * (n / DELIVERY_ROWS.size()))
 
 
-## The top of what's been delivered to the latest spot (0: nothing yet).
+## For each spot, the top (over the floor) of the highest thing standing or
+## lying on it (product, binders, trays, packs), whatever put it there (a
+## loaded game's too); -1 where there's nothing.
+func _spot_tops() -> Array[float]:
+	var tops: Array[float] = []
+	tops.resize(DELIVERY_ROWS.size() * DELIVERY_COLUMNS)
+	tops.fill(-1.0)
+	for child in _pile.get_children():
+		if not child is Node3D or child.is_queued_for_deletion() or child.has_meta("lands_at"):
+			continue
+		var at := _pile.to_local((child as Node3D).global_position)
+		var top := -1.0
+		if child is BoosterPack:
+			if (child as BoosterPack).is_lying():
+				top = at.y + BoosterPack.THICKNESS / 2
+		elif child is Binder:
+			if (child as Binder).state != Binder.State.CARRIED:
+				top = at.y + (child as Binder).thickness
+		elif child.has_method("box_size"):
+			top = at.y + (child.call("box_size") as Vector3).y
+		if top < 0.0:
+			continue
+		for n in tops.size():
+			if Vector2(at.x, at.z).distance_to(_spot_point(n)) < SPOT_REACH:
+				tops[n] = maxf(tops[n], top)
+	return tops
+
+
+## The top of what's on the latest spot (0: nothing).
 func _spot_top() -> float:
-	return _spot_tops.get(_spot, 0.0)
-
-
-func _raise_spot(top: float) -> void:
-	_spot_tops[_spot] = maxf(_spot_top(), top)
+	return maxf(_spot_tops()[_spot], 0.0)
 
 
 ## Turned toward where you stand as you come in, to the right.
@@ -571,7 +615,6 @@ func _on_set_unlocked(code: String) -> Array[Node3D]:
 			var y := maxf(_pile.height_under(p, half, yaw), _spot_top()) + 0.01
 			var at := Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, y, p.y))
 			binder.place(_pile, _pile.global_transform * at)
-			_raise_spot(y + binder.thickness)
 			delivered.append(binder)
 	delivered.append(deliver("booster_box", code))
 	return delivered
