@@ -490,6 +490,20 @@ func _test_tools_and_singles() -> void:
 		_check(hands.drop_on_tray(tray), "a duplicate goes on the tray")
 	_check(tray.cards == spares and tray.details().contains("3/%d cards" % SortingTray.CAPACITY), "the tray holds them: " + tray.details())
 
+	# A dropped card only shows in front once it's landed.
+	var lone := SortingTray.new()
+	lone.build([spares[0]])
+	pile.add_child(lone)
+	lone.add(spares[1], true)
+	_check(lone.cards.size() == 2 and lone.front_shown() == spares[0], "while a card drops in, the one before stays in front")
+	lone.landed()
+	_check(lone.front_shown() == spares[1], "and once it lands it's in front")
+	lone.add(spares[2], true)
+	lone.take(1)
+	lone.landed()
+	_check(lone.front_shown() == spares[1], "taking it out on the way leaves the last landed one in front")
+	lone.free()
+
 	# They stand nearly upright, one in front of the other, faces to the front.
 	var slot := tray.global_transform.affine_inverse() * tray.card_slot_pose()
 	var front := tray.global_transform.affine_inverse() * tray.front_card_pose()

@@ -1577,12 +1577,15 @@ func drop_on_tray(tray: SortingTray) -> bool:
 	_release_top()
 	var above := tray.card_entry_pose()
 	var to := tray.card_slot_pose()
-	tray.add(id)
+	tray.add(id, true) # The front card changes once this one's in.
 	# Its own glide, not the hand's: holding the button drops the next one
 	# while this one is still on its way.
 	var glide := Glide.start(card, from, func() -> Transform3D: return above, glide_seconds(sell_seconds), put_down_lift)
 	Glide.then(glide, card, above, to, glide_seconds(tray_drop_seconds))
-	glide.tween_callback(card.queue_free)
+	glide.tween_callback(func() -> void:
+		if is_instance_valid(tray):
+			tray.landed()
+		card.queue_free())
 	return true
 
 
