@@ -35,6 +35,8 @@ var cards: Array[int] = []
 ## How many it holds, and its outside size (walls only), which follows.
 var capacity := CAPACITY
 var size := sized(CAPACITY)
+## How many of the last cards in `cards` are still dropping in (add).
+var _arriving := 0
 var _stack: MeshInstance3D
 var _stack_material: ShaderMaterial
 var _front_card: MeshInstance3D
@@ -132,9 +134,26 @@ func has_room() -> bool:
 	return room() > 0
 
 
-## Copy `id` has gone in at the front.
-func add(id: int) -> void:
+## Copy `id` has gone in at the front. With `arriving`, it's still on its
+## way down: it counts (and is saved) at once, but the tray goes on showing
+## the card in front before it until it lands (landed).
+func add(id: int, arriving := false) -> void:
 	cards.append(id)
+	if arriving:
+		_arriving += 1
+	_refresh()
+
+
+## The copy shown in front now (-1 for none): the last one in that's
+## landed.
+func front_shown() -> int:
+	var shown := cards.size() - _arriving
+	return cards[shown - 1] if shown > 0 else -1
+
+
+## A card added `arriving` has landed: now it's the one shown in front.
+func landed() -> void:
+	_arriving = maxi(_arriving - 1, 0)
 	_refresh()
 
 
@@ -150,6 +169,7 @@ func take(count := -1) -> Array[int]:
 	var taken: Array[int] = []
 	while not cards.is_empty() and (count < 0 or taken.size() < count):
 		taken.append(cards.pop_back())
+	_arriving = mini(_arriving, cards.size())
 	_refresh()
 	return taken
 
@@ -157,6 +177,7 @@ func take(count := -1) -> Array[int]:
 ## Puts these copies in in place of what was there, the last in front.
 func set_cards(ids: Array[int]) -> void:
 	cards.assign(ids)
+	_arriving = 0
 	_refresh()
 
 
@@ -199,8 +220,9 @@ func _face_pose(count: int) -> Transform3D:
 
 
 func _refresh() -> void:
-	var count := mini(cards.size(), capacity)
-	var empty := cards.is_empty()
+	var shown := cards.size() - _arriving # Those still on their way aren't in yet.
+	var count := mini(shown, capacity)
+	var empty := shown <= 0
 	_stack.visible = not empty
 	_front_card.visible = not empty
 	_back_card.visible = not empty
@@ -216,7 +238,7 @@ func _refresh() -> void:
 	_front_card.transform = _face_pose(count)
 	_back_card.transform = Transform3D(lean * Basis(Vector3.UP, PI),
 		Vector3(0, BOTTOM, _first_z()) + lean.y * (PileWorld.CARD_SIZE.y / 2) - lean.z * 0.0003)
-	CardView.apply(_front_card.material_override, cards.back())
+	CardView.apply(_front_card.material_override, cards[shown - 1])
 
 
 func _part(part_size: Vector3, at: Vector3, material: Material) -> void:
