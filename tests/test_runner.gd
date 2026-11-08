@@ -4081,7 +4081,8 @@ func _test_booster_packs() -> void:
 	var counts: Array = counts_of.call(classic)
 	_check(classic.size() == 15 and counts == [10, 3, 1, 0, 1], "a 1994-2008 booster: 10 commons, 3 uncommons, a rare and a pretend land slot: %s" % [counts])
 	_check(counts_of.call(draw_era.call("classic", made_up.call(0))) == [11, 3, 1, 0, 0], "a set with no basics keeps its 11th common")
-	_check(in_reveal_order.call(classic) and rarity_of.call(classic[-1]) == CardData.Rarity.RARE, "handed over commons first, the rare last")
+	_check(in_reveal_order.call(classic) and rarity_of.call(classic[-2]) == CardData.Rarity.RARE
+		and rarity_of.call(classic[-1]) == PackContents.BASIC, "handed over commons first, then the rare, the land at the back")
 	_check(unique_but_basics.call(classic), "no card twice in one pack")
 	var no_mythic_before_alara := true
 	for i in 100:
@@ -4092,7 +4093,8 @@ func _test_booster_packs() -> void:
 	counts = counts_of.call(draft)
 	_check(draft.size() == 15 and counts[PackContents.BASIC] == 1 and counts[0] == 10 and counts[1] == 3 and counts[2] + counts[3] == 1,
 		"a 2008-2023 booster: a basic land, 10 commons, 3 uncommons, a rare or mythic: %s" % [counts])
-	_check(rarity_of.call(draft[0]) == PackContents.BASIC and in_reveal_order.call(draft), "the basic land comes first")
+	_check(rarity_of.call(draft[-1]) == PackContents.BASIC and rarity_of.call(draft[-2]) >= CardData.Rarity.RARE
+		and in_reveal_order.call(draft), "the rare or mythic, then the basic land last")
 	var mythics := 0
 	for i in 400:
 		mythics += counts_of.call(draw_era.call("draft", made_up.call(5)))[CardData.Rarity.MYTHIC]
