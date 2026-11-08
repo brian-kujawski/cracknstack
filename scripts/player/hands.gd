@@ -599,7 +599,8 @@ func repeat_pulls(delta: float, held: bool) -> void:
 	if _pull_owed and not _gliding():
 		_pull_owed = false
 		if not start_pulls():
-			_pull_repeat = -1.0
+			# Still held: wait for a card like any other gather.
+			_pull_repeat = 0.0 if held else -1.0
 		return
 	if _pull_repeat < 0.0:
 		return

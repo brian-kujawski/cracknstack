@@ -3117,8 +3117,12 @@ func _test_level_abilities() -> void:
 	hands._pull_owed = true
 	aim_at.call(-1)
 	hands.restore_hand([])
+	hands.repeat_pulls(0.0, false)
+	_check(not hands._pull_owed and hands._pull_repeat < 0.0, "a click owed from mid-glide, let go over nothing, does nothing")
+	hands._pull_owed = true
 	hands.repeat_pulls(0.0, true)
-	_check(not hands._pull_owed and hands._pull_repeat < 0.0, "a click owed from mid-glide with nothing to pick does nothing")
+	_check(not hands._pull_owed and hands._pull_repeat >= 0.0, "still held, it waits for a card like any gather")
+	hands.repeat_pulls(0.0, false)
 
 	holder.free()
 	pile.free()
