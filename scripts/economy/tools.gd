@@ -11,7 +11,7 @@ extends RefCounted
 
 ## Every tool: [id, name, level, price in cents, what it does].
 const LIST := [
-	["sorting_tray", "Sorting Tray", 1, 2500, "A wooden tray for your table. Drop duplicates on it, then sell the whole stack at a shipping box in one click."],
+	["sorting_tray", "Sorting Tray", 1, 2500, "A wooden sorting box for your table. Stand up to 250 duplicates in it, then sell them at a shipping box in one click."],
 	["pack_knife", "Pack Knife", 2, 4000, "Ripping a pack takes about a third of the time."],
 	["boxes_100", "Bigger Shipping Boxes", 2, 6000, "New shipping boxes hold 100 cards."],
 	["sorter", "Card Sorter", 3, 15000, "A machine for the table by the shipping corner. Feed it cards: it sorts them into Needed and Surplus."],

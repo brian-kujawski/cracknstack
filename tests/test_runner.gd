@@ -488,7 +488,38 @@ func _test_tools_and_singles() -> void:
 	for id in spares:
 		hands.restore_hand([id])
 		_check(hands.drop_on_tray(tray), "a duplicate goes on the tray")
-	_check(tray.cards == spares and tray.details().contains("3 cards"), "the tray holds them: " + tray.details())
+	_check(tray.cards == spares and tray.details().contains("3/%d cards" % SortingTray.CAPACITY), "the tray holds them: " + tray.details())
+
+	# They stand nearly upright, one in front of the other, faces to the front.
+	var slot := tray.global_transform.affine_inverse() * tray.card_slot_pose()
+	var front := tray.global_transform.affine_inverse() * tray.front_card_pose()
+	_check(absf(slot.basis.y.angle_to(Vector3.UP) - SortingTray.LEAN) < 0.001 and slot.basis.y.z < 0.0 and slot.basis.z.z > 0.99,
+		"a card stands leaning back %.0f degrees, its face to the front" % rad_to_deg(SortingTray.LEAN))
+	_check(absf(slot.origin.z - front.origin.z - SortingTray.CARD_GAP) < 0.00005 and absf(slot.origin.y - front.origin.y) < 0.00005,
+		"the next card goes in just in front of the last")
+	var entry := tray.global_transform.affine_inverse() * tray.card_entry_pose()
+	_check(entry.origin.y > SortingTray.standing_height() and absf(entry.origin.z - slot.origin.z) < 0.00005,
+		"and drops in from above, clear of the walls")
+	var full_size := SortingTray.sized(SortingTray.CAPACITY)
+	_check(full_size.z > 0.1 and full_size.z < 0.14 and full_size.x < 0.08,
+		"%d cards fit a box about %.0f x %.0f cm" % [SortingTray.CAPACITY, full_size.x * 100, full_size.z * 100])
+	var last_at := -full_size.z / 2 + SortingTray.WALL + (SortingTray.WALL_HEIGHT - SortingTray.BOTTOM) * tan(SortingTray.LEAN) \
+		+ SortingTray.CAPACITY * SortingTray.CARD_GAP
+	_check(last_at < full_size.z / 2 - SortingTray.WALL, "the last card still fits inside the front wall")
+
+	# Full, it takes no more: the card stays in hand.
+	var filler: Array[int] = []
+	for i in SortingTray.CAPACITY - spares.size():
+		filler.append(Collection.add(card.id))
+	var kept := tray.cards.duplicate()
+	tray.add_cards(filler)
+	_check(tray.cards.size() == SortingTray.CAPACITY and not tray.has_room(), "a tray holds %d cards" % SortingTray.CAPACITY)
+	var over := Collection.add(card.id)
+	hands.restore_hand([over])
+	_check(not hands.drop_on_tray(tray) and hands.held_card_id == over and tray.cards.size() == SortingTray.CAPACITY,
+		"a full tray takes no more; the card stays in hand")
+	tray.set_cards(kept)
+	hands.restore_hand([])
 
 	# Holding the button on the tray: one at once, the next after the
 	# delay, then one each repeat, stopping at a Needed card.
@@ -666,8 +697,9 @@ func _test_card_sorter() -> void:
 	_check(sorter.global_basis.z.x > 0.9 and table.distance_to(Vector2(station.global_position.x, station.global_position.z))
 		< store_script.TABLE_CENTERS[1].distance_to(Vector2(station.global_position.x, station.global_position.z)),
 		"facing the door, on the table nearer the shipping corner than the laptop's")
-	_check(sorter.needed_tray.box_size() == SortingTray.SIZE and sorter.surplus_tray.box_size() == SortingTray.SIZE,
-		"its pockets are trays like the Sorting Tray")
+	_check(sorter.needed_tray.capacity == CardSorter.POCKET and sorter.surplus_tray.capacity == CardSorter.POCKET
+		and sorter.needed_tray.size == SortingTray.sized(CardSorter.POCKET) and sorter.surplus_tray.size.z < SortingTray.sized(SortingTray.CAPACITY).z,
+		"its pockets are trays like the Sorting Tray, sized for %d cards" % CardSorter.POCKET)
 	_check(sorter.find_child("Readout", true, false).text == "READY", "its readout says READY")
 
 	# Feeding a hand in: needed cards to Needed, the rest to Surplus.
@@ -716,12 +748,29 @@ func _test_card_sorter() -> void:
 	var hand_tray: SortingTray = main.deliver_tray()
 	hands.take_box(hand_tray)
 	hands._glide.custom_step(10.0)
+	var front_surplus: int = sorter.surplus_tray.cards.back()
 	_check(hands.use_sorter_pocket(sorter.surplus_tray) == CardSorter.POCKET and hand_tray.cards.size() == CardSorter.POCKET
-		and sorter.surplus_tray.cards.is_empty(), "the Sorting Tray in hand takes the Surplus stack")
+		and sorter.surplus_tray.cards.is_empty() and hand_tray.cards.back() == front_surplus,
+		"the Sorting Tray in hand takes the Surplus stack, its front card still in front")
 	sorter._process(0.01)
 	_check(sorter.stop_reason == "", "and the sorter starts again")
 	sorter._process(1.0)
 	_check(sorter.queue.is_empty() and sorter.surplus_tray.cards.size() == 1, "and finishes")
+	# A tray with little room takes only the front cards; the rest wait.
+	var tray_before := hand_tray.cards.duplicate()
+	var surplus_before := sorter.surplus_tray.cards.duplicate()
+	var pad: Array[int] = []
+	for i in SortingTray.CAPACITY - hand_tray.cards.size():
+		pad.append(Collection.add(cards[1].id))
+	hand_tray.add_cards(pad)
+	_check(hands.use_sorter_pocket(sorter.surplus_tray) == 0 and sorter.surplus_tray.cards.size() == 1, "a full tray takes none")
+	hand_tray.take(1)
+	var more: Array[int] = [Collection.add(cards[1].id), Collection.add(cards[1].id)]
+	sorter.surplus_tray.add_cards(more)
+	_check(hands.use_sorter_pocket(sorter.surplus_tray) == 1 and hand_tray.cards.back() == more[1]
+		and sorter.surplus_tray.cards.size() == 2 and not hand_tray.has_room(), "one with room for one takes the front one")
+	hand_tray.set_cards(tray_before)
+	sorter.surplus_tray.set_cards(surplus_before)
 	hands.put_down_box()
 	hands._glide.custom_step(10.0)
 
