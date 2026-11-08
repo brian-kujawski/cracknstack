@@ -70,6 +70,9 @@ const DOOR_Z := 4.0
 ## side (deliveries turn up on the back side, Main.DELIVERY_ROWS): the middle
 ## of its OUTGOING mat. It faces into the room, its crate toward the door.
 const SHIPPING_AT := Vector2(11.45, 6.3)
+## The INCOMING crate (PackCrate): against the right-hand wall just inside
+## the door, on its back side, clear of the door's casing.
+const PACK_CRATE_AT := Vector2(11.82, 3.06)
 ## The longcase clock stands against the front wall between the windows:
 ## its floor centre along x.
 const CLOCK_X := 6.0
@@ -148,6 +151,9 @@ var radio: ShopRadio
 ## The shipping corner by the door: the OUTGOING mat and the crate of
 ## flat-packed shipping boxes.
 var shipping_station: ShippingStation
+## The INCOMING crate just inside the door that booster packs are delivered
+## into (PackCrate).
+var pack_crate: PackCrate
 ## The longcase clock; the shop gives it the DayCycle to show.
 var clock: ShopClock
 ## The wall art's frames, in WallArt's order.
@@ -178,6 +184,7 @@ func _ready() -> void:
 	_build_display_cabinets()
 	_build_reading_corner()
 	_build_shipping_station()
+	_build_pack_crate()
 	_build_wall_art()
 	_build_clock()
 	_build_windows()
@@ -423,6 +430,14 @@ func _build_shipping_station() -> void:
 	shipping_station.rotation.y = -PI / 2
 	add_child(shipping_station)
 	obstacles.append(shipping_station.crate_footprint())
+
+
+func _build_pack_crate() -> void:
+	pack_crate = PackCrate.new()
+	pack_crate.build(_table_material)
+	pack_crate.position = Vector3(PACK_CRATE_AT.x, 0, PACK_CRATE_AT.y)
+	add_child(pack_crate)
+	obstacles.append(pack_crate.footprint())
 
 
 ## Adds a piece standing on the floor at `at`, turned by `yaw`, and keeps the

@@ -1122,13 +1122,50 @@ func _test_set_unlock_delivery() -> void:
 		"under one Chapter 2 banner")
 	_check(main.current_chapter(pile.binders).number == 2, "and the HUD counts Chapter 2 now")
 	var spots: int = main.DELIVERY_ROWS.size() * main.DELIVERY_COLUMNS
+	var flat := func(n: Node3D) -> Vector2: return Vector2(n.global_position.x, n.global_position.z)
+	var near_door: Vector2 = main._spot_point(0)
+	# The spot nearest the door is cleared: the next delivery goes there, on
+	# the floor, not on to the far end.
+	for child in pile.get_children():
+		if child is Node3D and flat.call(child).distance_to(near_door) < main.SPOT_REACH and not child is BoosterPack:
+			child.global_position += Vector3(-3.0, 0.0, 0.0)
+	var refill: ProductBox = main.deliver("booster_box", first)
+	_check(flat.call(refill).distance_to(near_door) < 0.01 and refill.global_position.y < 0.01,
+		"a cleared spot by the door is used again, on the floor")
 	var piled := []
 	for i in spots + 1:
 		piled.append(main.deliver("booster_box", first))
-	var flat := func(n: Node3D) -> Vector2: return Vector2(n.global_position.x, n.global_position.z)
-	_check(piled[spots].global_position.y >= piled[0].global_position.y + ProductBox.BOOSTER_SIZE.y - 0.001
-		and flat.call(piled[spots]).distance_to(flat.call(piled[0])) < 0.2,
-		"once the delivery spots are full, deliveries stack: %.3f over %.3f" % [piled[spots].global_position.y, piled[0].global_position.y])
+	var last: ProductBox = piled[spots]
+	_check(last.global_position.y > 0.01 and piled.slice(0, spots).any(func(n: Node3D) -> bool: return n.global_position.y < 0.01),
+		"once the delivery spots are full, deliveries stack: %.3f up" % last.global_position.y)
+
+	# Packs go into the INCOMING crate by the door, in neat stacks.
+	var crate: PackCrate = main.get_node("Store").pack_crate
+	var crate_packs := func() -> Array:
+		return pile.get_children().filter(func(n: Node) -> bool: return n is BoosterPack and crate.pack_count([n]) == 1)
+	var stacks: int = PackCrate.ROWS * PackCrate.COLUMNS
+	var packs := []
+	for i in stacks + 1:
+		packs.append(main.deliver("pack", first))
+	_check(crate_packs.call().size() == stacks + 1, "delivered packs land in the crate (%d)" % crate_packs.call().size())
+	_check(packs.slice(0, stacks).all(func(p: Node3D) -> bool: return absf(p.global_position.y - packs[0].global_position.y) < 0.001),
+		"one on each stack first, all at the bottom")
+	_check(packs[stacks].global_position.y > packs[0].global_position.y + BoosterPack.THICKNESS * 0.9
+		and flat.call(packs[stacks]).distance_to(flat.call(packs[0])) < 0.02,
+		"then a second layer, starting on the first stack")
+	_check(packs.all(func(p: Node3D) -> bool:
+		var at := crate.to_local(p.global_position)
+		return absf(at.x) < PackCrate.inside.x / 2 and absf(at.z) < PackCrate.inside.y / 2),
+		"every pack inside the crate's walls")
+	packs[stacks].stop_lying()
+	pile.remove_child(packs[stacks])
+	packs[stacks].free()
+	for i in stacks * (PackCrate.STACK_MAX - 1):
+		main.deliver("pack", first)
+	_check(crate.pack_count(pile.get_children()) == stacks * PackCrate.STACK_MAX, "the crate fills to %d" % (stacks * PackCrate.STACK_MAX))
+	var spill: BoosterPack = main.deliver("pack", first)
+	_check(crate.pack_count([spill]) == 0 and spill.is_lying() and spill.global_position.x < 11.5,
+		"and once it's full, packs go to the floor by the door")
 	Chapters.reload()
 	main.free()
 	get_tree().paused = false
