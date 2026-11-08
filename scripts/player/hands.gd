@@ -181,6 +181,9 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX,
 ## tray_repeat_seconds, until the hand's empty or a Needed card comes up.
 @export var tray_repeat_delay := 0.25
 @export var tray_repeat_seconds := 0.1
+## A card dropped on the sorting tray glides over its slot, then drops in
+## over this long.
+@export var tray_drop_seconds := 0.08
 @export var sell_drop_seconds := 0.18
 
 ## Where the held card sits relative to the camera: low and to the right,
@@ -1560,21 +1563,25 @@ static func is_product(box: ProductBox) -> bool:
 	return not (box is Laptop or box is ShippingBox or box is SortingTray)
 
 
-## The sorting tray, aimed at with a card in hand: a duplicate glides onto
-## it. A card the collection still needs stays in hand. Returns whether the
+## The sorting tray, aimed at with a card in hand: a duplicate glides over
+## it and drops in at the front. A card the collection still needs stays in
+## hand, and so does any card once the tray is full. Returns whether the
 ## card went.
 func drop_on_tray(tray: SortingTray) -> bool:
-	if held_card_id < 0 or tray == null or tray == held_box or _gliding() or collection_needs(held_card_id):
+	if held_card_id < 0 or tray == null or tray == held_box or _gliding() or collection_needs(held_card_id) \
+			or not tray.has_room():
 		return false
 	var id := held_card_id
 	var card := _card_copy(id)
 	var from := _held_view.global_transform
 	_release_top()
+	var above := tray.card_entry_pose()
 	var to := tray.card_slot_pose()
 	tray.add(id)
 	# Its own glide, not the hand's: holding the button drops the next one
 	# while this one is still on its way.
-	var glide := Glide.start(card, from, func() -> Transform3D: return to, glide_seconds(sell_seconds), put_down_lift)
+	var glide := Glide.start(card, from, func() -> Transform3D: return above, glide_seconds(sell_seconds), put_down_lift)
+	Glide.then(glide, card, above, to, glide_seconds(tray_drop_seconds))
 	glide.tween_callback(card.queue_free)
 	return true
 
@@ -1650,15 +1657,17 @@ func feed_sorter() -> int:
 func use_sorter_pocket(tray: SortingTray) -> int:
 	if sorter == null or tray == null or tray.cards.is_empty() or _gliding():
 		return 0
-	var from := tray.card_slot_pose()
+	var from := tray.front_card_pose()
 	if held_box is SortingTray:
-		if tray != sorter.surplus_tray:
+		var into := held_box as SortingTray
+		if tray != sorter.surplus_tray or not into.has_room():
 			return 0
-		var tipped := sorter.take_surplus()
-		tipped.reverse() # Its top card stays on top.
-		for id in tipped:
-			held_box.add(id)
-		held_pack_changed.emit(held_box.set_code) # The corner's count changes.
+		# Only as many as the tray has room for, the front ones; the rest
+		# wait in the pocket. All in one go, so it's redrawn once.
+		var tipped := sorter.take_surplus(into.room())
+		tipped.reverse() # Its front card stays in front.
+		into.add_cards(tipped)
+		held_pack_changed.emit(into.set_code) # The corner's count changes.
 		return tipped.size()
 	if not _hands_empty():
 		return 0

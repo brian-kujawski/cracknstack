@@ -40,9 +40,12 @@ const BODY_AT := Vector2(0.05, -0.25)
 ## The card hopper on top: outside size, wall thickness.
 const HOPPER := Vector3(0.2, 0.14, 0.18)
 const HOPPER_WALL := 0.006
-## The pockets' centres (x, z), Needed then Surplus (the chute's side).
-const NEEDED_AT := Vector2(0.15, -0.01)
-const SURPLUS_AT := Vector2(-0.05, -0.01)
+## The pockets' centres (x, z), Needed then Surplus (the chute's side):
+## short upright trays just in front of the body.
+const NEEDED_AT := Vector2(0.15, -0.05)
+const SURPLUS_AT := Vector2(-0.05, -0.05)
+## How high the pockets' names are printed on the front, above the cards.
+const POCKET_LABEL_Y := 0.115
 ## Where the chute's shipping box stands (x, z), and how near a box must
 ## be put down to snap into place there.
 const DOCK_AT := Vector2(-0.43, -0.25)
@@ -268,15 +271,13 @@ func take_needed() -> Array[int]:
 	return _take(needed_tray)
 
 
-## The Surplus stack, the same way.
-func take_surplus() -> Array[int]:
-	return _take(surplus_tray)
+## The Surplus stack, the same way, or only its front `count` cards.
+func take_surplus(count := -1) -> Array[int]:
+	return _take(surplus_tray, count)
 
 
-func _take(tray: SortingTray) -> Array[int]:
-	var ids: Array[int] = tray.cards.duplicate()
-	ids.reverse()
-	tray.set_cards([])
+func _take(tray: SortingTray, count := -1) -> Array[int]:
+	var ids := tray.take(count)
 	_show_readout()
 	return ids
 
@@ -381,7 +382,7 @@ func _build_front() -> void:
 	_window_card.visible = false
 	add_child(_window_card)
 	for pocket in [[NEEDED_AT, "NEEDED"], [SURPLUS_AT, "SURPLUS"]]:
-		var label := _print(pocket[1], Vector3(pocket[0].x, 0.06, front + 0.002))
+		var label := _print(pocket[1], Vector3(pocket[0].x, POCKET_LABEL_Y, front + 0.002))
 		label.name = "%sLabel" % pocket[1].capitalize()
 	_mk2_badge = _print("MK II", Vector3(BODY_AT.x - 0.17, 0.215, front + 0.002))
 	_mk2_badge.name = "Mk2Badge"
@@ -405,10 +406,11 @@ func _build_chute() -> void:
 	_part(Vector3(0.012, 0.06, 0.11), Vector3(side - 0.006, 0.17, BODY_AT.y), _dark, _chute)
 
 
-## One pocket: a tray like the Sorting Tray, fixed in front of the machine.
+## One pocket: a tray like the Sorting Tray (holding POCKET cards), fixed
+## in front of the machine.
 func _pocket(pocket_name: String, at: Vector2) -> SortingTray:
 	var tray := SortingTray.new()
-	tray.build()
+	tray.build([], POCKET)
 	tray.name = pocket_name
 	tray.set_meta("sorter_pocket", true)
 	tray.position = Vector3(at.x, 0, at.y)

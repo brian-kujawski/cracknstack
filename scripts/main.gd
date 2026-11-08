@@ -385,7 +385,7 @@ func deliver_tray() -> SortingTray:
 	_pile.add_child(tray)
 	tray.global_transform = _pile.global_transform * Transform3D(Basis(Vector3.UP, _delivery_yaw()),
 		Vector3(spot.x, _spot_top(), spot.y))
-	_raise_spot(_spot_top() + SortingTray.SIZE.y)
+	_raise_spot(_spot_top() + SortingTray.standing_height())
 	return tray
 
 
