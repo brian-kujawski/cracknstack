@@ -47,8 +47,9 @@ extends RefCounted
 ## No card comes twice in a pack, except basic lands, which were printed
 ## many times over on a sheet. A slot whose rarity the set doesn't have
 ## takes the nearest rarity that has; a land slot in a set with no basics
-## is left out. A pack is handed over in the order you reveal it, the way
-## it's done on stream: basic lands and commons first, the rarest last.
+## is left out. A pack is handed over in the order you reveal it: commons,
+## uncommons, then the rare or mythic, with the basic land at the very back,
+## where it sits in a real pack (user's call, 2026-11-08).
 ##
 ## A booster box is BOX_PACKS packs of one set. A bulk box is BULK_SIZE
 ## cards of one set picked one by one, by rarity in the shares it's given
@@ -58,8 +59,8 @@ extends RefCounted
 ## The pool of a set's basic lands, after its four rarities (CardData.Rarity).
 const BASIC := 4
 ## Pools in the order a pack is handed over.
-const REVEAL: Array[int] = [BASIC, CardData.Rarity.COMMON, CardData.Rarity.UNCOMMON,
-	CardData.Rarity.RARE, CardData.Rarity.MYTHIC]
+const REVEAL: Array[int] = [CardData.Rarity.COMMON, CardData.Rarity.UNCOMMON,
+	CardData.Rarity.RARE, CardData.Rarity.MYTHIC, BASIC]
 ## Draft-era boosters: one rare slot in this many is a mythic.
 const MYTHIC_CHANCE := 8
 ## Play Boosters: about one rare slot in this many is a mythic.
