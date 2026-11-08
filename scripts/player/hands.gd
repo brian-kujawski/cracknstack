@@ -590,9 +590,11 @@ func start_pulls() -> bool:
 	return true
 
 
-## While the button's held over lying cards, the next one under the
-## crosshair comes up when it's due. Letting go, a full hand, or no card
-## under the crosshair stops it. A click owed from mid-glide is paid first.
+## While the button's held, the next lying card under the crosshair comes
+## up when it's due. With no card there (bare floor, a binder, a box) the
+## gather just waits, and the next card the crosshair meets within reach
+## comes up at once. Only letting go or a full hand ends it. A click owed
+## from mid-glide is paid first.
 func repeat_pulls(delta: float, held: bool) -> void:
 	if _pull_owed and not _gliding():
 		_pull_owed = false
@@ -607,8 +609,11 @@ func repeat_pulls(delta: float, held: bool) -> void:
 	_pull_repeat -= delta
 	if _pull_repeat > 0.0 or _gliding():
 		return # Not due yet, or the last card is still on its way.
-	if not can_pull() or not _pick_up_aimed(pull_glide_seconds):
+	if not has_room():
 		_pull_repeat = -1.0
+		return
+	if not can_pull() or not _pick_up_aimed(pull_glide_seconds):
+		_pull_repeat = 0.0 # Due the moment a card's under the crosshair again.
 		return
 	_pull_repeat = maxf(_pull_repeat + pull_repeat_seconds, 0.0)
 

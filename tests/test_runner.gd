@@ -3089,7 +3089,20 @@ func _test_level_abilities() -> void:
 	hands._aim_floor_card = -1
 	hands._aim = Hands.Aim.NONE
 	hands.repeat_pulls(1.0, true)
-	_check(hands._pull_repeat < 0.0 and hands.hand_count() == 4, "no card under the crosshair stops it")
+	_check(hands._pull_repeat >= 0.0 and hands.hand_count() == 4, "no card under the crosshair only pauses it")
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands.repeat_pulls(1.0, true)
+	_check(hands._pull_repeat >= 0.0 and hands.hand_count() == 4, "nor does a binder")
+	var back: int = lying[3]
+	hands.restore_hand(hands.behind.duplicate()) # Back on the floor, to meet again.
+	pile.land(back, Vector3(3, 0, 3), 0.0)
+	aim_at.call(back)
+	hands.repeat_pulls(0.0, true)
+	_check(hands.held_card_id == back and hands.hand_count() == 4, "the next card the crosshair meets comes up at once")
+	settle.call()
+	hands.repeat_pulls(0.0, false)
+	_check(hands._pull_repeat < 0.0, "only letting go ends it")
 	var many: Array[int] = []
 	many.resize(Hands.HAND_SIZE - 1)
 	many.fill(lying[0])
