@@ -478,10 +478,14 @@ func _hands_empty() -> bool:
 	return held_card_id < 0 and carried_binder == null and held_pack == null and held_box == null
 
 
-## How many cards you can pick up into an empty hand: one. A ripped pack
-## comes into your hand whole, past this.
+## How many cards your hand holds when you pick them up one by one off the
+## floor or a table (a quick click with cards in hand adds the aimed card).
+## A ripped pack or a tray stack comes into your hand whole, past this.
+const HAND_SIZE := 40
+
+
 func hand_size() -> int:
-	return 1
+	return HAND_SIZE
 
 
 func hand_count() -> int:
