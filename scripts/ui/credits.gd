@@ -5,7 +5,7 @@ extends RefCounted
 ## The credits roll (CreditsRoll) scrolls it, from the main menu's Credits
 ## button and after the game is finished.
 
-const DISCLAIMER := "Pickup is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC."
+const DISCLAIMER := "Crack & Stack is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC."
 
 ## One line per texture in assets/store/ (each folder's SOURCE.txt has the
 ## details). They're CC0, so crediting them is a courtesy.
@@ -28,10 +28,10 @@ const FONTS := [
 ## is "title", "heading", "text" or "end" (the closing line), each one
 ## string that may wrap, or "names" (a PackedStringArray in columns).
 static func roll() -> Array:
-	var blocks := [["title", "PICKUP"], ["text", DISCLAIMER]]
+	var blocks := [["title", "CRACK & STACK"], ["text", DISCLAIMER]]
 	if CardDatabase.is_real_data():
 		blocks.append(["heading", "CARD DATA AND IMAGES"])
-		blocks.append(["text", "Card data and images from Scryfall (scryfall.com). Pickup isn't produced by or endorsed by Scryfall.\nMagic: The Gathering card names, text, images and art are © Wizards of the Coast LLC and the artists."])
+		blocks.append(["text", "Card data and images from Scryfall (scryfall.com). Crack & Stack isn't produced by or endorsed by Scryfall.\nMagic: The Gathering card names, text, images and art are © Wizards of the Coast LLC and the artists."])
 		var names := artists()
 		if not names.is_empty():
 			blocks.append(["heading", "ARTISTS"])
@@ -42,7 +42,7 @@ static func roll() -> Array:
 	blocks.append(["text", "\n".join(TEXTURES)])
 	blocks.append(["heading", "FONTS"])
 	blocks.append(["text", "\n".join(FONTS)])
-	blocks.append(["end", "Pickup is free and always will be."])
+	blocks.append(["end", "Crack & Stack is free and always will be."])
 	return blocks
 
 
@@ -58,10 +58,10 @@ static func artists() -> PackedStringArray:
 
 
 static func text() -> String:
-	var lines := PackedStringArray(["PICKUP", "", DISCLAIMER, ""])
+	var lines := PackedStringArray(["CRACK & STACK", "", DISCLAIMER, ""])
 	if CardDatabase.is_real_data():
 		lines.append("CARD DATA AND IMAGES")
-		lines.append("Card data and images from Scryfall (scryfall.com). Pickup isn't produced by or endorsed by Scryfall.")
+		lines.append("Card data and images from Scryfall (scryfall.com). Crack & Stack isn't produced by or endorsed by Scryfall.")
 		lines.append("Magic: The Gathering card names, text, images and art are © Wizards of the Coast LLC and the artists.")
 		for set_data in CardDatabase.sets_in_shelf_order():
 			if not set_data.artists.is_empty():
@@ -78,5 +78,5 @@ static func text() -> String:
 	for credit in FONTS:
 		lines.append(credit)
 	lines.append("")
-	lines.append("Pickup is free and always will be.")
+	lines.append("Crack & Stack is free and always will be.")
 	return "\n".join(lines)
