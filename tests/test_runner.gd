@@ -3068,6 +3068,18 @@ func _test_level_abilities() -> void:
 	aim_at.call(lying[0])
 	hands._use_hand()
 	_check(hands.held_card_id == lying[0] and not pile.is_lying(lying[0]), "with empty hands, a press picks up the card at once")
+	_check(hands._aim == Hands.Aim.NONE and hands._aim_lying_card() == -1 and not hands._pick_up_aimed(),
+		"a pick-up forgets the aim until the next physics tick aims again, so the card can't come up twice")
+	var gone := LooseCard.new()
+	add_child(gone)
+	gone.queue_free()
+	hands._aim = Hands.Aim.LOOSE_CARD
+	hands._aim_loose_card = gone
+	_check(hands._aim_lying_card() == -1 and not hands.can_pull() and not hands._pick_up_aimed(),
+		"a table card whose node is going isn't aimed at (no crash on a freed card)")
+	hands._aim_loose_card = null
+	_check(hands._aim_lying_card() == -1, "nor is one that's gone")
+	hands._aim = Hands.Aim.NONE
 	settle.call()
 	aim_at.call(lying[1])
 	hands._use_hand()

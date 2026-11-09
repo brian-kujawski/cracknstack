@@ -652,21 +652,25 @@ func repeat_pulls(delta: float, held: bool) -> void:
 func _pick_up_aimed(seconds := -1.0) -> bool:
 	if not has_room():
 		return false
-	match _aim:
-		Aim.FLOOR:
-			var id := _aim_floor_card
-			if id >= 0:
-				var from := pile.card_pose(id)
-				pile.pick_up(id)
-				_take_in_hand(id, from, seconds)
-				return true
-		Aim.LOOSE_CARD:
-			var card := _aim_loose_card
-			var from := card.card_pose()
-			pile.pick_up(card.card_id)
-			_take_in_hand(card.card_id, from, seconds)
-			return true
-	return false
+	var id := _aim_lying_card()
+	if id < 0 or not pile.is_lying(id):
+		return false
+	var from := pile.card_pose(id) if _aim == Aim.FLOOR else _aim_loose_card.card_pose()
+	pile.pick_up(id)
+	_forget_aim()
+	_take_in_hand(id, from, seconds)
+	return true
+
+
+## Forgets what the crosshair was on until the next physics tick aims
+## again. A pick-up calls it: the card it took is gone from where the aim
+## saw it (a table card's node is freed at the end of the frame), and
+## frames can run with no physics tick between them, so until then the old
+## aim would point at a card in your hand, or a freed node.
+func _forget_aim() -> void:
+	_aim = Aim.NONE
+	_aim_floor_card = -1
+	_aim_loose_card = null
 
 
 ## Files the held card into the binder pocket under the crosshair. Only its
@@ -1234,7 +1238,10 @@ func _aim_lying_card() -> int:
 	if _aim == Aim.FLOOR:
 		return _aim_floor_card
 	if _aim == Aim.LOOSE_CARD:
-		return _aim_loose_card.card_id
+		# Its node may have gone since the aim was taken (picked up, or
+		# taken by Teleport).
+		if is_instance_valid(_aim_loose_card) and not _aim_loose_card.is_queued_for_deletion():
+			return _aim_loose_card.card_id
 	return -1
 
 
