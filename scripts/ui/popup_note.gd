@@ -7,7 +7,7 @@ extends CanvasLayer
 const WIDTH := 560
 
 var text := ""
-var accent := MenuStyle.ACCENT
+var accent: Color = RareCards.ACCENT
 var ok_button: Button
 
 

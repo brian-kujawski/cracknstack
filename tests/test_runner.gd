@@ -568,8 +568,8 @@ func _test_tools_and_singles() -> void:
 
 	# Saved and loaded: the tray keeps its cards.
 	var saved: Dictionary = main.capture_save()
-	var entry: Array = saved.products.filter(func(e: Array) -> bool: return e[0] == "tray").front()
-	_check(entry != null and Array(entry[1]) == Array(spares), "the tray is saved with its cards")
+	var tray_entry: Array = saved.products.filter(func(e: Array) -> bool: return e[0] == "tray").front()
+	_check(tray_entry != null and Array(tray_entry[1]) == Array(spares), "the tray is saved with its cards")
 
 	var shipping := ShippingBox.new()
 	shipping.build(ShippingBox.CAPACITY - 2)
