@@ -3068,6 +3068,18 @@ func _test_level_abilities() -> void:
 	aim_at.call(lying[0])
 	hands._use_hand()
 	_check(hands.held_card_id == lying[0] and not pile.is_lying(lying[0]), "with empty hands, a press picks up the card at once")
+	_check(hands._aim == Hands.Aim.NONE and hands._aim_lying_card() == -1 and not hands._pick_up_aimed(),
+		"a pick-up forgets the aim until the next physics tick aims again, so the card can't come up twice")
+	var gone := LooseCard.new()
+	add_child(gone)
+	gone.queue_free()
+	hands._aim = Hands.Aim.LOOSE_CARD
+	hands._aim_loose_card = gone
+	_check(hands._aim_lying_card() == -1 and not hands.can_pull() and not hands._pick_up_aimed(),
+		"a table card whose node is going isn't aimed at (no crash on a freed card)")
+	hands._aim_loose_card = null
+	_check(hands._aim_lying_card() == -1, "nor is one that's gone")
+	hands._aim = Hands.Aim.NONE
 	settle.call()
 	aim_at.call(lying[1])
 	hands._use_hand()
@@ -3079,6 +3091,12 @@ func _test_level_abilities() -> void:
 	_check(hands.hand_count() == 2, "held, the next waits for the delay")
 	hands.repeat_pulls(0.06, true)
 	_check(hands.held_card_id == lying[2] and hands.hand_count() == 3, "then it comes up")
+	# The repeat comes due while that card is still gliding in: the gather
+	# waits for it, it doesn't end.
+	hands.repeat_pulls(hands.pull_repeat_seconds + 0.05, true)
+	_check(hands._gliding() and hands._pull_repeat == 0.0, "a repeat due mid-glide waits at 0 instead of running out")
+	hands.repeat_pulls(0.016, true)
+	_check(hands._pull_repeat >= 0.0, "and the gather is still running")
 	settle.call()
 	aim_at.call(lying[3])
 	hands.repeat_pulls(hands.pull_repeat_seconds + 0.01, false)
