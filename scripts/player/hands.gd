@@ -406,8 +406,6 @@ func _physics_process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _gdbg_on and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		_gdbg("  reached the game's input: left %s" % ("DOWN" if event.pressed else "UP"))
 	if pile == null or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
 	if event.is_action_released(Controls.RIP):
@@ -425,9 +423,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		# isn't lost: it's picked up as soon as the glide ends.
 		if event.is_action_pressed(Controls.USE_HAND) and held_card_id >= 0 and can_pull():
 			_pull_owed = true
-		if _gdbg_on and event.is_action_pressed(Controls.USE_HAND):
-			_gdbg("  press came mid-glide: %s" % ("kept, pulls when the glide ends" if _pull_owed
-				else "DROPPED (%s)" % _gdbg_why_not()))
 		return
 	if _viewed_id >= 0:
 		# Nothing else while a card from a pocket or a shadow box is up close.
@@ -447,13 +442,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(Controls.RIP):
 		press_rip()
 	elif event.is_action_pressed(Controls.USE_HAND):
-		var aimed: String = Aim.keys()[_aim]
 		_use_hand()
-		if _gdbg_on:
-			_gdbg("  click on %s -> %s" % [aimed, "gather started" if _pull_repeat >= 0.0
-				else "hold-to-place (ghost)" if _placing >= 0.0
-				else "tray drops" if _tray_repeat >= 0.0
-				else "something else, no gather"])
 	elif event.is_action_pressed(Controls.TOSS):
 		toss_held()
 	elif event.is_action_pressed(Controls.INTERACT) and _shipping_box_at_hand() != null:
@@ -598,9 +587,6 @@ func start_pulls() -> bool:
 	if not can_pull() or not _pick_up_aimed():
 		return false
 	_pull_repeat = pull_repeat_delay
-	if _gdbg_on:
-		_gdbg("gather START: picked #%d (%d in hand)" % [held_card_id, hand_count()])
-		_gdbg_pulled()
 	return true
 
 
@@ -615,15 +601,11 @@ func repeat_pulls(delta: float, held: bool) -> void:
 		if not start_pulls():
 			# Still held: wait for a card like any other gather.
 			_pull_repeat = 0.0 if held else -1.0
-			if _gdbg_on:
-				_gdbg("owed click paid with no card: %s" % ("waiting (held)" if held else "END (button up)"))
 		return
 	if _pull_repeat < 0.0:
 		return
 	if not held:
 		_pull_repeat = -1.0
-		if _gdbg_on:
-			_gdbg("gather END: button reads up | %s" % _gdbg_state())
 		return
 	# Counts down to 0 and waits there: below 0 means no gather, so a
 	# countdown that ran out while the last card was still gliding in
@@ -633,21 +615,11 @@ func repeat_pulls(delta: float, held: bool) -> void:
 		return # Not due yet, or the last card is still on its way.
 	if not has_room():
 		_pull_repeat = -1.0
-		if _gdbg_on:
-			_gdbg("gather END: hand full (%d)" % hand_count())
 		return
 	if not can_pull() or not _pick_up_aimed(pull_glide_seconds):
 		_pull_repeat = 0.0 # Due the moment a card's under the crosshair again.
-		if _gdbg_on:
-			var why := _gdbg_why_not()
-			if why != _gdbg_wait:
-				_gdbg_wait = why
-				_gdbg("gather waiting: %s" % why)
 		return
 	_pull_repeat = maxf(_pull_repeat + pull_repeat_seconds, 0.0)
-	if _gdbg_on:
-		_gdbg("pulled #%d (%d in hand)" % [held_card_id, hand_count()])
-		_gdbg_pulled()
 
 
 ## Takes the card under the crosshair into your hand, on top: off the floor
@@ -927,14 +899,6 @@ func _put_down_pose():
 ## Pausing lets go of a put-down in progress: its release goes to the pause
 ## screen, not to us.
 func _notification(what: int) -> void:
-	if _gdbg_on:
-		var names := {
-			NOTIFICATION_APPLICATION_FOCUS_OUT: "APP FOCUS OUT", NOTIFICATION_APPLICATION_FOCUS_IN: "app focus in",
-			NOTIFICATION_WM_WINDOW_FOCUS_OUT: "WINDOW FOCUS OUT", NOTIFICATION_WM_WINDOW_FOCUS_IN: "window focus in",
-			NOTIFICATION_PAUSED: "game paused", NOTIFICATION_UNPAUSED: "game unpaused",
-		}
-		if names.has(what):
-			_gdbg("%s | %s" % [names[what], _gdbg_state()])
 	if what == NOTIFICATION_PAUSED and _placing >= 0.0:
 		_placing = -1.0
 		_ghost_card.visible = false
@@ -2067,8 +2031,6 @@ func _process(delta: float) -> void:
 	var use_held := Input.is_action_pressed(Controls.USE_HAND) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	repeat_tray_drop(delta, use_held)
 	repeat_pulls(delta, use_held)
-	if _gdbg_on:
-		_gdbg_watch(delta)
 	if _ripping and (held_pack == null or not Input.is_action_pressed(Controls.RIP)):
 		_ripping = false
 	if _ripping and not _gliding():
@@ -2320,118 +2282,3 @@ func _hold(id: int, from = null, seconds := -1.0, lift := 0.0) -> void:
 	seen_cards[id] = true
 	CardView.apply(_held_view.material_override, id)
 	held_changed.emit(Collection.card(id), null)
-
-
-
-# --- Gather debugging (temporary) -------------------------------------------
-# Logs why a held-click gather stops: every left button event as the OS
-# sends it, whether it reaches the game, window focus changes, each pull,
-# each wait and end with its reason, and a STALL snapshot when a lit card
-# sits under the crosshair with the button down for half a second and
-# nothing comes up. Written to user://gather_debug.log (fresh each run) and
-# printed to the Output panel. Off in headless runs (tests). Remove with
-# GATHER_DEBUG once the stall is found.
-
-const GATHER_DEBUG := true
-const GATHER_LOG_PATH := "user://gather_debug.log"
-## Seconds a lit card may sit under the crosshair, button down, before a STALL.
-const GATHER_STALL_SECONDS := 0.5
-
-var _gdbg_on := GATHER_DEBUG and DisplayServer.get_name() != "headless"
-var _gdbg_file: FileAccess
-var _gdbg_watched := {}
-var _gdbg_lit_held := 0.0
-var _gdbg_stalled := false
-var _gdbg_last_release_ms := -1
-var _gdbg_wait := ""
-
-
-func _input(event: InputEvent) -> void:
-	if not _gdbg_on or not (event is InputEventMouseButton) or event.button_index != MOUSE_BUTTON_LEFT:
-		return
-	var now := Time.get_ticks_msec()
-	var note := ""
-	if event.pressed and _gdbg_last_release_ms >= 0 and now - _gdbg_last_release_ms < 150:
-		note = "  <-- %d ms after the last release (bounce?)" % (now - _gdbg_last_release_ms)
-	if not event.pressed:
-		_gdbg_last_release_ms = now
-	_gdbg("OS sent: left %s (double_click=%s)%s | %s" % ["DOWN" if event.pressed else "UP",
-		event.double_click, note, _gdbg_state()])
-
-
-func _gdbg(text: String) -> void:
-	var line := "%8d ms  frame %-7d %s" % [Time.get_ticks_msec(), Engine.get_process_frames(), text]
-	print("[gather] ", line)
-	if _gdbg_file == null:
-		_gdbg_file = FileAccess.open(GATHER_LOG_PATH, FileAccess.WRITE)
-		if _gdbg_file != null:
-			_gdbg_file.store_line("Pickup gather debug log, started %s, Godot %s, %s" % [
-				Time.get_datetime_string_from_system(), Engine.get_version_info().string, DisplayServer.get_name()])
-	if _gdbg_file != null:
-		_gdbg_file.store_line(line)
-		_gdbg_file.flush()
-
-
-## Everything a pull depends on, in one line.
-func _gdbg_state() -> String:
-	return "held(action)=%s os_left=%s mouse=%s gather=%s owed=%s gliding=%s placing=%s tray=%s hand=%d/%d aim=%s card=%d paused=%s" % [
-		Input.is_action_pressed(Controls.USE_HAND),
-		DisplayServer.mouse_get_button_state() & MOUSE_BUTTON_MASK_LEFT != 0,
-		["visible", "hidden", "CAPTURED", "confined", "confined_hidden"][Input.mouse_mode],
-		"%.2f" % _pull_repeat if _pull_repeat >= 0.0 else "off",
-		_pull_owed, _gliding(), _placing >= 0.0, _tray_repeat >= 0.0,
-		hand_count(), hand_size(), Aim.keys()[_aim], _aim_lying_card(),
-		get_tree().paused if is_inside_tree() else false]
-
-
-## Why a pull wouldn't happen right now.
-func _gdbg_why_not() -> String:
-	var why := PackedStringArray()
-	if not has_room():
-		why.append("no room (%d in hand, binder/pack/box held=%s)" % [hand_count(),
-			carried_binder != null or held_pack != null or held_box != null])
-	if _aim_lying_card() < 0:
-		why.append("no lying card under the crosshair (aim %s)" % Aim.keys()[_aim])
-	if revealing != 0:
-		why.append("revealing a pack (%d left)" % revealing)
-	if _zoomed:
-		why.append("card up close")
-	if _viewed_id >= 0:
-		why.append("viewing a card")
-	if _ripping:
-		why.append("ripping")
-	if why.is_empty():
-		why.append("can pull, but the pick-up failed")
-	return ", ".join(why)
-
-
-func _gdbg_pulled() -> void:
-	_gdbg_lit_held = 0.0
-	_gdbg_stalled = false
-	_gdbg_wait = ""
-
-
-## Logs changes in the button, capture and gather state, and a STALL.
-func _gdbg_watch(delta: float) -> void:
-	var now := {
-		"held(action)": Input.is_action_pressed(Controls.USE_HAND),
-		"os_left": DisplayServer.mouse_get_button_state() & MOUSE_BUTTON_MASK_LEFT != 0,
-		"mouse captured": Input.mouse_mode == Input.MOUSE_MODE_CAPTURED,
-		"gather running": _pull_repeat >= 0.0,
-		"hold-to-place": _placing >= 0.0,
-	}
-	for key in now:
-		if _gdbg_watched.has(key) and _gdbg_watched[key] != now[key]:
-			_gdbg("%s -> %s" % [key, now[key]])
-		_gdbg_watched[key] = now[key]
-	var down: bool = now["held(action)"] or now["os_left"]
-	if down and has_room() and _aim_lying_card() >= 0:
-		_gdbg_lit_held += delta
-		if _gdbg_lit_held >= GATHER_STALL_SECONDS and not _gdbg_stalled:
-			_gdbg_stalled = true
-			_gdbg("STALL: lit card #%d under the crosshair, button down %.1f s, nothing pulled | why: %s | %s" % [
-				_aim_lying_card(), _gdbg_lit_held, _gdbg_why_not() if _pull_repeat >= 0.0 else "gather not running",
-				_gdbg_state()])
-	else:
-		_gdbg_lit_held = 0.0
-		_gdbg_stalled = false
