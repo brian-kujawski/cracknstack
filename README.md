@@ -97,6 +97,14 @@ godot --headless --script res://tools/gen_placeholder_sets.gd
 
 The output (`data/placeholder/cards.json`) is deterministic and committed. CI checks that it matches the generator. The tests and the full-scale benchmark use it.
 
+## Playtest builds
+
+An exported game packs none of `data/real` (it has a `.gdignore`); it reads a `data/real` folder beside the executable instead. To make a Windows build with the first few chapters' cards, on the machine that has the card images:
+
+1. In Godot, install the export templates once (Editor > Manage Export Templates, about 1 GB), then Project > Export > Windows Desktop > Export Project. The committed preset writes `builds/windows/Pickup.exe`.
+2. `python tools/package_alpha.py --chapters 2` copies the export and Chapters 1-2's card data into `builds/alpha/` (add `--zip` for `builds/alpha.zip`). Its `cards.json` carries `"build": "Alpha"`, so finishing the last chapter shows a note saying that's as far as the build goes, in place of the ending.
+3. Send `builds/alpha/` on: for example `butler push builds/alpha <you>/pickup:windows` to a restricted itch.io page, which uploads only what changed next time.
+
 ## Tests
 
 ```sh

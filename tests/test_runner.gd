@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_tools_and_singles", &"_test_card_sorter", &"_test_hud", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_tools_and_singles", &"_test_card_sorter", &"_test_hud", &"_test_chapters", &"_test_end_of_build", &"_test_card_values", &"_test_folder_names"]
 
 var _failures := 0
 var _checks := 0
@@ -40,6 +40,7 @@ func _ready() -> void:
 	await _run(_test_card_values)
 	await _run(_test_folder_names)
 	await _run(_test_set_unlock_delivery)
+	await _run(_test_end_of_build)
 	await _run(_test_collector_numbers_are_contiguous)
 	await _run(_test_shelf_order)
 	await _run(_test_binders_per_set)
@@ -567,8 +568,8 @@ func _test_tools_and_singles() -> void:
 
 	# Saved and loaded: the tray keeps its cards.
 	var saved: Dictionary = main.capture_save()
-	var entry: Array = saved.products.filter(func(e: Array) -> bool: return e[0] == "tray").front()
-	_check(entry != null and Array(entry[1]) == Array(spares), "the tray is saved with its cards")
+	var tray_entry: Array = saved.products.filter(func(e: Array) -> bool: return e[0] == "tray").front()
+	_check(tray_entry != null and Array(tray_entry[1]) == Array(spares), "the tray is saved with its cards")
 
 	var shipping := ShippingBox.new()
 	shipping.build(ShippingBox.CAPACITY - 2)
@@ -1038,6 +1039,36 @@ func _test_chapters() -> void:
 	var chapters := Chapters.all()
 	_check(not chapters.is_empty() and chapters[0].sets.size() >= 1 and chapters[0].sets[0] == "FRA",
 		"data/chapters.txt starts Chapter 1 with Reality Fracture")
+
+
+## A cut-down playtest build (tools/package_alpha.py): its last chapter ends
+## with a note saying that's all for now, not the ending.
+func _test_end_of_build() -> void:
+	_check(EndOfBuildNote.message(2, "Alpha", 6) == "Congrats on reaching the end of Chapter 2! This is as far as the Alpha build goes, check back later for Chapters 3 through 6!",
+		"the note names the chapter finished and the ones to come")
+	_check(EndOfBuildNote.message(5, "Alpha", 6).ends_with("check back later for Chapter 6!"), "one chapter to come is named alone")
+	_check(CardDatabase.real_path() == CardDatabase.REAL_PATH, "the editor reads card data from the project")
+	_check(CardDatabase.build.is_empty(), "the placeholder data is the whole game, no build")
+	# The real chapters (data/chapters.txt): a build cut after Chapter 2.
+	CardDatabase.build = "Alpha"
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	main.finish_last_chapter(2)
+	var notes := main.find_children("*", "EndOfBuildNote", false, false)
+	var note: EndOfBuildNote = notes.front() if notes.size() == 1 else null
+	_check(note != null and (note.find_child("Text", true, false) as Label).text == "Congrats on reaching the end of Chapter 2! This is as far as the Alpha build goes, check back later for Chapters 3 through 6!",
+		"finishing the build's last chapter brings up the end-of-build note")
+	_check(get_tree().paused, "which stops the game")
+	if note != null:
+		note.ok_button.pressed.emit()
+	_check(not get_tree().paused, "OK goes back in")
+	CardDatabase.build = ""
+	main.finish_last_chapter(2)
+	_check(main.find_children("*", "EndOfBuildNote", false, false).all(func(n: Node) -> bool: return n.is_queued_for_deletion()),
+		"the whole game's last chapter has no note")
+	main.free()
+	get_tree().paused = false
 
 
 func _test_set_unlock_delivery() -> void:
@@ -1931,6 +1962,16 @@ func _test_real_data_format() -> void:
 	_check(CardDatabase.load_file(path) == OK, "real-data file loads")
 	_check(CardDatabase.is_real_data() and CardDatabase.card_count() == FIXTURE_CARDS + RareCards.count(),
 		"real data replaces the placeholders (and the rare cards come too)")
+	_check(CardDatabase.build.is_empty(), "a full import is no cut-down build")
+	var marked: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
+	marked["build"] = "Alpha"
+	var marked_path := FIXTURE_DIR + "/cards_build.json"
+	var marked_file := FileAccess.open(marked_path, FileAccess.WRITE)
+	marked_file.store_string(JSON.stringify(marked))
+	marked_file.close()
+	_check(CardDatabase.load_file(marked_path) == OK and CardDatabase.build == "Alpha", "a packaged build's file names its build")
+	DirAccess.remove_absolute(marked_path)
+	CardDatabase.load_file(path)
 	var atlas := CardDatabase.face_atlas
 	_check(atlas != null and atlas.texture.get_layers() == 2, "the face atlas loads both pages")
 	if atlas == null:
@@ -4237,7 +4278,7 @@ func _test_booster_packs() -> void:
 	var small_set: Array[int] = draw_era.call("draft", made_up.call(0))
 	_check(small_set.size() == 14 and counts_of.call(small_set)[0] == 10, "a small set with no basics of its own has no land slot: 14 cards")
 	var no_mythics_left: Array[Array] = [range(100, 120), range(200, 210), [300], [], [500]]
-	_check(draw_era.call("draft", no_mythics_left)[-1] == 300, "a mythic slot with no mythics left takes a rare")
+	_check(draw_era.call("draft", no_mythics_left)[-2] == 300, "a mythic slot with no mythics left takes a rare (in front of the land)")
 
 	var lands_in_commons := 0
 	var common_slots := 0

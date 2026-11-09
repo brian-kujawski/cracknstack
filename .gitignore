@@ -1,7 +1,8 @@
 # Godot
 .godot/
 *.translation
-export_presets.cfg
+# export_presets.cfg is tracked: it holds no secrets (Godot keeps export
+# credentials in .godot/export_credentials.cfg).
 builds/
 
 # Real card data comes from tools/import_scryfall.py. The card metadata is

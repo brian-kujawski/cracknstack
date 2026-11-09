@@ -18,6 +18,10 @@ signal faces_reloaded
 
 ## Where the loaded data came from ("" for placeholders).
 var source := ""
+## The name of the cut-down playtest build this data is (tools/
+## package_alpha.py writes it: only some chapters' sets), or "" for the
+## whole game. Its last chapter ends with EndOfBuildNote, not the ending.
+var build := ""
 ## Far faces for the floor, or null to draw placeholder faces.
 var face_atlas: FaceAtlas
 ## Each card's near face file by face index ("" for none), and their size,
@@ -48,8 +52,9 @@ var _low_detail_loaded := false
 
 func _ready() -> void:
 	var path := PLACEHOLDER_PATH
-	if FileAccess.file_exists(REAL_PATH) and not "--placeholder" in OS.get_cmdline_user_args():
-		path = REAL_PATH
+	var real := real_path()
+	if FileAccess.file_exists(real) and not "--placeholder" in OS.get_cmdline_user_args():
+		path = real
 	var error := load_file(path)
 	if error != OK:
 		push_error("CardDatabase: could not load %s (%s)" % [path, error_string(error)])
@@ -57,6 +62,18 @@ func _ready() -> void:
 	Settings.changed.connect(func(key: String) -> void:
 		if key in ["card_detail", "quality"] and face_atlas != null and low_detail() != _low_detail_loaded:
 			reload_faces())
+
+
+## The real card data file. data/real has a .gdignore, so an exported game
+## packs none of it: an export reads a data/real folder beside the game's
+## executable instead (tools/package_alpha.py puts it there). The editor,
+## and an export with nothing beside it, use REAL_PATH.
+static func real_path() -> String:
+	if not OS.has_feature("editor"):
+		var beside := OS.get_executable_path().get_base_dir().path_join("data/real/cards.json")
+		if FileAccess.file_exists(beside):
+			return beside
+	return REAL_PATH
 
 
 ## Whether the far faces are loaded at Low card detail (Settings).
@@ -82,6 +99,7 @@ func load_file(path: String) -> Error:
 		return result.error
 	_cards = result.cards
 	source = result.source
+	build = result.build
 	_faces = result.faces
 	_low_detail_loaded = low_detail()
 	face_atlas = FaceAtlas.load_pages(result.faces, _low_detail_loaded) if not result.faces.is_empty() else null

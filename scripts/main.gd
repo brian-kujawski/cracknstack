@@ -732,7 +732,9 @@ func _process(delta: float) -> void:
 		_update_stats()
 		_announce_complete_binders()
 		_hang_wall_art(true)
-		if not _finished and is_finished(_pile.binders, _shelves()):
+		# A cut-down playtest build isn't the whole game: its last chapter
+		# ends with EndOfBuildNote instead (_announce_complete_binders).
+		if not _finished and CardDatabase.build.is_empty() and is_finished(_pile.binders, _shelves()):
 			_finished = true
 			Saves.finished = true
 			Saves.save(Saves.AUTOSAVE)
@@ -770,7 +772,8 @@ func _update_stats() -> void:
 
 ## A binder just filled its last pocket: a banner, or, when that completes
 ## its chapter, the next chapter opens (open_chapter, with its own banner;
-## after the last one, a "Chapter complete" banner).
+## after the last one, a "Chapter complete" banner, and in a cut-down
+## playtest build, EndOfBuildNote).
 func _announce_complete_binders() -> void:
 	for binder in _pile.binders:
 		var code := binder.binder.set_code
@@ -780,9 +783,17 @@ func _announce_complete_binders() -> void:
 		var chapter := Chapters.game_number(code)
 		if chapter > 0 and _chapter_complete(chapter):
 			if open_chapter() == 0:
-				hud.show_banner("Chapter complete", "Chapter %d" % chapter)
+				finish_last_chapter(chapter)
 		else:
 			hud.show_banner("Binder complete", CardDatabase.get_set(code).name)
+
+
+## The last chapter there is, `number`, is complete: a banner, and in a
+## cut-down playtest build (CardDatabase.build), EndOfBuildNote.
+func finish_last_chapter(number: int) -> void:
+	hud.show_banner("Chapter complete", "Chapter %d" % number)
+	if not CardDatabase.build.is_empty():
+		add_child(EndOfBuildNote.new(number, CardDatabase.build, Chapters.all().size()))
 
 
 ## Every set of chapter `number` is unlocked and its binder complete.
