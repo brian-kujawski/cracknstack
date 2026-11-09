@@ -13,7 +13,7 @@ const RADIO_TEST_PATH := "user://test_radio.cfg"
 const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguous", &"_test_shelf_order",
 	&"_test_binders_per_set", &"_test_binder_layout", &"_test_card_sort", &"_test_binder_contents",
 	&"_test_card_corners", &"_test_real_data_format", &"_test_credits", &"_test_controls", &"_test_settings",
-	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_tools_and_singles", &"_test_card_sorter", &"_test_hud", &"_test_chapters", &"_test_card_values", &"_test_folder_names"]
+	&"_test_achievements", &"_test_progression", &"_test_save_files", &"_test_shop_save", &"_test_rare_cards", &"_test_booster_packs", &"_test_card_copies", &"_test_set_locks", &"_test_laptop", &"_test_selling", &"_test_tools_and_singles", &"_test_card_sorter", &"_test_hud", &"_test_chapters", &"_test_end_of_build", &"_test_card_values", &"_test_folder_names"]
 
 var _failures := 0
 var _checks := 0
@@ -40,6 +40,7 @@ func _ready() -> void:
 	await _run(_test_card_values)
 	await _run(_test_folder_names)
 	await _run(_test_set_unlock_delivery)
+	await _run(_test_end_of_build)
 	await _run(_test_collector_numbers_are_contiguous)
 	await _run(_test_shelf_order)
 	await _run(_test_binders_per_set)
@@ -1040,6 +1041,48 @@ func _test_chapters() -> void:
 		"data/chapters.txt starts Chapter 1 with Reality Fracture")
 
 
+## A cut-down playtest build (tools/package_alpha.py): its last chapter ends
+## with a note saying that's all for now, not the ending.
+func _test_end_of_build() -> void:
+	_check(EndOfBuildNote.message(2, "Alpha", 6) == "Congrats on reaching the end of Chapter 2! This is as far as the Alpha build goes, check back later for Chapters 3 through 6!",
+		"the note names the chapter finished and the ones to come")
+	_check(EndOfBuildNote.message(5, "Alpha", 6).ends_with("check back later for Chapter 6!"), "one chapter to come is named alone")
+	_check(CardDatabase.real_path() == CardDatabase.REAL_PATH, "the editor reads card data from the project")
+	_check(CardDatabase.build.is_empty(), "the placeholder data is the whole game, no build")
+	Progression.reset()
+	Progression.locks_sets = true
+	Collection.reset()
+	var first: String = LaptopScreen.shop_sets()[0].code
+	# Chapter 2's set isn't in this data, as in a build cut after Chapter 1.
+	Chapters.use_text("Chapter 1\n%s\nChapter 2\nZZZ" % first)
+	CardDatabase.build = "Alpha"
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	var pile: PileWorld = main.get_node("Pile")
+	var binder: Binder = pile.binders.filter(func(b: Binder) -> bool: return b.binder.set_code == first).front()
+	for card in CardDatabase.cards_in_set(first):
+		if binder.binder.contains(card.collector_number):
+			binder.contents.insert(card.collector_number - binder.binder.first, Collection.add(card.id))
+	main._announce_complete_binders()
+	var notes := main.find_children("*", "EndOfBuildNote", false, false)
+	var note: EndOfBuildNote = notes.front() if notes.size() == 1 else null
+	_check(note != null and (note.find_child("Text", true, false) as Label).text == EndOfBuildNote.message(1, "Alpha", 2),
+		"finishing the build's last chapter brings up the end-of-build note")
+	_check(get_tree().paused, "which stops the game")
+	if note != null:
+		note.ok_button.pressed.emit()
+	_check(not get_tree().paused, "OK goes back in")
+	main._announce_complete_binders()
+	_check(main.find_children("*", "EndOfBuildNote", false, false).size() <= 1, "it comes once")
+	CardDatabase.build = ""
+	Chapters.reload()
+	main.free()
+	get_tree().paused = false
+	Collection.reset()
+	Progression.reset()
+	Progression.locks_sets = false
+
 func _test_set_unlock_delivery() -> void:
 	Progression.reset()
 	Progression.locks_sets = true
@@ -1931,6 +1974,16 @@ func _test_real_data_format() -> void:
 	_check(CardDatabase.load_file(path) == OK, "real-data file loads")
 	_check(CardDatabase.is_real_data() and CardDatabase.card_count() == FIXTURE_CARDS + RareCards.count(),
 		"real data replaces the placeholders (and the rare cards come too)")
+	_check(CardDatabase.build.is_empty(), "a full import is no cut-down build")
+	var marked: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
+	marked["build"] = "Alpha"
+	var marked_path := FIXTURE_DIR + "/cards_build.json"
+	var marked_file := FileAccess.open(marked_path, FileAccess.WRITE)
+	marked_file.store_string(JSON.stringify(marked))
+	marked_file.close()
+	_check(CardDatabase.load_file(marked_path) == OK and CardDatabase.build == "Alpha", "a packaged build's file names its build")
+	DirAccess.remove_absolute(marked_path)
+	CardDatabase.load_file(path)
 	var atlas := CardDatabase.face_atlas
 	_check(atlas != null and atlas.texture.get_layers() == 2, "the face atlas loads both pages")
 	if atlas == null:

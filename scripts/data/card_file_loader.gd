@@ -10,6 +10,7 @@ extends RefCounted
 ##   "faces": {"pages", "page_size", "slot_size", "columns", "rows",   (real data only)
 ##             "near", "near_size"},
 ##   "back": "back.jpg",                                     (real data only)
+##   "build": "Alpha",                    (cut-down playtest builds only)
 ##   "cards": [[set_code, collector_number, name, rarity, colors, type_line, image], ...]
 ## }
 ##
@@ -31,6 +32,8 @@ class Result:
 	var faces: Dictionary = {}
 	## The card back image, or "" to draw the placeholder back.
 	var back := ""
+	## A cut-down playtest build's name (tools/package_alpha.py), or "".
+	var build := ""
 
 
 static func load_file(path: String) -> Result:
@@ -47,6 +50,7 @@ static func load_file(path: String) -> Result:
 		return result
 	var folder := path.get_base_dir()
 	result.source = json.get("source", "")
+	result.build = str(json.get("build", ""))
 	if not str(json.get("back", "")).is_empty():
 		result.back = folder.path_join(json["back"])
 
