@@ -783,11 +783,17 @@ func _announce_complete_binders() -> void:
 		var chapter := Chapters.game_number(code)
 		if chapter > 0 and _chapter_complete(chapter):
 			if open_chapter() == 0:
-				hud.show_banner("Chapter complete", "Chapter %d" % chapter)
-				if not CardDatabase.build.is_empty():
-					add_child(EndOfBuildNote.new(chapter, CardDatabase.build, Chapters.all().size()))
+				finish_last_chapter(chapter)
 		else:
 			hud.show_banner("Binder complete", CardDatabase.get_set(code).name)
+
+
+## The last chapter there is, `number`, is complete: a banner, and in a
+## cut-down playtest build (CardDatabase.build), EndOfBuildNote.
+func finish_last_chapter(number: int) -> void:
+	hud.show_banner("Chapter complete", "Chapter %d" % number)
+	if not CardDatabase.build.is_empty():
+		add_child(EndOfBuildNote.new(number, CardDatabase.build, Chapters.all().size()))
 
 
 ## Every set of chapter `number` is unlocked and its binder complete.

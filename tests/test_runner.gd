@@ -1049,48 +1049,26 @@ func _test_end_of_build() -> void:
 	_check(EndOfBuildNote.message(5, "Alpha", 6).ends_with("check back later for Chapter 6!"), "one chapter to come is named alone")
 	_check(CardDatabase.real_path() == CardDatabase.REAL_PATH, "the editor reads card data from the project")
 	_check(CardDatabase.build.is_empty(), "the placeholder data is the whole game, no build")
-	Progression.reset()
-	Progression.locks_sets = true
-	Collection.reset()
-	# A packaged build: the fixture's one set, TST, with "build" in its file;
-	# Chapter 2's set isn't in it, as in a build cut after Chapter 1.
-	var marked: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(_write_fixture()))
-	marked["build"] = "Alpha"
-	var marked_path := FIXTURE_DIR + "/cards_build.json"
-	var marked_file := FileAccess.open(marked_path, FileAccess.WRITE)
-	marked_file.store_string(JSON.stringify(marked))
-	marked_file.close()
-	_check(CardDatabase.load_file(marked_path) == OK and CardDatabase.build == "Alpha", "the packaged build loads")
-	var first: String = LaptopScreen.shop_sets()[0].code
-	Chapters.use_text("Chapter 1\n%s\nChapter 2\nZZZ" % first)
-	_check(Chapters.game().size() == 1, "only Chapter 1 is playable")
+	# The real chapters (data/chapters.txt): a build cut after Chapter 2.
+	CardDatabase.build = "Alpha"
 	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
 	add_child(main)
 	await get_tree().physics_frame
-	var pile: PileWorld = main.get_node("Pile")
-	var binder: Binder = pile.binders.filter(func(b: Binder) -> bool: return b.binder.set_code == first).front()
-	for card in CardDatabase.cards_in_set(first):
-		if binder.binder.contains(card.collector_number):
-			binder.contents.insert(card.collector_number - binder.binder.first, Collection.add(card.id))
-	main._announce_complete_binders()
+	main.finish_last_chapter(2)
 	var notes := main.find_children("*", "EndOfBuildNote", false, false)
 	var note: EndOfBuildNote = notes.front() if notes.size() == 1 else null
-	_check(note != null and (note.find_child("Text", true, false) as Label).text == EndOfBuildNote.message(1, "Alpha", 2),
+	_check(note != null and (note.find_child("Text", true, false) as Label).text == "Congrats on reaching the end of Chapter 2! This is as far as the Alpha build goes, check back later for Chapters 3 through 6!",
 		"finishing the build's last chapter brings up the end-of-build note")
 	_check(get_tree().paused, "which stops the game")
 	if note != null:
 		note.ok_button.pressed.emit()
 	_check(not get_tree().paused, "OK goes back in")
-	main._announce_complete_binders()
-	_check(main.find_children("*", "EndOfBuildNote", false, false).size() <= 1, "it comes once")
-	Chapters.reload()
+	CardDatabase.build = ""
+	main.finish_last_chapter(2)
+	_check(main.find_children("*", "EndOfBuildNote", false, false).all(func(n: Node) -> bool: return n.is_queued_for_deletion()),
+		"the whole game's last chapter has no note")
 	main.free()
-	DirAccess.remove_absolute(marked_path)
-	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	get_tree().paused = false
-	Collection.reset()
-	Progression.reset()
-	Progression.locks_sets = false
 
 
 func _test_set_unlock_delivery() -> void:
