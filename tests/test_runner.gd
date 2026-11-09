@@ -3091,6 +3091,12 @@ func _test_level_abilities() -> void:
 	_check(hands.hand_count() == 2, "held, the next waits for the delay")
 	hands.repeat_pulls(0.06, true)
 	_check(hands.held_card_id == lying[2] and hands.hand_count() == 3, "then it comes up")
+	# The repeat comes due while that card is still gliding in: the gather
+	# waits for it, it doesn't end.
+	hands.repeat_pulls(hands.pull_repeat_seconds + 0.05, true)
+	_check(hands._gliding() and hands._pull_repeat == 0.0, "a repeat due mid-glide waits at 0 instead of running out")
+	hands.repeat_pulls(0.016, true)
+	_check(hands._pull_repeat >= 0.0, "and the gather is still running")
 	settle.call()
 	aim_at.call(lying[3])
 	hands.repeat_pulls(hands.pull_repeat_seconds + 0.01, false)

@@ -625,7 +625,10 @@ func repeat_pulls(delta: float, held: bool) -> void:
 		if _gdbg_on:
 			_gdbg("gather END: button reads up | %s" % _gdbg_state())
 		return
-	_pull_repeat -= delta
+	# Counts down to 0 and waits there: below 0 means no gather, so a
+	# countdown that ran out while the last card was still gliding in
+	# must not go negative (it used to, and the gather silently died).
+	_pull_repeat = maxf(_pull_repeat - delta, 0.0)
 	if _pull_repeat > 0.0 or _gliding():
 		return # Not due yet, or the last card is still on its way.
 	if not has_room():
@@ -1716,7 +1719,7 @@ func repeat_tray_drop(delta: float, held: bool) -> void:
 	if not held or not is_instance_valid(_tray_held_at) or _aim != Aim.BOX or _aim_box != _tray_held_at:
 		_tray_repeat = -1.0
 		return
-	_tray_repeat -= delta
+	_tray_repeat = maxf(_tray_repeat - delta, 0.0) # 0 waits; below 0 is off.
 	if _tray_repeat > 0.0 or _gliding():
 		return # Not due yet, or something else in hand is still moving.
 	_tray_repeat = maxf(_tray_repeat + tray_repeat_seconds, 0.0) if drop_on_tray(_tray_held_at) else -1.0
