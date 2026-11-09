@@ -1052,10 +1052,18 @@ func _test_end_of_build() -> void:
 	Progression.reset()
 	Progression.locks_sets = true
 	Collection.reset()
+	# A packaged build: the fixture's one set, TST, with "build" in its file;
+	# Chapter 2's set isn't in it, as in a build cut after Chapter 1.
+	var marked: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(_write_fixture()))
+	marked["build"] = "Alpha"
+	var marked_path := FIXTURE_DIR + "/cards_build.json"
+	var marked_file := FileAccess.open(marked_path, FileAccess.WRITE)
+	marked_file.store_string(JSON.stringify(marked))
+	marked_file.close()
+	_check(CardDatabase.load_file(marked_path) == OK and CardDatabase.build == "Alpha", "the packaged build loads")
 	var first: String = LaptopScreen.shop_sets()[0].code
-	# Chapter 2's set isn't in this data, as in a build cut after Chapter 1.
 	Chapters.use_text("Chapter 1\n%s\nChapter 2\nZZZ" % first)
-	CardDatabase.build = "Alpha"
+	_check(Chapters.game().size() == 1, "only Chapter 1 is playable")
 	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
 	add_child(main)
 	await get_tree().physics_frame
@@ -1075,13 +1083,15 @@ func _test_end_of_build() -> void:
 	_check(not get_tree().paused, "OK goes back in")
 	main._announce_complete_binders()
 	_check(main.find_children("*", "EndOfBuildNote", false, false).size() <= 1, "it comes once")
-	CardDatabase.build = ""
 	Chapters.reload()
 	main.free()
+	DirAccess.remove_absolute(marked_path)
+	CardDatabase.load_file(CardDatabase.PLACEHOLDER_PATH)
 	get_tree().paused = false
 	Collection.reset()
 	Progression.reset()
 	Progression.locks_sets = false
+
 
 func _test_set_unlock_delivery() -> void:
 	Progression.reset()
@@ -4290,7 +4300,7 @@ func _test_booster_packs() -> void:
 	var small_set: Array[int] = draw_era.call("draft", made_up.call(0))
 	_check(small_set.size() == 14 and counts_of.call(small_set)[0] == 10, "a small set with no basics of its own has no land slot: 14 cards")
 	var no_mythics_left: Array[Array] = [range(100, 120), range(200, 210), [300], [], [500]]
-	_check(draw_era.call("draft", no_mythics_left)[-1] == 300, "a mythic slot with no mythics left takes a rare")
+	_check(draw_era.call("draft", no_mythics_left)[-2] == 300, "a mythic slot with no mythics left takes a rare (in front of the land)")
 
 	var lands_in_commons := 0
 	var common_slots := 0
