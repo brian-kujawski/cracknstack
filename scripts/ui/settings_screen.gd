@@ -243,9 +243,9 @@ func _add_row(page: VBoxContainer, row: Array) -> void:
 			_add_keys(page)
 
 
-## A section heading: a gilt caption in small capitals.
+## A section heading: a gilt caption in capitals.
 func _heading(text: String) -> Label:
-	var label := UiStyle.label(text.capitalize(), UiStyle.caption_font(), UiStyle.BODY, UiStyle.GILT)
+	var label := UiStyle.label(text.to_upper(), UiStyle.caption_font(), UiStyle.CAPTION, UiStyle.GILT)
 	label.custom_minimum_size.y = 60
 	label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	return label

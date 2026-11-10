@@ -112,11 +112,13 @@ static func text_italic(weight := 500) -> Font:
 	return _variation("italic%d" % weight, _GARAMOND_ITALIC, weight, {})
 
 
-## Captions: EB Garamond 600 in true small caps, lightly tracked.
+## Captions: EB Garamond 600 capitals, tracked. (Not the font's true small
+## caps: those turn figures into old-style ones, so "Chapter 1" read as
+## "Chapter I".) Callers pass the text in capitals.
 static func caption_font() -> Font:
 	if not _fonts.has("caption"):
-		var f := _variation("caption", _GARAMOND, 600, {"smcp": 1, "c2sc": 1, "lnum": 1, "tnum": 1}) as FontVariation
-		f.spacing_glyph = 1
+		var f := _variation("caption", _GARAMOND, 600, {"lnum": 1, "tnum": 1}) as FontVariation
+		f.spacing_glyph = 2
 		_fonts["caption"] = f
 	return _fonts["caption"]
 
@@ -169,6 +171,9 @@ class Frame:
 	var offset := Vector2.ZERO
 	## Multiplies the stone (lighter on hover, dimmer when disabled).
 	var tint := Color.WHITE
+	## A soft light round the frame (gold for earned value), if glow_size > 0.
+	var glow := Color(0, 0, 0, 0)
+	var glow_size := 0
 	var _edge: StyleBoxFlat
 
 	func _init(band_width := 12.0, padding := Vector2(24, 20), frame_look := Look.RAISED) -> void:
@@ -196,9 +201,18 @@ class Frame:
 		f.offset = offset
 		f.look = new_look
 		f.tint = new_tint
+		f.glow = glow
+		f.glow_size = glow_size
 		return f
 
 	func _draw(item: RID, rect: Rect2) -> void:
+		if glow_size > 0:
+			var light := StyleBoxFlat.new()
+			light.bg_color = Color(glow, 0.0)
+			light.set_corner_radius_all(UiStyle.RADIUS)
+			light.shadow_color = glow
+			light.shadow_size = glow_size
+			light.draw(item, rect)
 		var stone := rect.grow(-UiStyle.EDGE)
 		RenderingServer.canvas_item_set_default_texture_repeat(item, RenderingServer.CANVAS_ITEM_TEXTURE_REPEAT_ENABLED)
 		if band > 0.0 and window.a < 1.0 and not plaque:
