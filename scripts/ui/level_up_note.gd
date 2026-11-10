@@ -133,12 +133,12 @@ func _process(_delta: float) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
-## Shows it once nothing else holds the game: not paused, the mouse in the
-## room (no laptop or menu open), no fade running.
+## Shows it once nothing else holds the game: not paused (the pause menu,
+## laptop, radio and other notes all pause it), no fade running.
 func _try_show() -> void:
 	if showing or not is_inside_tree():
 		return
-	if get_tree().paused or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED or SceneFlow.is_busy():
+	if get_tree().paused or SceneFlow.is_busy():
 		return
 	showing = true
 	visible = true

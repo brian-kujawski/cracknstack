@@ -2810,7 +2810,6 @@ func _test_credits_roll() -> void:
 ## The level-up note: it stops the game until OK is clicked, Esc doesn't
 ## close it, and it waits while something else holds the mouse.
 func _test_level_up_note() -> void:
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	var note := LevelUpNote.new(3)
 	add_child(note)
 	_check(note.showing and note.visible and get_tree().paused and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE,
@@ -2827,7 +2826,7 @@ func _test_level_up_note() -> void:
 	var closed := [false]
 	note.closed.connect(func() -> void: closed[0] = true)
 	note.ok_button.pressed.emit()
-	_check(note.is_queued_for_deletion() and closed[0] and not get_tree().paused and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED,
+	_check(note.is_queued_for_deletion() and closed[0] and not get_tree().paused,
 		"OK closes it and the game goes on")
 	var empty := LevelUpNote.new(13)
 	add_child(empty)
