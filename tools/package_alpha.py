@@ -7,7 +7,7 @@ executable (CardDatabase.real_path), because data/real has a .gdignore and
 the export packs none of it. This script writes that folder, cut down to the
 sets of the first N chapters in data/chapters.txt:
 
-  builds/alpha/Pickup.exe                the export (copied from --game)
+  builds/alpha/CrackAndStack.exe                the export (copied from --game)
   builds/alpha/data/real/cards.json      only the chosen chapters' sets, with
                                          "build" set, so the game ends the
                                          last chapter with a note (EndOfBuildNote)
@@ -19,7 +19,7 @@ sets of the first N chapters in data/chapters.txt:
 
 Run on the machine that has the imported card images, after exporting the
 game from Godot (Project > Export > Windows Desktop > Export Project; the
-preset writes builds/windows/Pickup.exe):
+preset writes builds/windows/CrackAndStack.exe):
 
   python tools/package_alpha.py --chapters 2                 # Chapters 1-2 into builds/alpha
   python tools/package_alpha.py --chapters 2 --zip           # and builds/alpha.zip

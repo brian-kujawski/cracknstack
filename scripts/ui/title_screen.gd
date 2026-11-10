@@ -43,7 +43,7 @@ func _ready() -> void:
 	add_child(MenuStyle.backdrop(MenuStyle.TITLE_BACKDROP))
 	var column := MenuStyle.centred_column(48)
 	add_child(column)
-	_title = MenuStyle.heading("PICKUP", 96)
+	_title = MenuStyle.heading("CRACK & STACK", 96)
 	column.add_child(_title)
 	# The menu opens out under the title: its room grows from nothing, so
 	# the title glides up as the buttons fade in rather than jumping.

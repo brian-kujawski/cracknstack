@@ -1,12 +1,12 @@
-# Pickup
+# Crack & Stack
 
 A collector's room with an empty binder for every Magic: The Gathering set on the shelf, and no cards yet. Every card comes from sealed product you open: booster packs, booster boxes and bulk boxes. Walk the room in first person, rip packs, file every card into its 9-pocket page in collector-number order, and keep the binders shelved in release-date order. Duplicates turn up; each physical card is its own copy (`Collection`), and saves list copies by set code and collector number.
 
 The full design and milestones are in the development plan (kept in the project's shared files, `plan/pickup-development-plan.md`).
 
-> Pickup is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
+> Crack & Stack is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
 
-Pickup is free and always will be.
+Crack & Stack is free and always will be.
 
 ## Running it
 
@@ -101,9 +101,9 @@ The output (`data/placeholder/cards.json`) is deterministic and committed. CI ch
 
 An exported game packs none of `data/real` (it has a `.gdignore`); it reads a `data/real` folder beside the executable instead. To make a Windows build with the first few chapters' cards, on the machine that has the card images:
 
-1. In Godot, install the export templates once (Editor > Manage Export Templates, about 1 GB), then Project > Export > Windows Desktop > Export Project. The committed preset writes `builds/windows/Pickup.exe`.
+1. In Godot, install the export templates once (Editor > Manage Export Templates, about 1 GB), then Project > Export > Windows Desktop > Export Project. The committed preset writes `builds/windows/CrackAndStack.exe`.
 2. `python tools/package_alpha.py --chapters 2` copies the export and Chapters 1-2's card data into `builds/alpha/` (add `--zip` for `builds/alpha.zip`). Its `cards.json` carries `"build": "Alpha"`, so finishing the last chapter shows a note saying that's as far as the build goes, in place of the ending.
-3. Send `builds/alpha/` on: for example `butler push builds/alpha <you>/pickup:windows` to a restricted itch.io page, which uploads only what changed next time.
+3. Send `builds/alpha/` on: for example `butler push builds/alpha umamimilkers/crackandstack:windows` to a restricted itch.io page, which uploads only what changed next time.
 
 ## Tests
 

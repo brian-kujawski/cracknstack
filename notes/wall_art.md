@@ -1,6 +1,6 @@
-**Pickup Wall Art**
+**Crack & Stack Wall Art**
 
-While playing Pickup, the player will find certain cards with iconic Magic the Gathering art which will trigger an achievement upon insertion into the correct binder slot. After receiving the achievement, one of the empty picture frames in the room will now hold a large format copy of the art from said card, decorating the space.
+While playing Crack & Stack, the player will find certain cards with iconic Magic the Gathering art which will trigger an achievement upon insertion into the correct binder slot. After receiving the achievement, one of the empty picture frames in the room will now hold a large format copy of the art from said card, decorating the space.
 
 This document is intended to track the list of cards which will be used for this purpose, and the progress of the steps needed to implement it, namely:
 

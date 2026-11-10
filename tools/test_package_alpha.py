@@ -39,7 +39,7 @@ def write_fixture(root):
     (data / "cards.json").write_text(json.dumps(cards), encoding="utf-8")
     game = root / "windows"
     game.mkdir()
-    (game / "Pickup.exe").write_bytes(b"exe")
+    (game / "CrackAndStack.exe").write_bytes(b"exe")
     return data, game
 
 
@@ -75,7 +75,7 @@ class Package(unittest.TestCase):
             self.assertTrue((real / "near" / "con_" / "1.dds.gz").exists())
             self.assertFalse((real / "images" / "aaa").exists())
             self.assertTrue((real / "back.jpg").exists())
-            self.assertTrue((root / "alpha" / "Pickup.exe").exists())
+            self.assertTrue((root / "alpha" / "CrackAndStack.exe").exists())
 
             # A second run copies nothing it already has.
             self.assertIn("0 files copied, 5 already there", self.run_package(root, "--zip"))
@@ -86,7 +86,7 @@ class Package(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_fixture(root)
-            (root / "windows" / "Pickup.exe").unlink()
+            (root / "windows" / "CrackAndStack.exe").unlink()
             with self.assertRaises(SystemExit):
                 self.run_package(root)
 
