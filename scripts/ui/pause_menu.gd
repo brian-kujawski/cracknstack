@@ -28,6 +28,8 @@ var _save_question: VBoxContainer
 var _menu_panel: PanelContainer
 var _exit_panel: PanelContainer
 var _save_panel: PanelContainer
+## The developer buttons (debug builds only), shown with the first step.
+var _debug_row: HBoxContainer
 ## Where the chosen quit goes once the save question is answered:
 ## SceneFlow.to_main_menu or SceneFlow.quit.
 var _quit_to: Callable
@@ -52,7 +54,7 @@ func _ready() -> void:
 	_add_button(_menu, buttons, "Settings").pressed.connect(_open.bind(SettingsScreen.new))
 	_add_button(_menu, buttons, "Exit Game").pressed.connect(_ask_to_exit)
 	if OS.is_debug_build():
-		_add_time_buttons(_menu)
+		_add_time_buttons(backdrop)
 	_exit_panel = MenuStyle.framed_column(14, "Exit Game")
 	backdrop.add_child(_exit_panel)
 	_exit_question = _exit_panel.get_node("Column")
@@ -86,12 +88,18 @@ func _add_button(column: VBoxContainer, found: Dictionary, text: String, enabled
 ## box in front of you (until there's buying), or switch the floor between
 ## near faces as normal, far faces only and late near faces tinted red
 ## (NearFaces.DebugView), to compare them in play.
-func _add_time_buttons(column: VBoxContainer) -> void:
+## They sit in a strip along the bottom of the screen, outside the menu's
+## frame, so the frame is the same size as in a release build.
+func _add_time_buttons(backdrop: Control) -> void:
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 16)
-	row.custom_minimum_size.y = 80
-	column.add_child(row)
+	row.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	row.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	row.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	row.offset_bottom = -40
+	backdrop.add_child(row)
+	_debug_row = row
 	for entry in [["Set Noon", _set_hour.bind(12.0)], ["Set Midnight", _set_hour.bind(0.0)], ["Play Ending", SceneFlow.play_ending]]:
 		_add_debug_button(row, entry[0]).pressed.connect(entry[1])
 	# Product until buying exists (card-copies-plan.md): a booster box or a
@@ -209,6 +217,8 @@ func _show(column: VBoxContainer) -> void:
 		step.visible = step == column
 		# Each step sits in its own stone panel.
 		step.get_parent().visible = step == column
+	if _debug_row != null:
+		_debug_row.visible = column == _menu
 
 
 ## Opens the Achievements or Settings page over the menu; Back or Esc
