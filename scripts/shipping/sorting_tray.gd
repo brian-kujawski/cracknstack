@@ -66,7 +66,7 @@ func build(on: Array[int] = [], holds := CAPACITY) -> void:
 	capacity = holds
 	size = sized(holds)
 	collision_layer = Binder.PHYSICS_LAYER
-	collision_mask = 0
+	collision_mask = Binder.PHYSICS_MASK
 	# Its whole height, cards and all, so aiming at a card's top edge
 	# counts as aiming at the tray.
 	var shape := CollisionShape3D.new()

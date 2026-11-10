@@ -1,7 +1,8 @@
 extends Node
 ## Headless checks for the data layer, the pile, binders and shelving. Run from the project root:
 ##   godot --headless res://tests/test_runner.tscn
-## Add `-- --smoke` for just the SMOKE groups.
+## Add `-- --smoke` for just the SMOKE groups, or `-- --only=<groups>`
+## for some by name.
 ## Exits with code 1 if any check fails.
 
 const SETTINGS_TEST_PATH := "user://test_settings.cfg"
@@ -18,6 +19,16 @@ const SMOKE := [&"_test_database_loaded", &"_test_collector_numbers_are_contiguo
 var _failures := 0
 var _checks := 0
 var _smoke := "--smoke" in OS.get_cmdline_user_args()
+## `-- --only=_test_laptop,_test_pile` runs just those groups (for working
+## on one locally).
+var _only := _only_groups()
+
+
+static func _only_groups() -> PackedStringArray:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--only="):
+			return arg.trim_prefix("--only=").split(",")
+	return PackedStringArray()
 
 
 func _ready() -> void:
@@ -93,6 +104,7 @@ func _ready() -> void:
 	await _run(_test_shop_clock)
 	await _run(_test_booster_packs)
 	await _run(_test_laptop)
+	await _run(_test_put_down)
 	await _run(_test_selling)
 	await _run(_test_tools_and_singles)
 	await _run(_test_card_sorter)
@@ -107,6 +119,8 @@ func _ready() -> void:
 
 func _run(group: Callable) -> void:
 	if _smoke and group.get_method() not in SMOKE:
+		return
+	if not _only.is_empty() and String(group.get_method()) not in _only:
 		return
 	var started := Time.get_ticks_msec()
 	var checks := _checks
@@ -3455,11 +3469,13 @@ func _test_binder_toss() -> void:
 	var path := "user://test_achievements.cfg"
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	Achievements.load_from(path)
-	holder.global_position = Vector3(3.0, 1.0, 3.0)
+	# Over the cleared floor, where the pack and the box come down on bare
+	# floor (now they're physics bodies, a pile's slope would tip them).
+	holder.global_position = Vector3(3.0, 1.0, 3.6)
 	var code := CardDatabase.all_binders()[0].set_code
 	var pack := BoosterPack.new()
 	pack.setup(code)
-	pack.lie(pile, Vector3(3.3, 0.0, 3.0), 0.0)
+	pack.lie(pile, Vector3(3.3, 0.0, 3.6), 0.0)
 	hands._take_pack_node(pack)
 	hands._glide.custom_step(10.0)
 	_check(hands.toss_held() and hands.held_pack == null and pack.get_parent() == pile and not pack.is_lying(),
@@ -3470,7 +3486,8 @@ func _test_binder_toss() -> void:
 	await get_tree().create_timer(hands.lob_seconds + 0.2).timeout
 	_check(pack.is_lying() and pack.global_position.x > 3.5 and pack.global_position.y < 0.05 and not pack.has_meta("lands_at"),
 		"it lands lying on the floor ahead (x=%.2f)" % pack.global_position.x)
-	var box: ProductBox = preload("res://scripts/main.gd").place_box(pile, ProductBox.Kind.BOOSTER, code, Vector3(3.3, 0.0, 3.6), 0.0)
+	holder.global_position = Vector3(3.0, 1.0, 4.4) # Clear of the pack.
+	var box: ProductBox = preload("res://scripts/main.gd").place_box(pile, ProductBox.Kind.BOOSTER, code, Vector3(3.3, 0.0, 4.4), 0.0)
 	hands.take_box(box)
 	hands._glide.custom_step(10.0)
 	_check(hands.toss_held() and hands.held_box == null and box.collision_layer == 0, "a booster box goes the same way")
@@ -4457,7 +4474,9 @@ func _test_booster_packs() -> void:
 	hands._aim = Hands.Aim.FLOOR
 	hands._aim_point = Vector3(5, 0, 5)
 	hands._use_hand()
-	_check(hands.held_pack == null and loose_pack.is_lying(), "and put down again")
+	_check(hands.held_pack == loose_pack, "pressing the button doesn't put it down yet")
+	hands.release_hand()
+	_check(hands.held_pack == null and loose_pack.is_lying(), "and put down again, on letting go")
 	hands._glide.custom_step(10.0)
 
 	# A bulk box, opened where it stands: its cards tip out on the floor.
@@ -4547,10 +4566,11 @@ func _test_laptop() -> void:
 	hands._aim = Hands.Aim.SURFACE
 	hands._aim_point = Vector3(other.x, store_script.TABLE_SIZE.y, other.y)
 	hands._use_hand()
+	hands.release_hand()
 	hands._glide.custom_step(10.0)
 	_check(hands.held_box == null and laptop.get_parent() == pile
 		and Vector2(laptop.global_position.x, laptop.global_position.z).distance_to(other) < 0.3
-		and is_equal_approx(laptop.global_position.y, store_script.TABLE_SIZE.y), "and puts it down on another table")
+		and absf(laptop.global_position.y - store_script.TABLE_SIZE.y) < 0.005, "and puts it down on another table")
 	var pose: Transform3D = ShopSave.snapshot_laptop(pile, hands, main.get_node("Player"))
 	_check(pose.is_equal_approx(laptop.global_transform), "a save keeps it where it was put")
 	var other_pile := PileWorld.new()
@@ -4613,3 +4633,221 @@ func _test_laptop() -> void:
 	_check(not SceneFlow.take_opening_request(), "only New Game asks for the welcome")
 	main.free()
 	get_tree().paused = false
+
+
+## Putting things down (PutDown) works the same for everything you can hold:
+## a quick click puts it where you aim, holding shows a ghost that letting
+## go matches, everything stacks on everything, and what's left with
+## nothing under it falls.
+func _test_put_down() -> void:
+	Progression.reset()
+	Collection.reset()
+	var main: Node3D = load(SceneFlow.SHOP_SCENE).instantiate()
+	add_child(main)
+	await get_tree().physics_frame
+	var hands: Hands = main.get_node("Player/Hands")
+	var pile: PileWorld = main.get_node("Pile")
+	var main_script := preload("res://scripts/main.gd")
+	var code := CardDatabase.all_binders()[0].set_code
+	var aim_floor := func(x: float, z: float) -> void:
+		hands._aim = Hands.Aim.FLOOR
+		hands._aim_normal = Vector3.UP
+		hands._aim_point = Vector3(x, 0.0, z)
+	var aim_box := func(target: ProductBox) -> void:
+		hands._aim = Hands.Aim.BOX
+		hands._aim_box = target
+		hands._aim_normal = Vector3.UP
+		hands._aim_point = target.global_position + Vector3.UP * target.box_size().y
+	var hold := func() -> void:
+		hands._placing = hands.ghost_after_seconds
+		hands.show_ghost()
+
+	# A quick click: no ghost, straight to where you aim.
+	var box: ProductBox = main_script.place_box(pile, ProductBox.Kind.BOOSTER, code, Vector3(3.0, 0.0, 3.0), 0.0)
+	await get_tree().physics_frame
+	_check(not box.freeze and box.collision_layer == Binder.PHYSICS_LAYER and box.is_in_group(PutDown.GROUP),
+		"a box lying about is a physics body, like a binder")
+	hands.take_box(box)
+	hands._glide.custom_step(10.0)
+	_check(box.freeze and box.collision_layer == 0, "in hand it's out of physics, and nothing aims at it")
+	aim_floor.call(4.0, 4.0)
+	hands._use_hand()
+	_check(hands.held_box == box, "pressing the button with a box in hand doesn't put it down yet")
+	hands.show_ghost()
+	var ghost_early := hands._ghost != null and hands._ghost.visible
+	hands.release_hand()
+	hands._glide.custom_step(10.0)
+	_check(not ghost_early and hands.held_box == null and box.get_parent() == pile, "a quick click puts it down, with no ghost")
+	_check(Vector2(box.global_position.x, box.global_position.z).distance_to(Vector2(4.0, 4.0)) < 0.01
+		and absf(box.global_position.y) < 0.01 and not box.freeze, "where you aimed, on the floor, then physics has it")
+	await get_tree().physics_frame
+
+	# Held: a ghost of the real thing, and letting go puts it exactly there.
+	hands.take_box(box)
+	hands._glide.custom_step(10.0)
+	aim_floor.call(5.0, 4.0)
+	hands._use_hand()
+	hold.call()
+	var ghost := hands._ghost
+	_check(ghost != null and ghost.visible and ghost.get_child_count() > 0 and ghost.get_children().all(_is_ghost_part),
+		"holding shows a ghost: the box's own meshes, white and half see-through")
+	_check(ghost.find_children("*", "CollisionObject3D", true, false).is_empty() and ghost.get_script() == null,
+		"the ghost has nothing to aim at or bump into")
+	var shown := ghost.global_transform
+	hands.release_hand()
+	hands._glide.custom_step(10.0)
+	_check(box.global_transform.is_equal_approx(shown) and not ghost.visible, "letting go puts it exactly where its ghost was")
+	await get_tree().physics_frame
+
+	# Everything stacks: a box on a box.
+	var bottom: ProductBox = main_script.place_box(pile, ProductBox.Kind.BULK, code, Vector3(6.0, 0.0, 4.0), 0.0)
+	await get_tree().physics_frame
+	hands.take_box(box)
+	hands._glide.custom_step(10.0)
+	aim_box.call(bottom)
+	_check(hands._can_put_down(), "a box can go on top of another box")
+	hands._use_hand()
+	hold.call()
+	shown = hands._ghost.global_transform
+	hands.release_hand()
+	hands._glide.custom_step(10.0)
+	_check(absf(box.global_position.y - bottom.box_size().y) < 0.006 and box.global_transform.is_equal_approx(shown),
+		"and rests on its top, where its ghost showed (y=%.3f)" % box.global_position.y)
+	await get_tree().physics_frame
+
+	# A card on top of the stack, and a pack.
+	var card := CardDatabase.get_card(_first_binder_cards()[0])
+	var copy := Collection.add(card.id)
+	hands.restore_hand([copy])
+	aim_box.call(box)
+	hands._use_hand()
+	hold.call()
+	_check(hands._ghost_card.visible and is_equal_approx((hands._ghost_card.material_override as StandardMaterial3D).albedo_color.a, PutDown.GHOST_ALPHA),
+		"a card's ghost is a white card, half see-through")
+	var card_shown := hands._ghost_card.global_transform
+	hands.release_hand()
+	hands._glide.custom_step(10.0)
+	var lying_card := pile.loose_card(copy)
+	_check(lying_card != null and absf(lying_card.global_position.y - (bottom.box_size().y + box.box_size().y)) < 0.01
+		and lying_card.card_pose().origin.is_equal_approx(card_shown.origin), "a card can lie on top of a box, where its ghost showed")
+	await get_tree().physics_frame
+
+	# Taking the box away: the card falls onto what's under it now, and a
+	# box resting on a box that's taken away falls under physics.
+	hands.take_box(box)
+	hands._glide.custom_step(10.0)
+	await get_tree().physics_frame
+	lying_card = pile.loose_card(copy)
+	_check(lying_card != null and absf(lying_card.global_position.y - bottom.box_size().y) < 0.01,
+		"taking the box from under a card drops the card onto the box below")
+	aim_box.call(bottom)
+	hands._use_hand()
+	hands.release_hand()
+	hands._glide.custom_step(10.0)
+	await get_tree().physics_frame
+	hands.take_box(bottom)
+	hands._glide.custom_step(10.0)
+	for i in 90:
+		await get_tree().physics_frame
+	_check(box.global_position.y < 0.02 and not box.freeze, "a box whose support is taken falls (y=%.3f)" % box.global_position.y)
+	lying_card = pile.loose_card(copy)
+	_check(lying_card == null and pile.is_on_floor(copy), "and so does the card that lay on it, to the floor")
+
+	# Packs: the same, and they stack on boxes too.
+	aim_floor.call(7.0, 4.0)
+	hands._use_hand()
+	hands.release_hand()
+	hands._glide.custom_step(10.0)
+	await get_tree().physics_frame
+	var pack := BoosterPack.new()
+	pack.setup(code)
+	pack.lie(pile, Vector3(7.0, 0.0, 5.0), 0.0)
+	_check(not pack.freeze and pack.collision_layer == Binder.PHYSICS_LAYER, "a pack lying about is a physics body")
+	hands._take_pack_node(pack)
+	hands._glide.custom_step(10.0)
+	_check(pack.freeze and pack.collision_layer == 0, "and in hand it isn't")
+	aim_box.call(bottom)
+	hands._use_hand()
+	_check(hands.held_pack == pack, "pressing doesn't put a pack down yet")
+	hold.call()
+	shown = hands._ghost.global_transform
+	_check(hands._ghost.visible and hands._ghost_for == pack, "holding shows the pack's ghost")
+	hands.release_hand()
+	hands._glide.custom_step(10.0)
+	_check(hands.held_pack == null and pack.is_lying() and pack.global_transform.is_equal_approx(shown)
+		and absf(pack.global_position.y - bottom.box_size().y - BoosterPack.THICKNESS / 2) < 0.006,
+		"and letting go lays it on the box, where its ghost was")
+
+	# A binder: on a box, and into a shelf space on letting go.
+	# A shelf of its own, out of the way at the side wall.
+	var few: Array[BinderRange] = [CardDatabase.all_binders()[0], CardDatabase.all_binders()[1]]
+	var unit := ShelfUnit.new()
+	unit.build(few, StandardMaterial3D.new(), 1.0)
+	pile.add_child(unit)
+	unit.global_position = Vector3(1.0, 0.0, 6.5)
+	var space := 0
+	var binder := Binder.new()
+	binder.setup(unit.spaces[space], Color.RED, pile)
+	pile.add_child(binder)
+	pile.binders.append(binder)
+	binder.put_down(pile, Vector3(8.5, 0.0, 6.0), 0.0)
+	await get_tree().physics_frame
+	hands._carry(binder)
+	hands._glide.custom_step(10.0)
+	aim_box.call(box)
+	_check(hands._can_put_down(), "a binder can go on a box")
+	hands._use_hand()
+	hold.call()
+	shown = hands._ghost.global_transform
+	_check(hands._ghost.visible and hands._ghost_for == binder and hands._ghost.get_child_count() > 1,
+		"its ghost is a copy of the binder")
+	hands.release_hand()
+	hands._glide.custom_step(10.0)
+	_check(hands.carried_binder == null and binder.global_transform.origin.is_equal_approx(shown.origin)
+		and binder.global_position.y > box.box_size().y - 0.005, "and it's set down on the box where its ghost was")
+	await get_tree().physics_frame
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._use_hand()
+	hands._glide.custom_step(10.0)
+	_check(hands.carried_binder == binder, "picked up again")
+	hands._aim = Hands.Aim.SHELF
+	hands._aim_shelf = unit
+	hands._aim_space = space
+	hands._use_hand()
+	_check(hands.carried_binder == binder and unit.shelved[space] == null, "pressing on a shelf space doesn't shelve it yet")
+	hold.call()
+	shown = hands._ghost.global_transform
+	_check(hands._ghost.visible and shown.is_equal_approx(unit.global_transform * unit.binder_transform(space, binder.thickness)),
+		"holding shows its ghost standing in the space")
+	hands.release_hand()
+	hands._glide.custom_step(10.0)
+	_check(hands.carried_binder == null and unit.shelved[space] == binder and binder.global_transform.is_equal_approx(shown),
+		"letting go shelves it, just where the ghost stood")
+
+	# What a click already does comes first: a card on a shipping box sells.
+	var shipping := hands.take_new_shipping_box()
+	hands._glide.custom_step(10.0)
+	aim_floor.call(8.0, 4.0)
+	hands._use_hand()
+	hands.release_hand()
+	hands._glide.custom_step(10.0)
+	await get_tree().physics_frame
+	Settings.change("confirm_new_sales", false)
+	var spare := Collection.add(card.id)
+	hands.restore_hand([spare])
+	aim_box.call(shipping)
+	hands._use_hand()
+	_check(hands.held_card_id < 0 and hands._placing < 0.0, "a card clicked on a shipping box is still sold, not put on it")
+	Settings.reset_all()
+	main.free()
+
+
+## A part of a put-down ghost: one of the thing's meshes, in plain white,
+## half see-through.
+static func _is_ghost_part(node: Node) -> bool:
+	var part := node as MeshInstance3D
+	if part == null or not part.material_override is StandardMaterial3D:
+		return false
+	var colour: Color = (part.material_override as StandardMaterial3D).albedo_color
+	return is_equal_approx(colour.a, PutDown.GHOST_ALPHA) and colour.r == 1.0 and colour.g == 1.0 and colour.b == 1.0

@@ -17,10 +17,15 @@ extends Node
 ##   card (RareCards) goes into its own shadow box when you click either
 ##   display cabinet;
 ## - carrying a binder: set it down where you're looking, or stand it in the
-##   shelf space you're looking at.
-## Putting something down happens when the button comes back up. Hold the
-## button and a ghost shows where it will go, following your aim, so you can
-## place it carefully; a quick click just puts it where you're looking.
+##   shelf space you're looking at;
+## - holding a pack or a box (booster or bulk box, shipping box, the sorting
+##   tray, the laptop): put it down where you're looking.
+## Putting anything down works the same way for all of them (PutDown): it
+## happens when the button comes back up. Hold the button and a ghost (a
+## see-through white copy of it) shows where it will go, following your aim,
+## so you can place it carefully; a quick click just puts it where you're
+## looking. Anything can go on the floor, a table, or the top of anything
+## lying about (a card, a pack, a box, a closed binder), so things stack.
 ## Right-click always empties your hand (toss_held()): every card in hand
 ## scatters onto the pile (or a table, if it comes down on one), and a
 ## binder, pack, box or the laptop tumbles through the air past other things
@@ -310,11 +315,17 @@ var _pull_repeat := -1.0
 ## A click that came while a card was still gliding: it picks up the card
 ## under the crosshair as soon as the glide ends, held or not.
 var _pull_owed := false
+## The ghost of a held card (a flat card), and of the binder, pack or box in
+## hand (PutDown.ghost_of, made for `_ghost_for`); all in _ghost_material.
 var _ghost_card: MeshInstance3D
-var _ghost_binder: MeshInstance3D
+var _ghost: Node3D
+var _ghost_for: Node
+var _ghost_material: StandardMaterial3D
 
 var _aim := Aim.NONE
 var _aim_point := Vector3.ZERO
+## The face the crosshair is on faces this way (global).
+var _aim_normal := Vector3.UP
 ## The top floor card under the crosshair, or -1.
 var _aim_floor_card := -1
 var _aim_binder: Binder
@@ -369,21 +380,16 @@ func _ready() -> void:
 	# so the player has set the camera's new field of view first.
 	Settings.changed.connect(_pose_held_card.unbind(1), CONNECT_DEFERRED)
 
-	var ghost_material := StandardMaterial3D.new()
-	ghost_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ghost_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	ghost_material.albedo_color = Color(1, 1, 1, 0.35)
-	ghost_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_ghost_material = PutDown.ghost_material()
 	_ghost_card = MeshInstance3D.new()
 	_ghost_card.mesh = quad
-	_ghost_binder = MeshInstance3D.new()
-	_ghost_binder.mesh = BoxMesh.new()  # Sized to the carried binder when shown.
-	for ghost in [_ghost_card, _ghost_binder]:
-		ghost.material_override = ghost_material
-		ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		ghost.top_level = true
-		ghost.visible = false
-		add_child(ghost)
+	_ghost_card.material_override = _ghost_material.duplicate()
+	# A card is seen from either side.
+	(_ghost_card.material_override as StandardMaterial3D).cull_mode = BaseMaterial3D.CULL_DISABLED
+	_ghost_card.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_ghost_card.top_level = true
+	_ghost_card.visible = false
+	add_child(_ghost_card)
 	_pack_effects = PackEffects.new()
 	_pack_effects.name = "PackEffects"
 	add_child(_pack_effects)
@@ -434,9 +440,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			turn_sideways(not _sideways)
 		return
 	if event.is_action_released(Controls.USE_HAND):
-		if _placing >= 0.0:
-			_placing = -1.0
-			_put_down_where_aimed()
+		release_hand()
 	elif _placing >= 0.0:
 		return # One thing at a time while putting something down.
 	elif event.is_action_pressed(Controls.RIP):
@@ -530,12 +534,12 @@ func _use_hand() -> void:
 	if held_box != null:
 		if held_box is SortingTray and _aim == Aim.BOX and _aim_box is ShippingBox:
 			sell_tray(held_box, _aim_box)
-		elif _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
-			put_down_box()
+		elif _can_put_down():
+			_placing = 0.0
 		return
 	if held_pack != null:
-		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD, Aim.LOOSE_PACK]:
-			put_down_pack()
+		if _can_put_down():
+			_placing = 0.0
 		return # Otherwise a pack gets ripped.
 	if _hands_empty() and _aim == Aim.BOX:
 		take_box(_aim_box)
@@ -547,10 +551,8 @@ func _use_hand() -> void:
 		_take_pack_node(_aim_pack)
 		return
 	if carried_binder != null:
-		if _aim == Aim.SHELF:
-			_shelve_carried_binder()
-		elif _can_put_down():
-			_placing = 0.0
+		if _can_put_down():
+			_placing = 0.0 # Into a shelf space too, on release.
 		return
 	if held_card_id >= 0:
 		if _aim == Aim.BOX and _aim_box is ShippingBox:
@@ -631,7 +633,11 @@ func _pick_up_aimed(seconds := -1.0) -> bool:
 	if id < 0 or not pile.is_lying(id):
 		return false
 	var from := pile.card_pose(id) if _aim == Aim.FLOOR else _aim_loose_card.card_pose()
+	var under: LooseCard = _aim_loose_card if _aim == Aim.LOOSE_CARD else null
+	var area := PutDown.global_aabb(under) if under != null else AABB()
 	pile.pick_up(id)
+	if under != null:
+		PutDown.disturb(pile, area, [under.get_rid()])
 	_forget_aim()
 	_take_in_hand(id, from, seconds)
 	return true
@@ -814,13 +820,19 @@ func _fly_to_pocket(id: int, from: Transform3D, binder: Binder, pocket: int, lan
 func _toggle_binder() -> void:
 	if carried_binder != null or _aim != Aim.BINDER:
 		return
-	if _aim_binder.is_open():
-		_aim_binder.close()
-	elif _aim_binder.state == Binder.State.CLOSED:
-		_aim_binder.open()
-		var pocket := tithe_pocket(_aim_binder)
+	var binder := _aim_binder
+	var before := PutDown.global_aabb(binder)
+	if binder.is_open():
+		binder.close()
+	elif binder.state == Binder.State.CLOSED:
+		binder.open()
+		var pocket := tithe_pocket(binder)
 		if pocket >= 0:
-			_aim_binder.show_pocket(pocket)
+			binder.show_pocket(pocket)
+	else:
+		return
+	# What lay on it, or on what it now covers, settles onto it as it is now.
+	PutDown.disturb(pile, before.merge(PutDown.global_aabb(binder)))
 
 
 ## Tithe: opening a binder with a Needed card of it in hand turns to that
@@ -873,14 +885,39 @@ func cycle_hand(direction: int) -> void:
 
 
 ## Whether what's in hand can be put down where you're aiming: the floor, a
-## table, or (for a card) on top of a card lying on a table.
+## table, or the top of anything lying about (a card, a pack, a box other
+## than the one in hand, a closed binder); a binder can also stand in an
+## empty shelf space. A pack that's started to tear stays in hand.
 func _can_put_down() -> bool:
-	return _aim == Aim.FLOOR or _aim == Aim.SURFACE or (_aim == Aim.LOOSE_CARD and held_card_id >= 0)
+	if _hands_empty() or (held_pack != null and held_pack.tear > 0.0):
+		return false
+	match _aim:
+		Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD, Aim.LOOSE_PACK:
+			return true
+		Aim.SHELF:
+			return carried_binder != null and _aim_shelf.shelved[_aim_space] == null
+		Aim.BOX:
+			return _aim_box != held_box and _aim_normal.y > 0.7
+		Aim.BINDER:
+			return _aim_binder != carried_binder and _aim_binder.state == Binder.State.CLOSED and _aim_normal.y > 0.7
+	return false
+
+
+## What's in hand: the card on top of the hand, or the binder, pack or box.
+func _held_thing() -> Node3D:
+	if carried_binder != null:
+		return carried_binder
+	if held_pack != null:
+		return held_pack
+	if held_box != null:
+		return held_box
+	return _held_view if held_card_id >= 0 else null
 
 
 ## Where what's in hand would go if put down now: a global pose (a card quad
-## for a card, the binder's own pose for a binder), or null if there's
-## nowhere to put it.
+## for a card; for a binder, pack or box its own pose), or null if there's
+## nowhere to put it. The ghost shows it there, and letting go puts it
+## exactly there.
 func _put_down_pose():
 	if not _can_put_down():
 		return null
@@ -889,60 +926,151 @@ func _put_down_pose():
 		if _aim == Aim.FLOOR:
 			return pile.drop_pose(_aim_point, yaw)
 		return LooseCard.pose_at(_aim_point, yaw)
-	var point := _clear_of_obstacles(_aim_point, Binder.OPEN_HALF_FOOTPRINT, yaw)
-	var y := carried_binder.rest_height(Vector2(point.x, point.z), yaw, point.y + Binder.DROP_HEIGHT)
-	return Transform3D(Basis(Vector3.UP, yaw), Vector3(point.x, y, point.z))
+	if carried_binder != null and _aim == Aim.SHELF:
+		return _aim_shelf.global_transform * _aim_shelf.binder_transform(_aim_space, carried_binder.thickness)
+	return rest_pose(_held_thing(), _aim_point, yaw, _aim == Aim.FLOOR)
 
 
-## Shows the ghost of what's in hand where it would go, once the button has
-## been held a moment.
+## Where a binder, pack or box (`thing`) put down at global `point`, turned
+## to `yaw`, comes to rest: flat on whatever is there, kept clear of walls,
+## shelves and table legs on the floor (`on_floor`), and all of it on the
+## table on a table. A shipping box put down by the sorter's chute goes into
+## place there. The same for everything, whether set down by hand (and
+## shown by its ghost) or lobbed.
+func rest_pose(thing: Node3D, point: Vector3, yaw: float, on_floor: bool) -> Transform3D:
+	var local := pile.to_local(point)
+	on_floor = on_floor or local.y < 0.05
+	var p := Vector2(local.x, local.z)
+	var half: Vector2
+	var height: float
+	if thing is Binder:
+		half = Binder.OPEN_HALF_FOOTPRINT # Room to open it.
+		height = (thing as Binder).thickness
+	elif thing is BoosterPack:
+		half = BoosterPack.SIZE / 2
+		height = BoosterPack.THICKNESS
+	else:
+		half = (thing as ProductBox).half_footprint()
+		height = (thing as ProductBox).box_size().y
+	if on_floor:
+		p = pile.clear_point(p, half, yaw)
+	else:
+		p = pile.onto_surface(p, yaw, Binder.COVER / 2 if thing is Binder else half)
+	var at := pile.to_global(Vector3(p.x, local.y, p.y))
+	var space := _camera.get_world_3d().direct_space_state
+	var exclude: Array[RID] = [(thing as CollisionObject3D).get_rid()]
+	if get_parent() is CollisionObject3D:
+		exclude.append((get_parent() as CollisionObject3D).get_rid())
+	var start := PutDown.drop_start(space, at, height, exclude)
+	if thing is Binder:
+		var y := (thing as Binder).rest_height(Vector2(at.x, at.z), yaw, start)
+		return Transform3D(Basis(Vector3.UP, yaw), Vector3(at.x, y, at.z))
+	var pose: Transform3D
+	if thing is BoosterPack:
+		pose = PutDown.rest_pose(space, BoosterPack.grab_shape(), BoosterPack.grab_transform(),
+			BoosterPack.lying_pose(Vector3.ZERO, yaw).basis, Vector2(at.x, at.z), start, exclude)
+	else:
+		var shape := _collision_shape(thing)
+		pose = PutDown.rest_pose(space, shape.shape, shape.transform, Basis(Vector3.UP, yaw),
+			Vector2(at.x, at.z), start, exclude)
+		if thing is ShippingBox and sorter != null and sorter.snaps_to_dock(pose.origin):
+			pose = sorter.dock_pose() # Into place at the surplus chute.
+	return pose
+
+
+## A box's collision shape (the laptop's is its base).
+static func _collision_shape(thing: Node) -> CollisionShape3D:
+	for child in thing.get_children():
+		if child is CollisionShape3D:
+			return child
+	return null
+
+
+## The button came back up: what's being put down goes where you're
+## aiming now (and its ghost goes).
+func release_hand() -> void:
+	if _placing >= 0.0:
+		_placing = -1.0
+		_put_down_where_aimed()
+
+
 ## Pausing lets go of a put-down in progress: its release goes to the pause
 ## screen, not to us.
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PAUSED and _placing >= 0.0:
 		_placing = -1.0
-		_ghost_card.visible = false
-		_ghost_binder.visible = false
+		_hide_ghosts()
 
 
+func _hide_ghosts() -> void:
+	_ghost_card.visible = false
+	if _ghost != null:
+		_ghost.visible = false
+
+
+## Shows the ghost of what's in hand where it would go, once the button has
+## been held a moment.
 func _update_ghost(delta: float) -> void:
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		_placing = -1.0 # The release won't reach us; let it go.
-	var pose = null
 	if _placing >= 0.0:
 		_placing += delta
-		if _placing >= ghost_after_seconds:
-			pose = _put_down_pose()
-	var ghost := _ghost_card if held_card_id >= 0 else _ghost_binder
-	_ghost_card.visible = pose != null and ghost == _ghost_card
-	_ghost_binder.visible = pose != null and ghost == _ghost_binder
+	show_ghost()
+
+
+## The ghost, where what's in hand would go now, once the button's been held
+## ghost_after_seconds; none otherwise.
+func show_ghost() -> void:
+	var pose = _put_down_pose() if _placing >= ghost_after_seconds else null
+	_hide_ghosts()
 	if pose == null:
 		return
-	if ghost == _ghost_binder:
-		# The box mesh is centred; a binder's origin is its underside.
-		(_ghost_binder.mesh as BoxMesh).size = carried_binder.size
-		pose = pose.translated_local(Vector3(0, carried_binder.thickness / 2, 0))
+	var ghost := _ghost_card as Node3D if held_card_id >= 0 else _ghost_of_held()
 	ghost.global_transform = pose
+	ghost.visible = true
+
+
+## The ghost of the binder, pack or box in hand: made the first time it's
+## shown for that one, then kept while it's in hand.
+func _ghost_of_held() -> Node3D:
+	var thing := _held_thing()
+	if _ghost_for != thing or _ghost == null:
+		if _ghost != null:
+			_ghost.queue_free()
+		_ghost = PutDown.ghost_of(thing, _ghost_material)
+		_ghost.top_level = true
+		add_child(_ghost)
+		_ghost_for = thing
+	return _ghost
 
 
 ## The button came up: put what's in hand down where you're aiming now, if
-## that's somewhere it can go.
+## that's somewhere it can go, just where its ghost showed.
 func _put_down_where_aimed() -> void:
-	_ghost_card.visible = false
-	_ghost_binder.visible = false
-	if not _can_put_down():
+	_hide_ghosts()
+	var pose = _put_down_pose()
+	if pose == null:
 		return
 	if carried_binder != null:
-		_set_binder_down()
+		if _aim == Aim.SHELF:
+			_shelve_carried_binder()
+		else:
+			_set_binder_down(pose)
+		return
+	if held_box != null:
+		put_down_box(pose)
+		return
+	if held_pack != null:
+		put_down_pack(pose)
 		return
 	var id := held_card_id
 	var yaw := _yaw_facing_player(_aim_point)
 	var point := _aim_point
 	var card: MeshInstance3D
 	if _aim == Aim.FLOOR:
-		card = _put_down_card(pile.drop_pose(point, yaw), func() -> void: pile.drop(id, point, yaw))
+		card = _put_down_card(pose, func() -> void: pile.drop(id, point, yaw))
 	else:
-		card = _put_down_card(LooseCard.pose_at(point, yaw), func() -> void: pile.lay_loose(id, point, yaw))
+		card = _put_down_card(pose, func() -> void: pile.lay_loose(id, point, yaw))
 	card.set_meta("falls_to", [point, yaw])
 
 
@@ -989,24 +1117,25 @@ func _carry(binder: Binder) -> void:
 	if binder.state == Binder.State.SHELVED:
 		binder.shelf_unit.unshelve(binder.shelf_space)
 	var from := binder.global_transform
+	var area := PutDown.global_aabb(binder)
 	binder.carry(_camera, CARRIED_POSITION, CARRIED_ROTATION)
+	PutDown.disturb(pile, area, [binder.get_rid()])
 	carried_binder = binder
 	held_changed.emit(null, binder.binder)
 	var carried := binder.transform
 	_glide = Glide.start(binder, from, func() -> Transform3D: return _camera.global_transform * carried, glide_seconds(binder_glide_seconds))
 
 
-func _set_binder_down() -> void:
-	var yaw := _yaw_facing_player(_aim_point)
+## Sets the carried binder down at `to` (where _put_down_pose() found it
+## rests).
+func _set_binder_down(to: Transform3D) -> void:
 	var binder := carried_binder
 	var from := binder.global_transform
-	binder.put_down(pile, _clear_of_obstacles(_aim_point, Binder.OPEN_HALF_FOOTPRINT, yaw), yaw)
+	binder.put_down(pile, to.origin, to.basis.get_euler().y, to.origin.y)
 	carried_binder = null
 	held_changed.emit(null, null)
-	# put_down() found where it rests; hold it still on the way there, then
-	# hand it to physics.
+	# Hold it still on the way there, then hand it to physics.
 	binder.freeze = true
-	var to := binder.global_transform
 	_glide = Glide.start(binder, from, func() -> Transform3D: return to, glide_seconds(binder_glide_seconds), put_down_lift)
 	_glide.tween_callback(binder.let_go)
 
@@ -1053,15 +1182,6 @@ func current_reach() -> float:
 	return reach
 
 
-## On the floor, nudges a footprint at `point` clear of walls, shelves and
-## table legs. Table tops are left as aimed.
-func _clear_of_obstacles(point: Vector3, half_size: Vector2, yaw: float) -> Vector3:
-	if _aim != Aim.FLOOR:
-		return point
-	var p := pile.clear_point(Vector2(point.x, point.z), half_size, yaw)
-	return Vector3(p.x, point.y, p.y)
-
-
 ## Turned so its bottom edge (local +z) faces the player.
 func _yaw_facing_player(point: Vector3) -> float:
 	var to_player := _camera.global_position - point
@@ -1095,11 +1215,13 @@ func _update_aim() -> void:
 	if not card.is_empty() and (hit.is_empty() or from.distance_to(card.position) < from.distance_to(hit.position)):
 		_aim = Aim.FLOOR
 		_aim_point = card.position
+		_aim_normal = Vector3.UP
 		_aim_floor_card = card.id
 		return
 	if hit.is_empty():
 		return
 	_aim_point = hit.position
+	_aim_normal = hit.normal
 	var collider: Object = hit.collider
 	if collider is ShelfUnit:
 		var at: int = collider.space_at(hit.position)
@@ -1124,9 +1246,9 @@ func _update_aim() -> void:
 	if collider is ShopDoor:
 		_aim = Aim.DOOR
 		return
-	if collider is StaticBody3D and (collider as Node).get_parent() is BoosterPack:
+	if collider is BoosterPack:
 		_aim = Aim.LOOSE_PACK
-		_aim_pack = (collider as Node).get_parent()
+		_aim_pack = collider
 		return
 	if collider is Binder:
 		_aim = Aim.BINDER
@@ -1384,7 +1506,6 @@ func _toss_card(id: int, from: Transform3D, scatter := 0.0) -> void:
 func lob_product(product: Node3D) -> void:
 	var from := product.global_transform
 	var to := lob_landing(product)
-	var yaw := _camera.global_rotation.y
 	product.get_parent().remove_child(product)
 	pile.add_child(product)
 	product.global_transform = from
@@ -1404,14 +1525,16 @@ func lob_product(product: Node3D) -> void:
 		product.remove_meta("lands_at")
 		product.remove_meta("lob")
 		if box != null:
-			box.collision_layer = Binder.PHYSICS_LAYER
+			box.let_go()
 		elif product is BoosterPack:
-			(product as BoosterPack).lie(pile, to.origin - Vector3.UP * BoosterPack.THICKNESS / 2, yaw))
+			(product as BoosterPack).lie(pile, to.origin, 0.0)
+			product.global_transform = to)
 
 
 ## Where a lobbed pack or box comes down (global): lob_distance ahead of you
-## on the level, or short of the first wall or shelf in the way, then on the
-## table there or the pile, kept clear like anything put down there.
+## on the level, or short of the first wall or shelf in the way, then where
+## it would rest if put down there (rest_pose): on the pile, a table or
+## whatever is lying there.
 func lob_landing(product: Node3D) -> Transform3D:
 	var forward := -_camera.global_transform.basis.z
 	forward.y = 0.0
@@ -1424,26 +1547,11 @@ func lob_landing(product: Node3D) -> Transform3D:
 	if not ahead.is_empty():
 		distance = maxf(0.25, eye.distance_to(ahead.position) - 0.3)
 	var point := eye + forward * distance
-	var down := space.intersect_ray(PhysicsRayQueryParameters3D.create(point, Vector3(point.x, -1.0, point.z), 1, [player]))
+	var down := space.intersect_ray(PhysicsRayQueryParameters3D.create(point, Vector3(point.x, -1.0, point.z),
+		1 | Binder.PHYSICS_LAYER, [player, (product as CollisionObject3D).get_rid()]))
 	var ground_y: float = down.position.y if not down.is_empty() and down.normal.y >= 0.7 else 0.0
-	var yaw := _camera.global_rotation.y
-	var local := pile.to_local(Vector3(point.x, ground_y, point.z))
-	var p := Vector2(local.x, local.z)
-	if product is BoosterPack:
-		var half := Vector2(BoosterPack.SIZE.x, BoosterPack.SIZE.y) / 2
-		var y := pile.height_at(p) if ground_y < 0.05 else local.y
-		if ground_y >= 0.05:
-			p = pile.onto_surface(p, yaw, half)
-		return BoosterPack.lying_pose(pile.to_global(Vector3(p.x, y, p.y)), yaw)
-	var box := product as ProductBox
-	var half_box := box.half_footprint()
-	var y_box := local.y
-	if ground_y < 0.05:
-		p = pile.clear_point(p, half_box, yaw)
-		y_box = pile.height_under(p, half_box, yaw)
-	else:
-		p = pile.onto_surface(p, yaw, half_box)
-	return pile.global_transform * Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, y_box, p.y))
+	var floor_hit := down.is_empty() or ground_y < 0.05
+	return rest_pose(product, Vector3(point.x, ground_y, point.z), _camera.global_rotation.y, floor_hit)
 
 
 ## Throws the carried binder forward in a lob (see Binder.toss).
@@ -1593,11 +1701,13 @@ func _pose_pack() -> void:
 
 ## Takes a pack into your hand from where it lies.
 func _take_pack_node(pack: BoosterPack) -> void:
+	var area := PutDown.global_aabb(pack)
 	pack.stop_lying()
 	var from := pack.global_transform
 	_hold(-1)
 	pack.get_parent().remove_child(pack)
 	_camera.add_child(pack)
+	PutDown.disturb(pile, area, [pack.get_rid()])
 	held_pack = pack
 	_rip = 0.0
 	_ripping = false
@@ -1888,10 +1998,12 @@ static func _sleeve(card: MeshInstance3D, cents: int) -> void:
 ## Picks a box of product up off the floor or a table.
 func take_box(box: ProductBox) -> void:
 	var from := box.global_transform
+	var area := PutDown.global_aabb(box)
 	_hold(-1)
+	box.hold_still(false) # Not in the way of your aim (or you).
 	box.get_parent().remove_child(box)
 	_camera.add_child(box)
-	box.collision_layer = 0 # Not in the way of your aim (or you).
+	PutDown.disturb(pile, area, [box.get_rid()])
 	held_box = box
 	var held := Transform3D(Basis(Vector3.RIGHT, BOX_HELD_TILT), box_held_position(box))
 	box.global_transform = from
@@ -1907,53 +2019,46 @@ static func box_held_position(box: ProductBox) -> Vector3:
 
 
 ## Where a box put down where you're aiming would stand (global): on the
-## pile, or on the table or card you're aiming at, its front toward you.
+## pile, or on the table or whatever you're aiming at, its front toward you
+## (see rest_pose).
 func box_drop_pose(box: ProductBox) -> Transform3D:
-	var yaw := _camera.global_rotation.y
-	var half := box.half_footprint()
-	var local := pile.to_local(_aim_point)
-	var p := Vector2(local.x, local.z)
-	var y := local.y
-	if _aim == Aim.FLOOR or local.y < 0.05:
-		p = pile.clear_point(p, half, yaw)
-		y = pile.height_under(p, half, yaw)
-	else:
-		p = pile.onto_surface(p, yaw, half)
-	return pile.global_transform * Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, y, p.y))
+	return rest_pose(box, _aim_point, _yaw_facing_player(_aim_point), _aim == Aim.FLOOR)
 
 
-## Puts the box in hand down where you're aiming.
-func put_down_box() -> void:
+## Puts the box in hand down at `to` (a global pose; where you're aiming,
+## box_drop_pose(), if not given). It glides there out of physics, then
+## physics has it.
+func put_down_box(to = null) -> void:
 	var box := held_box
-	var to := box_drop_pose(box)
-	if box is ShippingBox and sorter != null and sorter.snaps_to_dock(to.origin):
-		to = sorter.dock_pose() # Into place at the surplus chute.
+	if not to is Transform3D:
+		to = box_drop_pose(box)
 	var from := box.global_transform
 	held_box = null
 	box.get_parent().remove_child(box)
 	pile.add_child(box)
 	box.global_transform = from
-	_glide = Glide.start(box, from, func() -> Transform3D: return to, glide_seconds(binder_glide_seconds))
-	_glide.tween_callback(func() -> void: box.collision_layer = Binder.PHYSICS_LAYER)
+	_glide = Glide.start(box, from, func() -> Transform3D: return to, glide_seconds(binder_glide_seconds), put_down_lift)
+	_glide.tween_callback(box.let_go)
 	held_pack_changed.emit("")
 
 
-## Puts the pack in hand down, lying where you're aiming, unless it's
-## started to tear.
-func put_down_pack() -> void:
+## Puts the pack in hand down at `to` (a global pose; lying where you're
+## aiming, if not given), unless it's started to tear. It glides there,
+## then physics has it.
+func put_down_pack(to = null) -> void:
 	var pack := held_pack
 	if pack.tear > 0.0:
 		return
-	var local := pile.to_local(_aim_point)
-	var p := Vector2(local.x, local.z)
-	var y := local.y if _aim != Aim.FLOOR else pile.height_at(p)
+	if not to is Transform3D:
+		to = rest_pose(pack, _aim_point, _yaw_facing_player(_aim_point), _aim == Aim.FLOOR)
 	var from := pack.global_transform
 	held_pack = null
 	_hold(-1)
-	pack.lie(pile, pile.to_global(Vector3(p.x, y, p.y)), _camera.global_rotation.y)
-	var to := pack.global_transform
+	pack.lie(pile, to.origin, 0.0)
+	pack.freeze = true # Still, on its way there.
 	pack.global_transform = from
-	_glide = Glide.start(pack, from, func() -> Transform3D: return to, glide_seconds(card_glide_seconds))
+	_glide = Glide.start(pack, from, func() -> Transform3D: return to, glide_seconds(card_glide_seconds), put_down_lift)
+	_glide.tween_callback(pack.let_go)
 	held_pack_changed.emit("")
 
 
@@ -1966,8 +2071,10 @@ func open_box(box: ProductBox) -> Array:
 	if not is_product(box):
 		return [] # Not product: E uses the laptop, and seals a shipping box.
 	var at := box.global_position
+	var area := PutDown.global_aabb(box)
+	var was_lying := box != held_box
 	if box == held_box:
-		if _aim in [Aim.FLOOR, Aim.SURFACE, Aim.LOOSE_CARD]:
+		if _can_put_down():
 			at = box_drop_pose(box).origin
 		else:
 			var ahead := _camera.global_position - _camera.global_basis.z.slide(Vector3.UP).normalized() * 0.6
@@ -1977,6 +2084,8 @@ func open_box(box: ProductBox) -> Array:
 		held_pack_changed.emit("")
 	box.get_parent().remove_child(box)
 	box.queue_free()
+	if was_lying:
+		PutDown.disturb(pile, area, [box.get_rid()])
 	FeedbackSounds.play(pile, at, FeedbackSounds.Kind.PACK_RIP)
 	if box.kind == ProductBox.Kind.BULK:
 		var copies := Collection.add_all(PackContents.bulk_box(box.set_code, _pack_rng))

@@ -436,8 +436,10 @@ func start_new_day() -> int:
 	for child in _pile.get_children():
 		if child is ShippingBox and child.sealed and not child.is_queued_for_deletion() \
 				and _store.shipping_station.on_mat(child.global_position):
+			var area := PutDown.global_aabb(child)
 			_pile.remove_child(child)
 			child.queue_free()
+			PutDown.disturb(_pile, area, [child.get_rid()])
 			shipped += 1
 	for order: Array in orders:
 		_deliver_order(order)

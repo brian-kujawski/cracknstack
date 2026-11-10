@@ -36,6 +36,9 @@ const GRID_CELL := 0.1
 const HEIGHT_CELL := 0.015
 ## Cards landing on a table (or the shelf top) stay this far in from its edge.
 const TABLE_MARGIN := 0.01
+## A card lying on something counts as held up by it while that's no more
+## than this far under it (resettle).
+const SUPPORT_GAP := 0.003
 ## A box tipped out on a table (tip_out): at most this many cards stay on
 ## it (each is a node of its own, LooseCard), heaped around the box with
 ## this standard deviation (m), stacked by cells this size; the rest spill
@@ -566,26 +569,42 @@ func lay_loose(id: int, point: Vector3, yaw: float, face_up := true) -> LooseCar
 
 
 ## A card coming down at `point` (global) without anyone placing it: tossed,
-## flipped, or falling. It lands on whatever is under it: a table (or a card
-## lying on one), kept clear of the table's edge, or else the pile. Binders,
-## and anything in `exclude`, it falls past.
-func land(id: int, point: Vector3, rotation_y: float, face_up := true, exclude: Array[RID] = []) -> void:
-	var query := PhysicsRayQueryParameters3D.create(point + Vector3.UP * 0.03, Vector3(point.x, -1.0, point.z))
+## flipped, or falling. It lands on whatever is under it: a table, or
+## anything lying about (a card, a binder, a box, a pack), kept clear of a
+## table's edge, or else the pile. Anything in `exclude` it falls past. It
+## looks for what's under it from `lift` over `point`.
+func land(id: int, point: Vector3, rotation_y: float, face_up := true, exclude: Array[RID] = [], lift := 0.03) -> void:
+	var query := PhysicsRayQueryParameters3D.create(point + Vector3.UP * lift, Vector3(point.x, -1.0, point.z))
 	query.collision_mask = 1 | Binder.PHYSICS_LAYER
-	var skip := exclude.duplicate()
-	query.exclude = skip
-	var space := get_world_3d().direct_space_state
-	var hit := space.intersect_ray(query)
-	while not hit.is_empty() and hit.collider is Binder:
-		skip.append(hit.rid)
-		query.exclude = skip
-		hit = space.intersect_ray(query)
+	query.exclude = exclude
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty() or hit.position.y < 0.05 or hit.normal.y < 0.7:
 		drop(id, point, rotation_y, face_up)
 		return
 	var on := Vector3(point.x, hit.position.y, point.z)
 	var p := onto_surface(Vector2(on.x, on.z), rotation_y)
 	lay_loose(id, Vector3(p.x, on.y, p.y), rotation_y, face_up)
+
+
+## A card lying on a table or on something (`card`): if nothing is under it
+## any more (what it lay on was taken away, or slid off), it falls onto
+## whatever is, like a card let go there (land). Anything in `exclude`
+## doesn't count as under it. Returns whether it fell.
+func resettle(card: LooseCard, exclude: Array[RID] = []) -> bool:
+	var at := card.global_position
+	var skip := exclude.duplicate()
+	skip.append(card.get_rid())
+	var query := PhysicsRayQueryParameters3D.create(at + Vector3.UP * 0.001, Vector3(at.x, -1.0, at.z),
+		1 | Binder.PHYSICS_LAYER, skip)
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if not hit.is_empty() and hit.position.y >= at.y - SUPPORT_GAP:
+		return false
+	var id := card.card_id
+	var face_up := card.face_up
+	var yaw := card.global_rotation.y
+	pick_up(id)
+	land(id, at, yaw, face_up, skip, 0.001)
+	return true
 
 
 ## Nudges a card at `p` (x/z), turned by rotation_y, so all of it is on the
@@ -933,8 +952,8 @@ func _mark_surface_dirty(cell: int) -> void:
 	_surface_dirty[(cell / _height_columns / SURFACE_STRIDE) * _surface_columns + (cell % _height_columns) / SURFACE_STRIDE] = true
 
 
-## Recomputes the surface cells under changed cards and wakes any binder
-## resting there, so it settles onto the new surface.
+## Recomputes the surface cells under changed cards and wakes anything
+## resting there (binders, boxes, packs), so it settles onto the new surface.
 func _update_surface() -> void:
 	if _surface == null:
 		_surface_dirty.clear()
@@ -955,10 +974,11 @@ func _update_surface() -> void:
 	_surface_dirty.clear()
 	_surface.map_data = _surface_heights
 	var near := changed.grow(Binder.COVER.length() / 2)
-	for binder in binders:
-		if binder.state == Binder.State.CLOSED and binder.get_parent() == self \
-				and near.has_point(Vector2(binder.position.x, binder.position.z)):
-			binder.sleeping = false
+	for node in get_tree().get_nodes_in_group(PutDown.GROUP):
+		var body := node as RigidBody3D
+		if body != null and not body.freeze and body.get_parent() == self \
+				and near.has_point(Vector2(body.position.x, body.position.z)):
+			body.sleeping = false
 
 
 ## A card with thickness: the face on top and edges running down

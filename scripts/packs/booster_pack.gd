@@ -1,5 +1,5 @@
 class_name BoosterPack
-extends Node3D
+extends RigidBody3D
 ## A sealed booster pack of one set: a pillowy foil wrapper, crimped top and
 ## bottom, drawn by booster_pack.gdshader. Its origin is the middle of the
 ## pack; the front faces +z, the top is +y.
@@ -12,6 +12,10 @@ extends Node3D
 ## front) and <CODE>_back.png, any size of the pack's shape (66 x 117 mm,
 ## portrait); see assets/packs/README.txt. Without it the wrapper is a
 ## stand-in in the set's colour with its name on.
+##
+## Lying about it's a physics body, like a binder or a box (see PutDown):
+## it rests on whatever is under it and falls when that goes. In hand, or on
+## its way somewhere, it's frozen and nothing aims at it.
 
 const SIZE := Vector2(0.066, 0.117)
 ## How thick the pack is through the middle; it thins to nothing at the
@@ -44,6 +48,15 @@ var _cap: MeshInstance3D
 
 
 func _init() -> void:
+	freeze = true
+	collision_layer = 0
+	collision_mask = Binder.PHYSICS_MASK
+	add_to_group(PutDown.GROUP)
+	mass = 0.03
+	continuous_cd = true
+	physics_material_override = PhysicsMaterial.new()
+	physics_material_override.friction = 0.9
+	physics_material_override.bounce = 0.0
 	if _meshes.is_empty():
 		_meshes = [_slab(TEAR_V, 1.0), _slab(0.0, TEAR_V)]
 	var body := MeshInstance3D.new()
@@ -106,23 +119,21 @@ func burst(seconds: float) -> void:
 
 ## Lying about (out of a booster box, or put down): it gets a body to be
 ## aimed at and picked up by (on the binder collision layer, like a card on
-## a table), lying face up with its top toward local -z.
+## a table), lying face up with its top toward local -z, and physics rests
+## it there.
 func lie(parent: Node, at: Vector3, yaw: float) -> void:
 	if get_parent() != null:
 		get_parent().remove_child(self)
 	parent.add_child(self)
 	global_transform = lying_pose(at, yaw)
 	if get_node_or_null("Grab") == null:
-		var body := StaticBody3D.new()
-		body.name = "Grab"
-		body.collision_layer = Binder.PHYSICS_LAYER
-		body.collision_mask = 0
 		var shape := CollisionShape3D.new()
-		var box := BoxShape3D.new()
-		box.size = Vector3(SIZE.x, SIZE.y, THICKNESS + 0.004)
-		shape.shape = box
-		body.add_child(shape)
-		add_child(body)
+		shape.name = "Grab"
+		shape.shape = grab_shape()
+		shape.transform = grab_transform()
+		add_child(shape)
+	collision_layer = Binder.PHYSICS_LAYER
+	let_go()
 
 
 ## Whether it's lying about (lie) rather than in hand.
@@ -130,12 +141,35 @@ func is_lying() -> bool:
 	return get_node_or_null("Grab") != null
 
 
-## Picked up: no longer something to aim at.
+## Picked up: no longer something to aim at, and out of physics.
 func stop_lying() -> void:
-	var body := get_node_or_null("Grab")
-	if body != null:
-		remove_child(body)
-		body.queue_free()
+	freeze = true
+	collision_layer = 0
+	var shape := get_node_or_null("Grab")
+	if shape != null:
+		remove_child(shape)
+		shape.queue_free()
+
+
+## Hands it to physics, at rest, where it is.
+func let_go() -> void:
+	freeze = false
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	sleeping = false
+
+
+## Its collision box: the pack, a little thicker on its front so it's easy
+## to aim at, with its back flush with the wrapper's (so lying, it rests
+## right on what's under it).
+static func grab_shape() -> BoxShape3D:
+	var box := BoxShape3D.new()
+	box.size = Vector3(SIZE.x, SIZE.y, THICKNESS + 0.004)
+	return box
+
+
+static func grab_transform() -> Transform3D:
+	return Transform3D(Basis(), Vector3(0, 0, 0.002))
 
 
 ## A pack lying flat with its underside at `at` (global), turned to `yaw`:
