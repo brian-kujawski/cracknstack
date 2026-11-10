@@ -24,7 +24,7 @@ func _init(title: String) -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 24)
 	margin.add_child(column)
-	column.add_child(MenuStyle.heading(title.to_upper(), 48))
+	column.add_child(MenuStyle.heading(title))
 	content = VBoxContainer.new()
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(content)

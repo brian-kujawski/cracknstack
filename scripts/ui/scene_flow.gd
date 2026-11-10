@@ -61,6 +61,13 @@ var _opening_requested := false
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 100
+	# Every Control in the game inherits the style bible's theme (UiStyle).
+	# Merged into the engine's default theme rather than set on the root
+	# window: a theme set on a node stops at the first CanvasLayer, and most
+	# of the game's UI lives under one.
+	ThemeDB.get_default_theme().merge_with(UiStyle.theme())
+	ThemeDB.fallback_font = UiStyle.text_font()
+	ThemeDB.fallback_font_size = UiStyle.BODY
 	_black = ColorRect.new()
 	_black.color = Color.BLACK
 	_black.set_anchors_preset(Control.PRESET_FULL_RECT)

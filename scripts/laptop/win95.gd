@@ -80,6 +80,8 @@ static func bevel(look := Look.RAISED, colour := FACE, margin := 8) -> Bevel:
 ## bevelled buttons, sunken scroll wells.
 static func theme() -> Theme:
 	var t := Theme.new()
+	# The machine voice (style bible §5): a plain 90s system sans.
+	t.default_font = UiStyle.machine_font()
 	t.default_font_size = FONT_SIZE
 	t.set_color("font_color", "Label", TEXT)
 	for state in ["normal", "hover"]:

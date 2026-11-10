@@ -21,3 +21,6 @@ Thumbs.db
 
 # Python
 __pycache__/
+
+# The user's local asset workbench (import-ready art lives here before it is copied in).
+/dev/

@@ -14,14 +14,15 @@ func _init(question: String, explanation: String, answer: String, answered: Call
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var backdrop := MenuStyle.backdrop(MenuStyle.TITLE_BACKDROP)
 	add_child(backdrop)
-	var column := MenuStyle.centred_column(12)
-	backdrop.add_child(column)
-	var heading := MenuStyle.heading(question, 36)
+	var panel := MenuStyle.framed_column(14, question)
+	backdrop.add_child(panel)
+	var column: VBoxContainer = panel.get_node("Column")
+	var heading := MenuStyle.question(question)
 	heading.custom_minimum_size.y = 60 if not explanation.is_empty() else 80
 	column.add_child(heading)
 	if not explanation.is_empty():
-		var line := MenuStyle.heading(explanation, MenuStyle.BUTTON_FONT_SIZE)
-		line.custom_minimum_size.y = 60
+		var line := MenuStyle.line(explanation)
+		line.custom_minimum_size = Vector2(560, 60)
 		column.add_child(line)
 	for entry in [[answer, func() -> void:
 			queue_free()

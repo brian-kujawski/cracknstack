@@ -22,7 +22,7 @@ var state := State.TITLE
 ## The menu's buttons by label, for the tests.
 var buttons := {}
 
-var _title: Label
+var _title: Control
 var _menu_room: Control
 var _menu: VBoxContainer
 var _prompt: Label
@@ -41,9 +41,12 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(MenuStyle.backdrop(MenuStyle.TITLE_BACKDROP))
+	# Marbled paper behind a dark vignette (style bible §8), drifting very
+	# slowly; the title screen's own orientation of the tile.
+	add_child(UiStyle.marbled_backdrop(0, false, Vector2(140, 60), 1.0, Vector2(3, 1)))
 	var column := MenuStyle.centred_column(48)
 	add_child(column)
-	_title = MenuStyle.heading("CRACK & STACK", 96)
+	_title = Wordmark.new()
 	column.add_child(_title)
 	# The menu opens out under the title: its room grows from nothing, so
 	# the title glides up as the buttons fade in rather than jumping.
@@ -86,7 +89,10 @@ func _add_button(text: String, enabled := true) -> Button:
 
 ## PRESS ANY KEY TO START near the bottom.
 func _add_prompt() -> void:
-	_prompt = MenuStyle.heading("PRESS ANY KEY TO START", 22)
+	_prompt = UiStyle.label("PRESS ANY KEY TO START", UiStyle.text_font(600), UiStyle.SMALL, UiStyle.PAPER_MUTED)
+	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_prompt.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	_prompt.add_theme_constant_override("shadow_offset_y", 2)
 	_prompt.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	_prompt.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_prompt.grow_vertical = Control.GROW_DIRECTION_BEGIN

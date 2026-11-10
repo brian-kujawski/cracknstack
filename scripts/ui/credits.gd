@@ -20,7 +20,9 @@ const TEXTURES := [
 ]
 ## One line per font in assets/fonts/ (each has its licence beside it).
 const FONTS := [
-	"Binder lettering: EB Garamond by Georg Duffner and Octavio Pardo, SIL Open Font License 1.1.",
+	"EB Garamond by Georg Duffner and Octavio Pardo, SIL Open Font License 1.1.",
+	"Almendra and Almendra SC by Ana Sanfelippo, SIL Open Font License 1.1.",
+	"Source Sans 3 by Paul D. Hunt for Adobe, SIL Open Font License 1.1.",
 ]
 
 

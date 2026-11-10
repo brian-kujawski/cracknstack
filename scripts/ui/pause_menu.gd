@@ -25,6 +25,9 @@ var save_buttons := {}
 var _menu: VBoxContainer
 var _exit_question: VBoxContainer
 var _save_question: VBoxContainer
+var _menu_panel: PanelContainer
+var _exit_panel: PanelContainer
+var _save_panel: PanelContainer
 ## Where the chosen quit goes once the save question is answered:
 ## SceneFlow.to_main_menu or SceneFlow.quit.
 var _quit_to: Callable
@@ -36,10 +39,11 @@ func _ready() -> void:
 	# The backdrop takes every click, so nothing reaches the game underneath.
 	var backdrop := MenuStyle.backdrop()
 	add_child(backdrop)
-	_menu = MenuStyle.centred_column(12)
-	backdrop.add_child(_menu)
-	var title := MenuStyle.heading("PAUSED")
-	title.custom_minimum_size.y = 120
+	_menu_panel = MenuStyle.framed_column(14, "Paused")
+	backdrop.add_child(_menu_panel)
+	_menu = _menu_panel.get_node("Column")
+	var title := MenuStyle.heading("Paused")
+	title.custom_minimum_size.y = 96
 	_menu.add_child(title)
 	# Fires when the click comes back up, so neither half of it reaches the game.
 	_add_button(_menu, buttons, "Resume").pressed.connect(resume)
@@ -49,14 +53,19 @@ func _ready() -> void:
 	_add_button(_menu, buttons, "Exit Game").pressed.connect(_ask_to_exit)
 	if OS.is_debug_build():
 		_add_time_buttons(_menu)
-	_exit_question = MenuStyle.centred_column(12)
-	backdrop.add_child(_exit_question)
+	_exit_panel = MenuStyle.framed_column(14, "Exit Game")
+	backdrop.add_child(_exit_panel)
+	_exit_question = _exit_panel.get_node("Column")
+	var exit_title := MenuStyle.heading("Exit Game")
+	exit_title.custom_minimum_size.y = 96
+	_exit_question.add_child(exit_title)
 	_add_button(_exit_question, exit_buttons, "Quit to Menu").pressed.connect(_ask_to_save.bind(SceneFlow.to_main_menu, "Quit to Menu"))
 	_add_button(_exit_question, exit_buttons, "Quit to Desktop").pressed.connect(_ask_to_save.bind(SceneFlow.quit, "Quit to Desktop"))
 	_add_button(_exit_question, exit_buttons, "Back").pressed.connect(_back_from_exit)
-	_save_question = MenuStyle.centred_column(12)
-	backdrop.add_child(_save_question)
-	var question := MenuStyle.heading("Save before quitting?", 36)
+	_save_panel = MenuStyle.framed_column(14, "Save before quitting?")
+	backdrop.add_child(_save_panel)
+	_save_question = _save_panel.get_node("Column")
+	var question := MenuStyle.question("Save before quitting?")
 	question.custom_minimum_size.y = 80
 	_save_question.add_child(question)
 	_add_button(_save_question, save_buttons, "Save And Quit").pressed.connect(_quit.bind(true))
@@ -198,6 +207,8 @@ func _show_menu() -> void:
 func _show(column: VBoxContainer) -> void:
 	for step in [_menu, _exit_question, _save_question]:
 		step.visible = step == column
+		# Each step sits in its own stone panel.
+		step.get_parent().visible = step == column
 
 
 ## Opens the Achievements or Settings page over the menu; Back or Esc
