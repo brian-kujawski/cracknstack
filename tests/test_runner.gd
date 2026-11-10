@@ -2606,7 +2606,9 @@ func _test_title_screen() -> void:
 	var title: Control = load(SceneFlow.TITLE_SCENE).instantiate()
 	add_child(title)
 	var labels := title.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
-	_check("CRACK & STACK" in labels and "PRESS ANY KEY TO START" in labels,
+	var wordmark := title.find_child("Wordmark", true, false)
+	var carved := [] if wordmark == null else wordmark.get_children().map(func(word: Label) -> String: return word.text)
+	_check(carved == ["Crack", "&", "Stack"] and "PRESS ANY KEY TO START" in labels,
 		"the title shows the name and PRESS ANY KEY TO START")
 	_check(not labels.any(func(t: String) -> bool: return "Wizards" in t or "Fan Content" in t),
 		"and nothing that gives away what the game is")

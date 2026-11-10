@@ -17,15 +17,14 @@ const LABEL_WIDTH := 560
 const CONTROL_WIDTH := 420
 const VALUE_WIDTH := 100
 const ROW_HEIGHT := 52
-const FONT_SIZE := 24
+const FONT_SIZE := UiStyle.BODY
 ## Over the shop (from the pause menu), the Graphics tab lets the game show
 ## through, so field of view and brightness can be judged as they change.
-const SEE_THROUGH := Color(0.07, 0.05, 0.04, 0.7)
-## The open tab is lit, so it's clear which page you're on.
-const OPEN_TAB := Color(0.36, 0.27, 0.19)
+const SEE_THROUGH := Color(UiStyle.BORDER, 0.55)
+## The panel's window then: the room shows through it as well.
+const SEE_THROUGH_WINDOW := Color(UiStyle.GROUND, 0.55)
 ## Checkboxes drawn at a size that reads at 1080p (the default is tiny).
 const CHECK_SIZE := 30
-const CHECK_COLOUR := Color(0.9, 0.86, 0.8)
 
 ## Each tab's rows, top to bottom:
 ##   ["heading", text]
@@ -121,12 +120,11 @@ func _init() -> void:
 	var group := ButtonGroup.new()
 	for tab in TABS:
 		var button := MenuStyle.menu_button(tab)
+		button.custom_minimum_size.x = 220
 		button.toggle_mode = true
-		var lit := StyleBoxFlat.new()
-		lit.bg_color = OPEN_TAB
-		lit.set_corner_radius_all(3)
-		for state in ["pressed", "hover_pressed"]:
-			button.add_theme_stylebox_override(state, lit)
+		# The open tab stays pressed in, its name in gilt.
+		for state in ["font_pressed_color", "font_hover_pressed_color"]:
+			button.add_theme_color_override(state, UiStyle.GILT)
 		button.button_group = group
 		button.pressed.connect(show_tab.bind(tab))
 		tab_row.add_child(button)
@@ -170,6 +168,8 @@ func show_tab(tab: String) -> void:
 	reset_button.text = "Reset %s" % tab
 	var see_through := is_inside_tree() and get_tree().paused and tab == "Graphics"
 	_backdrop.color = SEE_THROUGH if see_through else MenuStyle.TITLE_BACKDROP
+	panel_frame.window = SEE_THROUGH_WINDOW if see_through else UiStyle.GROUND
+	panel.queue_redraw()
 	# The menu that opened the page (and its own dimming) steps aside too.
 	_show_opener(not see_through)
 
@@ -243,13 +243,11 @@ func _add_row(page: VBoxContainer, row: Array) -> void:
 			_add_keys(page)
 
 
+## A section heading: a gilt caption in small capitals.
 func _heading(text: String) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.custom_minimum_size.y = 64
+	var label := UiStyle.label(text.capitalize(), UiStyle.caption_font(), UiStyle.BODY, UiStyle.GILT)
+	label.custom_minimum_size.y = 60
 	label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	label.add_theme_font_size_override("font_size", MenuStyle.SMALL_FONT_SIZE)
-	label.modulate = Color(1, 1, 1, 0.6)
 	return label
 
 
@@ -311,8 +309,6 @@ func _add_slider(page: VBoxContainer, row: Array) -> void:
 func _add_check(page: VBoxContainer, row: Array) -> void:
 	var key: String = row[1]
 	var box := CheckBox.new()
-	for state in [["checked", true, false], ["unchecked", false, false], ["checked_disabled", true, true], ["unchecked_disabled", false, true]]:
-		box.add_theme_icon_override(state[0], check_icon(state[1], state[2]))
 	var label := _row(page, key, row[2], box)
 	box.toggled.connect(func(on: bool) -> void: Settings.change(key, on))
 	# Clicking the label works as well as the box.
@@ -323,17 +319,10 @@ func _add_check(page: VBoxContainer, row: Array) -> void:
 	_refreshers.append(func() -> void: box.set_pressed_no_signal(Settings.value(key)))
 
 
-## A checkbox's box: an outline, filled in when it's on.
+## A checkbox's box: a sunken well, a gilt tablet in it when it's on
+## (UiStyle; the theme gives every CheckBox these).
 static func check_icon(on: bool, disabled: bool) -> ImageTexture:
-	var colour := CHECK_COLOUR if not disabled else Color(CHECK_COLOUR, 0.4)
-	var image := Image.create(CHECK_SIZE, CHECK_SIZE, false, Image.FORMAT_RGBA8)
-	image.fill(Color(0, 0, 0, 0))
-	for x in CHECK_SIZE:
-		for y in CHECK_SIZE:
-			var edge := mini(mini(x, y), mini(CHECK_SIZE - 1 - x, CHECK_SIZE - 1 - y))
-			if edge < 2 or (on and edge >= 6):
-				image.set_pixel(x, y, colour)
-	return ImageTexture.create_from_image(image)
+	return UiStyle.check_icon(on, disabled, CHECK_SIZE)
 
 
 func _add_dropdown(page: VBoxContainer, row: Array) -> void:
@@ -371,7 +360,7 @@ func _add_key_row(page: VBoxContainer, text: String, keys: Callable) -> Label:
 	shown.text = keys.call()
 	var label := _row(page, "", text, shown)
 	shown.add_theme_font_size_override("font_size", FONT_SIZE)
-	shown.modulate = Color(1, 1, 1, 0.8)
+	shown.add_theme_color_override("font_color", UiStyle.PAPER_MUTED)
 	key_labels[text] = shown
 	return label
 
@@ -396,10 +385,11 @@ class ResetQuestion extends Control:
 		set_anchors_preset(Control.PRESET_FULL_RECT)
 		var backdrop := MenuStyle.backdrop()
 		add_child(backdrop)
-		var column := MenuStyle.centred_column(12)
-		backdrop.add_child(column)
-		var question := MenuStyle.heading("Reset %s to defaults?" % tab, 36)
-		question.custom_minimum_size.y = 80
+		var panel := MenuStyle.framed_column(14, "Reset " + tab)
+		backdrop.add_child(panel)
+		var column: VBoxContainer = panel.get_node("Column")
+		var question := MenuStyle.question("Reset %s to defaults?" % tab)
+		question.custom_minimum_size = Vector2(560, 80)
 		column.add_child(question)
 		for entry in [["Reset", _reset], ["Cancel", queue_free]]:
 			var button := MenuStyle.menu_button(entry[0])

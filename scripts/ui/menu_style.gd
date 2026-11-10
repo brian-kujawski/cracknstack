@@ -37,13 +37,15 @@ static func centred_column(separation := 20) -> VBoxContainer:
 
 ## A stone-framed panel centred on the screen, holding a column (returned
 ## as the panel's only child, named "Column"). `seed_text` picks where in
-## the stone the frame starts.
-static func framed_column(separation := 14, seed_text := "", padding := Vector2(56, 36)) -> PanelContainer:
+## the stone the frame starts. A `reading` panel has a cream plaque for a
+## window (notes), for dark ink text.
+static func framed_column(separation := 14, seed_text := "", padding := Vector2(56, 36), reading := false) -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	panel.add_theme_stylebox_override("panel", UiStyle.frame(14.0, padding, seed_text))
+	var frame := UiStyle.plaque_frame(14.0, padding, seed_text) if reading else UiStyle.frame(14.0, padding, seed_text)
+	panel.add_theme_stylebox_override("panel", frame)
 	var column := VBoxContainer.new()
 	column.name = "Column"
 	column.alignment = BoxContainer.ALIGNMENT_CENTER

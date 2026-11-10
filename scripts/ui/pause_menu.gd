@@ -58,9 +58,7 @@ func _ready() -> void:
 	_exit_panel = MenuStyle.framed_column(14, "Exit Game")
 	backdrop.add_child(_exit_panel)
 	_exit_question = _exit_panel.get_node("Column")
-	var exit_title := MenuStyle.heading("Exit Game")
-	exit_title.custom_minimum_size.y = 96
-	_exit_question.add_child(exit_title)
+	# No text on this step, only its three buttons (user, 2026-10-21).
 	_add_button(_exit_question, exit_buttons, "Quit to Menu").pressed.connect(_ask_to_save.bind(SceneFlow.to_main_menu, "Quit to Menu"))
 	_add_button(_exit_question, exit_buttons, "Quit to Desktop").pressed.connect(_ask_to_save.bind(SceneFlow.quit, "Quit to Desktop"))
 	_add_button(_exit_question, exit_buttons, "Back").pressed.connect(_back_from_exit)

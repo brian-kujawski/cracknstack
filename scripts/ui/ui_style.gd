@@ -85,6 +85,7 @@ const MOMENT := 1.5
 
 static var _fonts := {}
 static var _theme: Theme
+static var _icons := {}
 
 
 ## The name voice (Almendra): headings, names, menu buttons. 30 px and up.
@@ -198,11 +199,16 @@ class Frame:
 		return f
 
 	func _draw(item: RID, rect: Rect2) -> void:
-		_edge.draw(item, rect)
 		var stone := rect.grow(-UiStyle.EDGE)
 		RenderingServer.canvas_item_set_default_texture_repeat(item, RenderingServer.CANVAS_ITEM_TEXTURE_REPEAT_ENABLED)
-		RenderingServer.canvas_item_add_texture_rect_region(item, stone, UiStyle.STONE_TEXTURE.get_rid(),
-			Rect2(offset, stone.size), tint)
+		if band > 0.0 and window.a < 1.0 and not plaque:
+			# A see-through window (Settings' Graphics tab over the shop): only
+			# the edge and the band are solid, so the room shows inside.
+			_draw_open(item, rect, stone)
+		else:
+			_edge.draw(item, rect)
+			RenderingServer.canvas_item_add_texture_rect_region(item, stone, UiStyle.STONE_TEXTURE.get_rid(),
+				Rect2(offset, stone.size), tint)
 		match look:
 			Look.RAISED:
 				UiStyle.bevel(item, stone, Color(1, 1, 1, 0.22), Color(0, 0, 0, 0.45))
@@ -218,6 +224,24 @@ class Frame:
 			RenderingServer.canvas_item_add_rect(item, inside, window)
 		# The window is cut into the stone: dark top-left, light bottom-right.
 		UiStyle.bevel(item, inside, Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.16))
+
+
+	func _draw_open(item: RID, rect: Rect2, stone: Rect2) -> void:
+		var outline := StyleBoxFlat.new()
+		outline.draw_center = false
+		outline.border_color = UiStyle.BORDER
+		outline.set_border_width_all(UiStyle.EDGE)
+		outline.set_corner_radius_all(UiStyle.RADIUS)
+		outline.draw(item, rect)
+		var strips := [
+			Rect2(stone.position, Vector2(stone.size.x, band)),
+			Rect2(stone.position.x, stone.end.y - band, stone.size.x, band),
+			Rect2(stone.position.x, stone.position.y + band, band, stone.size.y - 2 * band),
+			Rect2(stone.end.x - band, stone.position.y + band, band, stone.size.y - 2 * band),
+		]
+		for strip: Rect2 in strips:
+			RenderingServer.canvas_item_add_texture_rect_region(item, strip, UiStyle.STONE_TEXTURE.get_rid(),
+				Rect2(offset + strip.position - stone.position, strip.size), tint)
 
 
 ## One ring of bevel round `r`, BEVEL wide: `top_left` along the top and
@@ -300,8 +324,148 @@ static func theme() -> Theme:
 		t.set_color(entry[0], "Button", entry[1])
 	var panel := Frame.new(12.0)
 	t.set_stylebox("panel", "PanelContainer", panel)
+	# Dropdowns: stone tablets like the buttons, a paper chevron, and a
+	# stone-framed list.
+	var drop := Frame.new(0.0, Vector2(16, 6))
+	drop.offset = stone_offset("dropdown")
+	t.set_stylebox("normal", "OptionButton", drop)
+	t.set_stylebox("hover", "OptionButton", drop.varied(Frame.Look.RAISED, Color(1.28, 1.24, 1.2)))
+	t.set_stylebox("pressed", "OptionButton", drop.varied(Frame.Look.PRESSED, Color(0.85, 0.82, 0.8)))
+	t.set_stylebox("hover_pressed", "OptionButton", drop.varied(Frame.Look.PRESSED, Color(0.95, 0.92, 0.9)))
+	t.set_stylebox("disabled", "OptionButton", drop.varied(Frame.Look.FLAT, Color(0.62, 0.6, 0.6)))
+	t.set_stylebox("focus", "OptionButton", StyleBoxEmpty.new())
+	t.set_icon("arrow", "OptionButton", arrow_icon())
+	t.set_font("font", "OptionButton", text_font(600))
+	for entry in [["font_color", PAPER], ["font_hover_color", Color("fff6dc")], ["font_pressed_color", PAPER],
+			["font_hover_pressed_color", PAPER], ["font_disabled_color", PAPER_FAINT], ["font_focus_color", PAPER]]:
+		t.set_color(entry[0], "OptionButton", entry[1])
+	var list := Frame.new(6.0, Vector2(6, 6))
+	list.offset = stone_offset("list")
+	t.set_stylebox("panel", "PopupMenu", list)
+	t.set_stylebox("hover", "PopupMenu", fill(STONE, 2))
+	t.set_font("font", "PopupMenu", text_font())
+	t.set_color("font_color", "PopupMenu", PAPER)
+	t.set_color("font_hover_color", "PopupMenu", Color("fff6dc"))
+	t.set_color("font_disabled_color", "PopupMenu", PAPER_FAINT)
+	t.set_constant("v_separation", "PopupMenu", 8)
+	# Sliders: a sunken channel, gilt where it's filled, a stone grabber.
+	t.set_stylebox("slider", "HSlider", Well.new(Vector2(0, 5)))
+	t.set_stylebox("grabber_area", "HSlider", fill(GILT.darkened(0.15), 1, Vector2(0, 5)))
+	t.set_stylebox("grabber_area_highlight", "HSlider", fill(GILT, 1, Vector2(0, 5)))
+	t.set_icon("grabber", "HSlider", grabber_icon())
+	t.set_icon("grabber_highlight", "HSlider", grabber_icon(true))
+	t.set_icon("grabber_disabled", "HSlider", grabber_icon())
+	# Checkboxes: a well, a gilt tablet when on.
+	for state in [["checked", true, false], ["unchecked", false, false], ["checked_disabled", true, true], ["unchecked_disabled", false, true]]:
+		t.set_icon(state[0], "CheckBox", check_icon(state[1], state[2]))
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]:
+		t.set_stylebox(state, "CheckBox", StyleBoxEmpty.new())
+	# Scrollbars: a thin channel with a stone grabber.
+	for bar in ["VScrollBar", "HScrollBar"]:
+		t.set_stylebox("scroll", bar, Well.new(Vector2(5, 5), GROUND))
+		t.set_stylebox("scroll_focus", bar, Well.new(Vector2(5, 5), GROUND))
+		t.set_stylebox("grabber", bar, fill(STONE_LIGHT, 3))
+		t.set_stylebox("grabber_highlight", bar, fill(STONE_LIGHT.lightened(0.15), 3))
+		t.set_stylebox("grabber_pressed", bar, fill(STONE_LIGHT.lightened(0.25), 3))
 	_theme = t
 	return t
+
+
+## A well cut into the stone (bible §6.4): a dark, sunken channel. Slider
+## tracks, scrollbar channels, save rows and the radio's song list.
+class Well:
+	extends StyleBox
+
+	var colour := UiStyle.GROUND_RAISED
+
+	func _init(padding := Vector2(16, 10), fill := UiStyle.GROUND_RAISED) -> void:
+		colour = fill
+		content_margin_left = padding.x
+		content_margin_right = padding.x
+		content_margin_top = padding.y
+		content_margin_bottom = padding.y
+
+	func _draw(item: RID, rect: Rect2) -> void:
+		RenderingServer.canvas_item_add_rect(item, rect, colour)
+		UiStyle.bevel(item, rect, Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.12))
+
+
+## A flat fill: a slider's gilt fill, a scrollbar's stone grabber, a hovered
+## row.
+static func fill(colour: Color, radius := 2, padding := Vector2.ZERO) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = colour
+	box.set_corner_radius_all(radius)
+	box.content_margin_left = padding.x
+	box.content_margin_right = padding.x
+	box.content_margin_top = padding.y
+	box.content_margin_bottom = padding.y
+	return box
+
+
+## A checkbox (bible §6.4): a small sunken well, a gilt tablet in it when on.
+static func check_icon(on: bool, disabled := false, side := 30) -> ImageTexture:
+	var key := "check%d%d%d" % [int(on), int(disabled), side]
+	if _icons.has(key):
+		return _icons[key]
+	var image := Image.create(side, side, false, Image.FORMAT_RGBA8)
+	image.fill(BORDER)
+	image.fill_rect(Rect2i(1, 1, side - 2, side - 2), GROUND_RAISED)
+	_bevel_image(image, Rect2i(1, 1, side - 2, side - 2), Color(0, 0, 0, 0.6), Color(1, 1, 1, 0.14))
+	if on:
+		var inner := Rect2i(7, 7, side - 14, side - 14)
+		image.fill_rect(inner, GILT)
+		_bevel_image(image, inner, Color(1, 1, 1, 0.45), Color(0, 0, 0, 0.35))
+	if disabled:
+		for x in side:
+			for y in side:
+				var c := image.get_pixel(x, y)
+				image.set_pixel(x, y, Color(c, c.a * 0.4))
+	_icons[key] = ImageTexture.create_from_image(image)
+	return _icons[key]
+
+
+## A slider's grabber: a small raised stone tablet.
+static func grabber_icon(lit := false) -> ImageTexture:
+	var key := "grabber%d" % int(lit)
+	if _icons.has(key):
+		return _icons[key]
+	var image := Image.create(18, 30, false, Image.FORMAT_RGBA8)
+	image.fill(BORDER)
+	var face := Rect2i(1, 1, 16, 28)
+	image.fill_rect(face, STONE_LIGHT.lightened(0.18) if lit else STONE_LIGHT)
+	_bevel_image(image, face, Color(1, 1, 1, 0.35), Color(0, 0, 0, 0.45))
+	image.fill_rect(Rect2i(8, 8, 2, 14), Color(0, 0, 0, 0.35))
+	_icons[key] = ImageTexture.create_from_image(image)
+	return _icons[key]
+
+
+## A dropdown's arrow: a small downward chevron in paper.
+static func arrow_icon() -> ImageTexture:
+	if _icons.has("arrow"):
+		return _icons["arrow"]
+	var image := Image.create(16, 10, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0, 0, 0, 0))
+	for y in 8:
+		for x in range(y, 16 - y):
+			image.set_pixel(x, y + 1, PAPER_MUTED)
+	_icons["arrow"] = ImageTexture.create_from_image(image)
+	return _icons["arrow"]
+
+
+static func _bevel_image(image: Image, r: Rect2i, top_left: Color, bottom_right: Color) -> void:
+	for i in r.size.x:
+		for j in BEVEL:
+			_blend(image, r.position.x + i, r.position.y + j, top_left)
+			_blend(image, r.position.x + i, r.end.y - 1 - j, bottom_right)
+	for i in range(BEVEL, r.size.y - BEVEL):
+		for j in BEVEL:
+			_blend(image, r.position.x + j, r.position.y + i, top_left)
+			_blend(image, r.end.x - 1 - j, r.position.y + i, bottom_right)
+
+
+static func _blend(image: Image, x: int, y: int, over: Color) -> void:
+	image.set_pixel(x, y, image.get_pixel(x, y).blend(over))
 
 
 ## Marbled paper (bible §8) filling its rect: the tile turned by
@@ -345,14 +509,14 @@ class Marbled:
 
 
 ## Marbled paper behind a dark vignette: the title screen's backdrop.
-static func marbled_backdrop(turns := 0, mirror := false, shift := Vector2.ZERO, scale_by := 1.0, drift := Vector2.ZERO) -> Control:
+static func marbled_backdrop(turns := 0, mirror := false, shift := Vector2.ZERO, scale_by := 1.0, drift := Vector2.ZERO, darkness := 0.56) -> Control:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	var paper := Marbled.new(turns, mirror, shift, scale_by, drift)
 	paper.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_child(paper)
 	var dim := ColorRect.new()
-	dim.color = Color(BORDER, 0.56)
+	dim.color = Color(BORDER, darkness)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(dim)
