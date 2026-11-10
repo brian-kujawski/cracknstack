@@ -2807,6 +2807,45 @@ func _test_credits_roll() -> void:
 	get_viewport().gui_release_focus()
 
 
+## The level-up note: it stops the game until OK is clicked, Esc doesn't
+## close it, and it waits while something else holds the mouse.
+func _test_level_up_note() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	var note := LevelUpNote.new(3)
+	add_child(note)
+	_check(note.showing and note.visible and get_tree().paused and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE,
+		"a level-up note stops the game and frees the mouse")
+	var text := _labels_text(note)
+	_check(text.contains("LEVEL UP") and text.contains("Level 3") and text.contains("Shunt I")
+		and text.contains(Progression.abilities_at(3)[0][4]) and text.contains("NEW ON THE LAPTOP") and text.contains("Card Sorter"),
+		"it names the level, its ability and what it does, and the new tools: " + text)
+	var esc := InputEventAction.new()
+	esc.action = Controls.PAUSE
+	esc.pressed = true
+	note._unhandled_input(esc)
+	_check(not note.is_queued_for_deletion() and get_tree().paused, "Esc doesn't close it")
+	var closed := [false]
+	note.closed.connect(func() -> void: closed[0] = true)
+	note.ok_button.pressed.emit()
+	_check(note.is_queued_for_deletion() and closed[0] and not get_tree().paused and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED,
+		"OK closes it and the game goes on")
+	var empty := LevelUpNote.new(13)
+	add_child(empty)
+	_check(empty.find_child("Ability", true, false) == null and empty.find_child("ToolsCaption", true, false) == null
+		and empty.ok_button != null, "a level that opens nothing just says its number, with OK")
+	empty.close()
+	get_tree().paused = true
+	var waiting := LevelUpNote.new(2)
+	add_child(waiting)
+	_check(not waiting.showing and not waiting.visible, "while the game is already stopped, it waits")
+	get_tree().paused = false
+	waiting._process(0.0)
+	_check(waiting.showing and get_tree().paused, "and shows once it's free")
+	waiting.free()
+	_check(not get_tree().paused, "freed while up, it doesn't leave the game stopped")
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
 func _test_progression() -> void:
 	Progression.reset()
 	var range_data := CardDatabase.all_binders()[0]
@@ -2880,7 +2919,8 @@ func _test_progression() -> void:
 	var main := preload("res://scripts/main.gd")
 	_check(main.level_up_text(3) == "Shunt I: Click anywhere on the open pages to file a card.\nNew on the laptop: Card Sorter" and main.level_up_text(9) == "New on the laptop: Bulk Account"
 		and main.level_up_text(13) == "" and main.level_up_text(2).ends_with("\nNew on the laptop: Pack Knife, Bigger Shipping Boxes"),
-		"the level-up banner names what the level opened: " + main.level_up_text(3))
+		"the level-up note names what the level opened: " + main.level_up_text(3))
+	_test_level_up_note()
 	_check(LaptopScreen.next_unlock_text() == "Every ability is yours.", "My Collection says when there's nothing left")
 	Progression.reset()
 	_check(LaptopScreen.next_unlock_text() == "Next at Level 2: Fact or Fiction", "and names the next: " + LaptopScreen.next_unlock_text())
