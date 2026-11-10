@@ -411,7 +411,7 @@ func _test_tools_and_singles() -> void:
 	_check(is_equal_approx(Prices.sell_rate(), Prices.LISTINGS_RATE), "online listings pay 1.1x")
 	Progression.give_tool("storefront")
 	_check(is_equal_approx(Prices.sell_rate(), Prices.STOREFRONT_RATE), "a storefront pays 1.2x, in place of listings")
-	Progression.reach_level(8)
+	_reach_level(8)
 	_check(is_equal_approx(Prices.sell_rate(), Prices.STOREFRONT_RATE * Prices.BLACK_MARKET_RATE), "Black Market stacks on top")
 	var code: String = LaptopScreen.shop_sets()[0].code
 	var box_price := Prices.product_cents("booster_box", code)
@@ -643,17 +643,17 @@ func _test_tools_and_singles() -> void:
 	_check(not laptop.order_single(last), "the same single can't be ordered twice")
 	main.start_new_day()
 	_check(Collection.owns(last.id) and main.orders.is_empty(), "it arrives the next morning, a new copy of its own")
-	Progression.reach_level(7)
+	_reach_level(7)
 	_check(is_equal_approx(Prices.singles_from(), 0.9) and Prices.single_cents(last) == maxi(1, roundi(last.value * 130.0)),
 		"Burning Wish I: singles from 90%, at 1.3x")
-	Progression.reach_level(18)
+	_reach_level(18)
 	_check(is_equal_approx(Prices.singles_from(), 0.8) and Prices.single_cents(last) == maxi(1, roundi(last.value * 120.0)),
 		"Burning Wish II: from 80%, at 1.2x")
 	laptop.close()
 
 	# Quicken: the first order each day comes within the hour.
 	Progression.reset()
-	Progression.reach_level(12)
+	_reach_level(12)
 	main._day.set_hour(10.0)
 	main.orders.clear()
 	main.place_order("pack", code)
@@ -693,7 +693,7 @@ func _test_card_sorter() -> void:
 	Progression.reset()
 	Collection.reset()
 	_check(Tools.level_of("sorter") == 3 and Tools.price_cents("sorter") == 15000, "the sorter opens at Level 3 for $150")
-	Progression.reach_level(6)
+	_reach_level(6)
 	Progression.earn_money(1000000)
 	_check(not Tools.can_order("surplus_chute") and not Tools.can_order("sorter_mk2"), "its upgrades need the sorter first")
 	Progression.mark_tool_ordered("sorter")
@@ -910,7 +910,7 @@ func _test_hud() -> void:
 	_check(Progression.mana == 1110 and Progression.level() == 4, "a save keeps the Mana, and so the level")
 	Progression.restore_state({"mana": 30, "mana_earned": 1500, "bought": [["Remember the Fallen"]]})
 	_check(Progression.mana == 1500, "an old tree save counts all the Mana it earned, not what was left")
-	Progression.reach_level(20)
+	_reach_level(20)
 	_check(Progression.level() == 20 and Progression.level_span() == 0 and Progression.mana == 30685, "Level 20 is the top")
 	Progression.debug_level_up()
 	_check(Progression.level() == 20, "and there's no Level 21")
@@ -971,7 +971,7 @@ func _test_hud() -> void:
 	hud.show_card(card, Hud.CopyStatus.DUPLICATE)
 	_check(hud.card_plate.visible and hud.card_plate.find_child("Chip", true, false) == null and not Hud.needed_tag_unlocked(),
 		"at Level 1 the plate has no Needed / Duplicate chip")
-	Progression.reach_level(2)
+	_reach_level(2)
 	hud.show_card(card, Hud.CopyStatus.DUPLICATE)
 	_check(hud.card_plate.find_child("Chip", true, false) != null, "Fact or Fiction (Level 2) adds it")
 	Progression.reset()
@@ -2416,7 +2416,7 @@ func _test_settings_screen() -> void:
 		"the wheel and the mouse buttons read as words")
 	_check(screen.key_labels.has("Sorcery 1") and not screen.key_labels.has("Teleport") and screen.key_labels["Sorcery 1"].text == "1",
 		"an unlearned sorcery is listed without its name")
-	Progression.reach_level(15)
+	_reach_level(15)
 	_check(SettingsScreen.sorcery_name(0) == "Teleport", "a learned sorcery shows its name")
 	Progression.reset()
 
@@ -2807,6 +2807,18 @@ func _test_credits_roll() -> void:
 	get_viewport().gui_release_focus()
 
 
+## Progression.reach_level for a test's setup: any level-up notes it brings
+## up in a running shop are clicked OK at once (or dropped, if still waiting),
+## so the game keeps going.
+func _reach_level(level: int) -> void:
+	Progression.reach_level(level)
+	for note: LevelUpNote in get_tree().root.find_children("*", "LevelUpNote", true, false):
+		if note.showing:
+			note.close()
+		else:
+			note.queue_free() # Still waiting (the laptop is open): it never paused anything.
+
+
 ## The level-up note: it stops the game until OK is clicked, Esc doesn't
 ## close it, and it waits while something else holds the mouse.
 func _test_level_up_note() -> void:
@@ -2899,7 +2911,7 @@ func _test_progression() -> void:
 		14: ["Demonic Tutor", 1], 15: ["Teleport", 2], 16: ["Howling Mine", 2], 17: ["Ancestral Recall", 1],
 		18: ["Burning Wish", 2]}
 	for level in range(1, 21):
-		Progression.reach_level(level)
+		_reach_level(level)
 		var rows := Progression.abilities_at(level)
 		if expect.has(level):
 			_check(rows.size() == 1 and rows[0][1] == expect[level][0] and Progression.rank(expect[level][0]) == expect[level][1],
@@ -2908,12 +2920,12 @@ func _test_progression() -> void:
 		else:
 			_check(rows.is_empty(), "Level %d opens no ability (tools come later)" % level)
 	Progression.reset()
-	Progression.reach_level(9)
+	_reach_level(9)
 	_check(Progression.rank("Shunt") == 1 and Progression.next_unlock() == [10, Progression.abilities_at(10)],
 		"Shunt II waits for Level 10, the next unlock")
-	Progression.reach_level(10)
+	_reach_level(10)
 	_check(Progression.rank("Shunt") == 3, "and then Shunt is at its top rank")
-	Progression.reach_level(20)
+	_reach_level(20)
 	_check(Progression.next_unlock().is_empty(), "nothing's left at Level 20")
 	var main := preload("res://scripts/main.gd")
 	_check(main.level_up_text(3) == "Shunt I: Click anywhere on the open pages to file a card.\nNew on the laptop: Card Sorter" and main.level_up_text(9) == "New on the laptop: Bulk Account"
@@ -3003,7 +3015,7 @@ func _test_sorcery_recharge() -> void:
 	Progression.reset()
 	_check(not Progression.can_cast("Teleport") and not Progression.cast("Teleport"),
 		"a sorcery can't be cast before its level")
-	Progression.reach_level(15)
+	_reach_level(15)
 	_check(Progression.can_cast("Teleport"), "a learned sorcery starts ready")
 	_check(Progression.cast("Teleport") and not Progression.can_cast("Teleport"), "casting starts its recharge")
 	_check(is_equal_approx(Progression.recharge_left("Teleport"), 30.0), "Teleport recharges in 30 s")
@@ -3052,9 +3064,9 @@ func _test_level_abilities() -> void:
 	# Snap.
 	_check(is_equal_approx(hands.glide_seconds(0.24), 0.24) and is_equal_approx(hands.current_reach(), 2.6),
 		"at Level 1: glides and reach as they are")
-	Progression.reach_level(5)
+	_reach_level(5)
 	_check(is_equal_approx(hands.glide_seconds(0.24), 0.24), "no Snap at Level 5")
-	Progression.reach_level(6)
+	_reach_level(6)
 	_check(is_equal_approx(hands.glide_seconds(0.24), 0.12), "Snap (Level 6): glides twice as fast")
 	Progression.reset()
 
@@ -3085,7 +3097,7 @@ func _test_level_abilities() -> void:
 		and binder.contents.card_at(43) == -1 and not hands._gliding(), "without Shunt the wrong pocket refuses the card")
 
 	# Shunt I (Level 3): anywhere on the open pages.
-	Progression.reach_level(3)
+	_reach_level(3)
 	_check(hands.shunt_pocket(binder) == 41 and hands._try_file_held_card(), "Shunt I files a card clicked anywhere on its open pages")
 	hands._glide.custom_step(10.0)
 	_check(binder.contents.is_locked(41) and binder.contents.card_at(43) == -1, "into its own pocket")
@@ -3093,7 +3105,7 @@ func _test_level_abilities() -> void:
 	_check(hands.held_card_id == ids[42] and hands.shunt_pocket(binder) == -1, "but not when its page isn't open")
 
 	# Shunt II (Level 10): any page, open or closed.
-	Progression.reach_level(10)
+	_reach_level(10)
 	hands._aim_pocket = 2
 	_check(hands.shunt_pocket(binder) == 42 and hands._try_file_held_card(), "Shunt II files onto the right binder at the wrong pages")
 	hands._glide.custom_step(10.0)
@@ -3111,7 +3123,7 @@ func _test_level_abilities() -> void:
 	pile.pick_up(ids[50])
 	hands._take_in_hand(ids[50])
 	_check(hands.update_tithe() == null and not binder.tithe, "no Tithe glow before Level 4")
-	Progression.reach_level(4)
+	_reach_level(4)
 	_check(hands.update_tithe() == binder and binder.tithe, "Tithe lights the binder the Needed card in hand belongs to")
 	binder.show_pocket(0)
 	hands._aim = Hands.Aim.BINDER
@@ -3127,7 +3139,7 @@ func _test_level_abilities() -> void:
 	hands._release_top()
 
 	# Teleport (Level 15): every card in hand flies home.
-	Progression.reach_level(15)
+	_reach_level(15)
 	for i in 3:
 		pile.pick_up(ids[60 + i])
 		hands._take_in_hand(ids[60 + i])
@@ -3260,12 +3272,12 @@ func _test_money_and_odds_perks() -> void:
 	var first_cards := CardDatabase.cards_in_set(made[0].binder.set_code)
 	made[0].contents.insert(0, Collection.add(first_cards[made[0].binder.first - 1].id))
 	_check(main.howling_mine_gifts(7, made).is_empty(), "no free product before Howling Mine")
-	Progression.reach_level(5)
+	_reach_level(5)
 	var second := made[1].binder.set_code
 	_check(main.howling_mine_set(made) == second, "the free product is of the set you're furthest from finishing")
 	_check(main.howling_mine_gifts(7, made) == [["pack", second], ["pack", second], ["pack", second]],
 		"Howling Mine I: three packs every morning")
-	Progression.reach_level(16)
+	_reach_level(16)
 	_check(main.howling_mine_gifts(6, made).size() == 3 and main.howling_mine_gifts(14, made).back() == ["booster_box", second],
 		"Howling Mine II: a booster box every seventh morning too")
 	for binder in made:
@@ -3275,14 +3287,14 @@ func _test_money_and_odds_perks() -> void:
 	Progression.reset()
 	var card := CardDatabase.get_card(0)
 	var cents := Prices.sale_cents(card)
-	Progression.reach_level(8)
+	_reach_level(8)
 	_check(Prices.sale_cents(card) == maxi(1, roundi(card.value * 110.0)) and Prices.sale_cents(card) >= cents,
 		"Black Market: sales pay 10%% more (%d -> %d cents)" % [cents, Prices.sale_cents(card)])
 
 	# Lucky Clover.
 	Progression.reset()
 	_check(PackContents.mythic_chance() == 8.0 and is_equal_approx(PackContents.play_mythic_chance(), 7.0), "mythics 1 in 8 (Play 1 in 7)")
-	Progression.reach_level(11)
+	_reach_level(11)
 	_check(PackContents.mythic_chance() == 6.0 and is_equal_approx(PackContents.play_mythic_chance(), 5.25),
 		"Lucky Clover: 1 in 6 (Play 5.25)")
 	var rare_slot: Dictionary = PackContents.era_slots("draft", PackedInt32Array([100, 60, 50, 15, 5])).back()
@@ -3297,7 +3309,7 @@ func _test_money_and_odds_perks() -> void:
 	for i in ceili(cards.size() * 0.75):
 		Collection.add(cards[i].id)
 	_check(is_equal_approx(PackContents.needed_weight(code), 1.25), "owning 75% of a set, cards you lack are 1.25x as likely")
-	Progression.reach_level(14)
+	_reach_level(14)
 	_check(is_equal_approx(PackContents.needed_weight(code), 1.5), "and Demonic Tutor makes it 1.5x")
 	var missing := PackContents.unowned(code)
 	_check(missing.size() == cards.size() - ceili(cards.size() * 0.75), "the unowned cards are the rest")
@@ -3319,7 +3331,7 @@ func _test_money_and_odds_perks() -> void:
 	rng.seed = 3
 	var state := rng.state
 	_check(PackContents.with_recall(list, rng) == list and rng.state == state, "no bonus rare, and no roll, before Level 17")
-	Progression.reach_level(17)
+	_reach_level(17)
 	var bonus := 0
 	for i in 1500:
 		if PackContents.with_recall(list, rng).size() > list.size():
@@ -3895,7 +3907,7 @@ func _test_shop_save() -> void:
 	var shelf: ShelfUnit = main._shelves()[0]
 	var shelved := pile.binders[1]
 	shelf.shelve(shelf.space_for(shelved.binder.set_code), shelved)
-	Progression.reach_level(10)
+	_reach_level(10)
 	Progression.earn(500)
 	player.global_position = Vector3(3.0, 0.1, 5.0)
 	player.rotation.y = 1.2
@@ -4070,7 +4082,7 @@ func _test_rare_cards() -> void:
 	await _finish_glide(hands)
 
 	# Binder magic doesn't touch it.
-	Progression.reach_level(15) # Teleport
+	_reach_level(15) # Teleport
 	_check(not hands.cast_teleport(), "Teleport fizzles on a rare card")
 	_check(hands.held_card_id == rare[0].id and hands.behind.is_empty(), "and it stays in hand")
 	var binder := pile.binders[0]
