@@ -2845,6 +2845,12 @@ func _test_level_up_note() -> void:
 	_check(empty.find_child("Ability", true, false) == null and empty.find_child("ToolsCaption", true, false) == null
 		and empty.ok_button != null, "a level that opens nothing just says its number, with OK")
 	empty.close()
+	var two := LevelUpNote.new(2)
+	add_child(two)
+	var lines := two.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
+	_check(lines.has("Pack Knife") and lines.has("Bigger Shipping Boxes") and lines.has(Progression.abilities_at(2)[0][4]),
+		"each new tool gets its own line: %s" % [lines])
+	two.close()
 	get_tree().paused = true
 	var waiting := LevelUpNote.new(2)
 	add_child(waiting)
