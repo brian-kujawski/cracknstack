@@ -36,7 +36,7 @@ func _init() -> void:
 func build() -> void:
 	set_code = ""
 	collision_layer = Binder.PHYSICS_LAYER
-	collision_mask = 0
+	collision_mask = Binder.PHYSICS_MASK
 	var plastic := StandardMaterial3D.new()
 	plastic.albedo_color = PLASTIC
 	plastic.roughness = 0.55
@@ -128,7 +128,8 @@ func _add_box(part: String, box_size_: Vector3, at: Vector3, turn: Basis, materi
 		add_child(shape)
 
 
-## Its whole size, the open lid included (for holding it, and the ghost).
+## Its whole size, the open lid included (for holding it, and for lowering
+## it into place when put down).
 func box_size() -> Vector3:
 	return Vector3(BASE.x, BASE.y + LID.y * cos(LID_LEAN), BASE.z)
 

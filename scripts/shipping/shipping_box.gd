@@ -85,7 +85,7 @@ func build(fill := 0, shut := false, holds := -1) -> void:
 	size = sized(capacity)
 	set_code = ""
 	collision_layer = Binder.PHYSICS_LAYER
-	collision_mask = 0
+	collision_mask = Binder.PHYSICS_MASK
 	var shape := CollisionShape3D.new()
 	var collider := BoxShape3D.new()
 	collider.size = size

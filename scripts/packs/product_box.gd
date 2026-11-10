@@ -1,5 +1,5 @@
 class_name ProductBox
-extends StaticBody3D
+extends RigidBody3D
 ## A box of sealed product of one set, lying about (on the floor, a table)
 ## or in hand: a booster box of PackContents.BOX_PACKS packs, or a bulk box
 ## of PackContents.BULK_SIZE cards. Pick it up with an empty hand, put it
@@ -14,6 +14,11 @@ extends StaticBody3D
 ##
 ## Its origin is the middle of its underside; it's on the binder collision
 ## layer, like cards on tables, so it can be aimed at and things rest on it.
+## Like a binder it's a physics body while it lies about (see PutDown):
+## it rests on whatever is under it, things stack on it, and it falls when
+## what's under it goes. In hand, on its way somewhere, or part of something
+## else (the card sorter's pockets), it's frozen. The laptop, shipping boxes
+## and the sorting tray are ProductBoxes too, so all of that holds for them.
 
 enum Kind { BOOSTER, BULK }
 
@@ -29,12 +34,46 @@ var kind := Kind.BOOSTER
 var set_code := ""
 
 
+func _init() -> void:
+	freeze = true
+	add_to_group(PutDown.GROUP)
+	mass = 1.0
+	physics_material_override = PhysicsMaterial.new()
+	physics_material_override.friction = 0.9
+	physics_material_override.bounce = 0.0
+
+
+## Put straight into the room (delivered, put back from a save, built with
+## the shop), it rests there under physics.
+func _ready() -> void:
+	if get_parent() is PileWorld:
+		let_go()
+
+
+## Hands it to physics, at rest, where it is.
+func let_go() -> void:
+	collision_layer = Binder.PHYSICS_LAYER
+	collision_mask = Binder.PHYSICS_MASK
+	freeze = false
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	sleeping = false
+
+
+## Out of physics: held, or moving somewhere by script. `aimable` false
+## takes it off every collision layer too (in hand, nothing aims at it).
+func hold_still(aimable := true) -> void:
+	freeze = true
+	if not aimable:
+		collision_layer = 0
+
+
 ## Builds a box of `box_kind` for set `code`.
 func setup(box_kind: Kind, code: String) -> void:
 	kind = box_kind
 	set_code = code
 	collision_layer = Binder.PHYSICS_LAYER
-	collision_mask = 0
+	collision_mask = Binder.PHYSICS_MASK
 	var size := box_size()
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()

@@ -167,6 +167,7 @@ func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
 	collision_layer = PHYSICS_LAYER
 	collision_mask = PHYSICS_MASK
 	mass = 1.2
+	add_to_group(PutDown.GROUP)
 	physics_material_override = PhysicsMaterial.new()
 	physics_material_override.friction = 0.9
 	physics_material_override.bounce = 0.0
@@ -401,17 +402,29 @@ func carry(holder: Node, local_position: Vector3, local_rotation: Vector3) -> vo
 
 
 ## Lays the binder down closed at a point, turned to face `yaw`, on top of
-## whatever is there (cards, a table, another binder), then lets physics
-## settle it.
-func put_down(parent: Node, point: Vector3, yaw: float) -> void:
+## whatever is there (cards, a table, another binder, a box), lowered from
+## `from_height` (DROP_HEIGHT over the point if not given), then lets
+## physics settle it.
+func put_down(parent: Node, point: Vector3, yaw: float, from_height := NAN) -> void:
 	_move_to(parent)
 	state = State.CLOSED
 	collision_layer = PHYSICS_LAYER
 	collision_mask = PHYSICS_MASK
 	rotation = Vector3(0, yaw, 0)
 	position = point
-	_lower_onto_what_is_below(point.y + DROP_HEIGHT)
+	_lower_onto_what_is_below(point.y + DROP_HEIGHT if is_nan(from_height) else from_height)
 	let_go()
+
+
+## Something under it went or changed (PutDown.disturb): lying closed, it
+## wakes so physics settles it; open (held flat, out of physics), it's
+## lowered onto whatever is under it now.
+func settle() -> void:
+	if state == State.CLOSED and not freeze:
+		sleeping = false
+	elif state == State.OPEN and is_inside_tree():
+		global_position.y = rest_height(Vector2(global_position.x, global_position.z), global_rotation.y,
+			global_position.y + 0.005)
 
 
 ## Throws the binder from the global pose `start` (the player's hands) under
