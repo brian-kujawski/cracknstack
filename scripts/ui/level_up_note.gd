@@ -140,7 +140,7 @@ func _process(_delta: float) -> void:
 ## Shows it once nothing else holds the game: not paused (the pause menu,
 ## laptop, radio and other notes all pause it), no fade running.
 func _try_show() -> void:
-	if showing or not is_inside_tree():
+	if showing or not is_inside_tree() or is_queued_for_deletion():
 		return
 	if get_tree().paused or SceneFlow.is_busy():
 		return
