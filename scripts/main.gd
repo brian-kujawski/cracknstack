@@ -858,7 +858,7 @@ static func level_up_text(level: int) -> String:
 	for entry in Tools.opened_at(level):
 		tools.append(entry[1])
 	if not tools.is_empty():
-		lines.append("New on the laptop: %s" % ", ".join(tools))
+		lines.append("%s: %s" % [LevelUpNote.TOOLS_CAPTION, ", ".join(tools)])
 	return "\n".join(lines)
 
 

@@ -1,8 +1,8 @@
 class_name LevelUpNote
 extends CanvasLayer
 ## What a new level opened, in a panel over the game: "LEVEL UP", the level,
-## then each ability's name and what it does, then the tools now on the
-## laptop (Main.level_up_text has the same words as plain text). It stops
+## then each ability's name and what it does, then the tools now in the
+## store, one per line (Main.level_up_text has the same words as plain text). It stops
 ## the game and frees the mouse, and only its OK button closes it: Esc does
 ## nothing while it's up, so it can't be dismissed by accident.
 ##
@@ -16,6 +16,9 @@ signal closed
 
 const WIDTH := 640
 const ACCENT := HudStyle.GOLD_BRIGHT
+## Over the new tools' names, one per line (they aren't described: that's
+## for the player to find in the Tools app).
+const TOOLS_CAPTION := "New tools available in the store"
 
 var level := 1
 var ok_button: Button
@@ -85,12 +88,13 @@ func _build_lines(column: VBoxContainer) -> void:
 		column.add_child(_wrapped(row[4], "Effect"))
 	if not tools.is_empty():
 		column.add_child(_gap(22))
-		var caption := HudStyle.caption("NEW ON THE LAPTOP", 22)
+		var caption := HudStyle.caption(TOOLS_CAPTION.to_upper(), 22)
 		caption.name = "ToolsCaption"
 		caption.add_theme_color_override("font_color", HudStyle.GOLD_BRIGHT)
 		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		column.add_child(caption)
-		column.add_child(_wrapped(", ".join(tools), "Tools"))
+		for tool in tools:
+			column.add_child(_wrapped(tool, "Tool"))
 	column.add_child(_gap(30))
 	ok_button = MenuStyle.menu_button("OK")
 	ok_button.name = "OK"

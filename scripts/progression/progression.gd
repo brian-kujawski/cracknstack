@@ -43,7 +43,7 @@ const LEVELS := [0, 85, 340, 765, 1360, 2125, 3060, 4165, 5440, 6885,
 ## gives a node's highest rank whose level you've reached. Levels with no
 ## ability open tools on the laptop instead (later).
 const ABILITIES := [
-	[2, "Fact or Fiction", 1, "Fact or Fiction", "The card plate says Needed or Duplicate."],
+	[2, "Fact or Fiction", 1, "Fact or Fiction", "You will now remember whether you have already collected a copy of a given card."],
 	[3, "Shunt", 1, "Shunt I", "Click anywhere on the open pages to file a card."],
 	[4, "Tithe", 1, "Tithe", "Hold a Needed card and its binder glows. Take it out and it opens at the card's page."],
 	[5, "Howling Mine", 1, "Howling Mine I", "Three free packs arrive every morning."],

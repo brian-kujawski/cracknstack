@@ -2828,7 +2828,7 @@ func _test_level_up_note() -> void:
 		"a level-up note stops the game and frees the mouse")
 	var text := _labels_text(note)
 	_check(text.contains("LEVEL UP") and text.contains("Level 3") and text.contains("Shunt I")
-		and text.contains(Progression.abilities_at(3)[0][4]) and text.contains("NEW ON THE LAPTOP") and text.contains("Card Sorter"),
+		and text.contains(Progression.abilities_at(3)[0][4]) and text.contains("NEW TOOLS AVAILABLE IN THE STORE") and text.contains("Card Sorter"),
 		"it names the level, its ability and what it does, and the new tools: " + text)
 	var esc := InputEventAction.new()
 	esc.action = Controls.PAUSE
@@ -2928,8 +2928,8 @@ func _test_progression() -> void:
 	_reach_level(20)
 	_check(Progression.next_unlock().is_empty(), "nothing's left at Level 20")
 	var main := preload("res://scripts/main.gd")
-	_check(main.level_up_text(3) == "Shunt I: Click anywhere on the open pages to file a card.\nNew on the laptop: Card Sorter" and main.level_up_text(9) == "New on the laptop: Bulk Account"
-		and main.level_up_text(13) == "" and main.level_up_text(2).ends_with("\nNew on the laptop: Pack Knife, Bigger Shipping Boxes"),
+	_check(main.level_up_text(3) == "Shunt I: Click anywhere on the open pages to file a card.\nNew tools available in the store: Card Sorter" and main.level_up_text(9) == "New tools available in the store: Bulk Account"
+		and main.level_up_text(13) == "" and main.level_up_text(2).ends_with("\nNew tools available in the store: Pack Knife, Bigger Shipping Boxes"),
 		"the level-up note names what the level opened: " + main.level_up_text(3))
 	_test_level_up_note()
 	_check(LaptopScreen.next_unlock_text() == "Every ability is yours.", "My Collection says when there's nothing left")
