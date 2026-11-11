@@ -36,6 +36,12 @@ const WINDOW_ENERGY := 0.9
 const CURTAIN_GLOW := 0.45
 const SKY_GLOW := 1.4
 const NIGHT_SKY := Color(0.03, 0.04, 0.09)
+## The room is closed, so the environment sky is never seen directly: it is
+## only what glossy surfaces (the floorboards most) reflect. main.tscn paints
+## it in the room's own parchment and walnut so those reflections read as the
+## room, not Godot's default blue sky. Its brightness follows the ambient.
+const DAY_REFLECTION := 0.35
+const NIGHT_REFLECTION := 0.08
 
 ## Hours since midnight, 0..24.
 var hour := START_HOUR
@@ -98,6 +104,8 @@ func apply() -> void:
 	if _environment != null:
 		_environment.ambient_light_color = NIGHT_AMBIENT.lerp(DAY_AMBIENT, strength)
 		_environment.ambient_light_energy = lerpf(NIGHT_AMBIENT_ENERGY, DAY_AMBIENT_ENERGY, strength)
+		if _environment.sky != null and _environment.sky.sky_material is ProceduralSkyMaterial:
+			(_environment.sky.sky_material as ProceduralSkyMaterial).energy_multiplier = lerpf(NIGHT_REFLECTION, DAY_REFLECTION, strength)
 
 
 ## Daylight at an hour: its colour, with its strength (0..1) in alpha.
