@@ -132,11 +132,12 @@ const RUG := "rug"
 const RUG_AT := Vector2(6.0, 4.1)
 const RUG_SIZE := Vector2(5.0, 4.6)
 const RUG_HEIGHT := 0.0004
-## The armchair's leather (assets/store/leather, the binders' hide), a worn
-## brown, and how many metres one copy of it covers.
+## The armchair's leather (assets/store/leather, the binders' hide), dyed a
+## deep bottle green to stand apart from the walnut and echo the baize, and
+## how many metres one copy of it covers.
 const LEATHER := "leather"
 const LEATHER_SIZE := 0.4
-const CHAIR_LEATHER := Color(0.4, 0.23, 0.14)
+const CHAIR_LEATHER := Color(0.1, 0.22, 0.15)
 ## Polished brass for the door and cabinet hardware and the curtain rods
 ## (assets/store/brass), and how many metres one copy of it covers.
 const BRASS := "brass"
