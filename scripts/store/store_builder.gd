@@ -22,6 +22,9 @@ const WALL_THICKNESS := 0.2
 ## Binders read left to right, top shelf first, so the shelf reads the
 ## timeline like a book.
 const BACK_SHELF := Vector2(2.0, 10.0)
+## The card tables: 1.3 m square and 1.0 m tall, standing height, so the
+## cards on them sit close under the player's eye. They're built as standing
+## library tables (deep apron, low stretcher) so the height reads as meant.
 const TABLE_SIZE := Vector3(1.3, 1.0, 1.3)
 const TABLE_CENTERS := [Vector2(4.6, 2.9), Vector2(7.4, 2.9), Vector2(4.6, 5.3), Vector2(7.4, 5.3)]
 ## How far past a table's edge a standing player can step, so that with no
@@ -188,7 +191,8 @@ var _floor_material := _textured(FLOOR, FLOOR_SIZE)
 var _table_material := _textured(TABLE_WOOD, TABLE_WOOD_SIZE)
 ## The same wood for the legs, mapped by the legs' own UVs so the grain runs
 ## up them (world mapping would lay it across, like the top's).
-var _leg_material := _by_uv(_table_material)
+## The bookcase's trim (its mouldings and top), a shade lighter than the wood.
+var _trim_material: Material = ShelfUnit._tinted(_table_material, 1.12)
 var _felt_material := _textured(FELT, FELT_SIZE)
 var _fixture_material := _metal(Color(0.12, 0.13, 0.12), 0.45)
 var _brass_material := _brass()
@@ -268,9 +272,9 @@ func _build_binder_shelves() -> void:
 	surfaces.append(Rect2(top.position + Vector2(unit.position.x, unit.position.z), top.size))
 
 
-## Each table is a heavy solid-wood games table: a thick top with a stepped
-## edge and a felt playing surface, a deep apron, and four square legs that
-## taper toward the floor. The space under the top stays open, so cards that
+## Each table is a heavy solid-wood games table in the bookcase's style: a
+## thick top in its moulded edge round a felt playing surface, a deep apron,
+## and four fluted legs that taper toward the floor into brass foot caps. The space under the top stays open, so cards that
 ## slid underneath stay in sight and in reach (crouching gets you under).
 func _build_tables() -> void:
 	for center in TABLE_CENTERS:
@@ -278,14 +282,16 @@ func _build_tables() -> void:
 
 
 func _build_table(center: Vector2) -> void:
-	const TOP := 0.05
-	## The top's underside steps in here to soften the edge.
-	const EDGE_STEP := 0.012
-	## Legs: square, wider at the top than at the foot, set in from the edge.
-	const LEG_TOP := 0.09
-	const LEG_FOOT := 0.065
+	const TOP := 0.048
+	## The moulded edge round the top (the bookcase's shelf edge): how deep.
+	const EDGE := 0.012
+	## Legs: fluted and tapering, in brass foot caps, set in from the edge.
+	const LEG_TOP := 0.1
 	const LEG_INSET := 0.05
-	const APRON_HEIGHT := 0.11
+	const APRON_HEIGHT := 0.14
+	## A low H-stretcher between the legs, as on a standing library table.
+	const STRETCHER_Y := 0.2
+	const STRETCHER := Vector2(0.045, 0.05)
 	const APRON_THICKNESS := 0.025
 	const FELT_BORDER := 0.11
 	var body := StaticBody3D.new()
@@ -299,9 +305,10 @@ func _build_table(center: Vector2) -> void:
 	top.add_to_group(TABLE_TOPS)
 	body.add_child(top)
 
-	_add_part(top, Vector3(size.x, TOP - EDGE_STEP, size.y), Vector3(0, top_y - (TOP - EDGE_STEP) / 2, 0), _table_material, true)
-	_add_part(top, Vector3(size.x - 2 * EDGE_STEP, EDGE_STEP, size.y - 2 * EDGE_STEP),
-		Vector3(0, top_y - TOP + EDGE_STEP / 2, 0), _table_material, true)
+	# The top: a slab inside the bookcase's moulded edge, which runs round it.
+	_add_part(top, Vector3(size.x - 2 * EDGE, TOP, size.y - 2 * EDGE), Vector3(0, top_y - TOP / 2, 0), _table_material, false)
+	_add_shape(top, Vector3(size.x, TOP, size.y), Vector3(0, top_y - TOP / 2, 0))
+	Furniture.ring(top, "ShelfEdge", Vector3(0, top_y, 0), size - Vector2.ONE * 2 * EDGE, EDGE, _trim_material)
 	_add_part(top, Vector3(size.x - 2 * FELT_BORDER, 0.001, size.y - 2 * FELT_BORDER),
 		Vector3(0, top_y + 0.0005, 0), _felt_material, false)
 
@@ -309,11 +316,7 @@ func _build_table(center: Vector2) -> void:
 	var leg_height := top_y - TOP
 	for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
 		var at: Vector2 = corner * leg_half
-		var leg := MeshInstance3D.new()
-		leg.mesh = _tapered_leg(LEG_TOP, LEG_FOOT, leg_height)
-		leg.material_override = _leg_material
-		leg.position = Vector3(at.x, 0, at.y)
-		body.add_child(leg)
+		Furniture.leg(body, Vector3(at.x, 0, at.y), LEG_TOP, leg_height, _table_material, _brass_material)
 		_add_shape(body, Vector3(LEG_TOP, leg_height, LEG_TOP), Vector3(at.x, leg_height / 2, at.y))
 		var world := center + at
 		obstacles.append(Rect2(world - Vector2.ONE * LEG_TOP / 2, Vector2.ONE * LEG_TOP))
@@ -325,6 +328,12 @@ func _build_table(center: Vector2) -> void:
 		_add_part(top, Vector3(2 * leg_half.x, APRON_HEIGHT, APRON_THICKNESS), Vector3(0, apron_y, side * rail_offset.y), _table_material, true)
 		_add_part(top, Vector3(APRON_THICKNESS, APRON_HEIGHT, 2 * leg_half.y), Vector3(side * rail_offset.x, apron_y, 0), _table_material, true)
 
+	# The H-stretcher: a rail between each side's legs, and one across the
+	# middle. Only seen: nothing collides with it.
+	for side in [-1, 1]:
+		_add_part(body, Vector3(STRETCHER.x, STRETCHER.y, 2 * leg_half.y), Vector3(side * leg_half.x, STRETCHER_Y, 0), _table_material, false)
+	_add_part(body, Vector3(2 * leg_half.x, STRETCHER.y, STRETCHER.x), Vector3(0, STRETCHER_Y, 0), _table_material, false)
+
 	# What stops a lean: TABLE_LEAN in from the edge, under the top, and above
 	# a crouched body so you can still crawl underneath.
 	const LEAN_STOP_BOTTOM := 0.65
@@ -334,31 +343,6 @@ func _build_table(center: Vector2) -> void:
 	body.add_child(lean_stop)
 	var stop_height := top_y - TOP - LEAN_STOP_BOTTOM
 	_add_shape(lean_stop, Vector3(size.x - 2 * TABLE_LEAN, stop_height, size.y - 2 * TABLE_LEAN), Vector3(0, LEAN_STOP_BOTTOM + stop_height / 2, 0))
-
-
-## A square leg standing on the floor, `top` wide under the table and
-## narrowing to `foot` at the floor. Its UVs are in TABLE_WOOD_SIZE units,
-## with u running up the leg, so the wood's grain does too.
-static func _tapered_leg(top: float, foot: float, height: float) -> ArrayMesh:
-	var tool := SurfaceTool.new()
-	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var corners := [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]
-	for i in 4:
-		var a: Vector2 = corners[i]
-		var b: Vector2 = corners[(i + 1) % 4]
-		var a0 := Vector3(a.x * foot / 2, 0, a.y * foot / 2)
-		var b0 := Vector3(b.x * foot / 2, 0, b.y * foot / 2)
-		var a1 := Vector3(a.x * top / 2, height, a.y * top / 2)
-		var b1 := Vector3(b.x * top / 2, height, b.y * top / 2)
-		var uvs := [Vector2(0, 0), Vector2(0, foot), Vector2(height, top), Vector2(height, 0)]
-		var corners_3d := [a0, b0, b1, a1]
-		# Clockwise seen from outside (Godot's front faces).
-		for j in [0, 1, 2, 0, 2, 3]:
-			tool.set_uv(uvs[j] / TABLE_WOOD_SIZE)
-			tool.add_vertex(corners_3d[j])
-	tool.generate_normals()
-	tool.generate_tangents()
-	return tool.commit()
 
 
 func _add_part(body: Node3D, size: Vector3, center: Vector3, material: Material, solid: bool) -> void:
@@ -442,7 +426,7 @@ func _build_reading_corner() -> void:
 	var chair := ReadingCorner.armchair(leather, _table_material)
 	chair.name = "Armchair"
 	_place(chair, ARMCHAIR_AT, ARMCHAIR_YAW, ReadingCorner.CHAIR_SIZE)
-	var table := ReadingCorner.side_table(_table_material, _leg_material)
+	var table := ReadingCorner.side_table(_table_material, _brass_material)
 	table.name = "SideTable"
 	_place(table, SIDE_TABLE_AT, 0.0, Vector2.ONE * ReadingCorner.TABLE_TOP)
 	var lamp := ReadingCorner.floor_lamp(_brass_material, _curtain(), FIXTURE_LIGHT)
@@ -747,15 +731,6 @@ static func _textured(name: String, size: float) -> StandardMaterial3D:
 static func _tinted(material: StandardMaterial3D, tint: Color) -> StandardMaterial3D:
 	material.albedo_color = tint
 	return material
-
-
-## A copy of a textured surface that follows the mesh's own UVs instead.
-static func _by_uv(material: StandardMaterial3D) -> StandardMaterial3D:
-	var copy: StandardMaterial3D = material.duplicate()
-	copy.uv1_triplanar = false
-	copy.uv1_world_triplanar = false
-	copy.uv1_scale = Vector3.ONE
-	return copy
 
 
 ## The window drapes: the knit, dyed oxblood, with a velvet sheen.

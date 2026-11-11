@@ -24,8 +24,9 @@ const DEPTH := 0.45
 const BASE_HEIGHT := 0.885
 ## Top of the glass case (under the cornice).
 const CASE_TOP := 2.05
-## The cornice overhangs the front and sides by this much.
-const CORNICE_OVERHANG := 0.03
+## The cornice (the bookcase's crown under a cap) overhangs the front and
+## sides by this much.
+const CORNICE_OVERHANG := 0.04
 const CORNICE_HEIGHT := 0.08
 ## Shadow boxes: rows top first, columns left to right.
 const ROWS := 3
@@ -57,6 +58,8 @@ var displayed := PackedInt32Array()
 var _views: Array[MeshInstance3D] = []
 
 var _parts := {}
+## The bookcase's trim: the wood a shade lighter, for mouldings and the cap.
+var _trim: StandardMaterial3D
 
 
 ## The floor footprint (x across, z out from the wall), in local metres.
@@ -72,6 +75,7 @@ static func footprint() -> Rect2:
 func build(wood: StandardMaterial3D, lining: Material, brass: Material, light: Color) -> void:
 	var dark := _tinted(wood, 0.7)
 	var walnut := _tinted(wood, 0.5)
+	_trim = _tinted(wood, 1.12)
 	var linen := _material(Color(0.83, 0.79, 0.7), 0.95)
 	var glass := _material(Color(0.85, 0.93, 0.92, 0.1), 0.04)
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -177,16 +181,20 @@ func clear_display() -> void:
 			_views[i] = null
 
 
-## A recessed plinth, a carcass with two panelled doors, and the shelf the
+## A skirting plinth, a carcass with two panelled doors, and the shelf the
 ## case stands on, overhanging the doors a little.
 func _build_base(wood: Material, dark: Material, brass: Material) -> void:
-	const PLINTH := 0.09
-	const PLINTH_RECESS := 0.04
+	# The plinth is the room's skirting, run round the front and sides, as on
+	# the bookcase.
+	const PLINTH := 0.16
 	const SHELF := 0.035
-	_box(Vector3(WIDTH - 0.04, PLINTH, DEPTH - PLINTH_RECESS), Vector3(0, PLINTH / 2, -PLINTH_RECESS / 2), dark)
 	var carcass_top := BASE_HEIGHT - SHELF
 	var carcass := carcass_top - PLINTH
-	_box(Vector3(WIDTH, carcass, DEPTH - 0.022), Vector3(0, PLINTH + carcass / 2, -0.011), wood)
+	_box(Vector3(WIDTH, carcass_top, DEPTH - 0.022), Vector3(0, carcass_top / 2, -0.011), wood)
+	var face := DEPTH / 2 - 0.022
+	Furniture.run(self, "Skirting", Vector3(-WIDTH / 2 - 0.022, 0, face), Vector3.RIGHT, WIDTH + 0.044, Vector3.BACK, _trim)
+	Furniture.run(self, "Skirting", Vector3(WIDTH / 2, 0, face), Vector3.FORWARD, DEPTH - 0.022, Vector3.RIGHT, _trim)
+	Furniture.run(self, "Skirting", Vector3(-WIDTH / 2, 0, -DEPTH / 2), Vector3.BACK, DEPTH - 0.022, Vector3.LEFT, _trim)
 	_box(Vector3(WIDTH + 0.02, SHELF, DEPTH + 0.015), Vector3(0, carcass_top + SHELF / 2, 0.0075), wood)
 
 	# Two doors meeting in the middle: a slab with a frame of stiles and rails
@@ -257,14 +265,20 @@ func _build_case(wood: Material, lining: Material, brass: Material, glass: Mater
 		_box(Vector3(0.016, 0.016, 0.02), Vector3(stile_x, door_y - 0.05, front + 0.006), brass)
 	_box(Vector3(0.012, 0.03, 0.002), Vector3(-(GAP / 2 + STILE / 2), door_y + 0.03, front + 0.001), brass)
 
-	# The cornice: a cove step, then the crown, both overhanging front and
-	# sides and flush with the wall behind.
-	var step := CORNICE_OVERHANG / 2
-	var cove_y := CASE_TOP + 0.025
-	_box(Vector3(WIDTH + 2 * step, 0.025, DEPTH + step), Vector3(0, cove_y + 0.0125, step / 2), wood)
-	var crown := CORNICE_HEIGHT - 0.05
-	_box(Vector3(WIDTH + 2 * CORNICE_OVERHANG, crown, DEPTH + CORNICE_OVERHANG),
-		Vector3(0, cove_y + 0.025 + crown / 2, CORNICE_OVERHANG / 2), wood)
+	# Fluted pilasters on the front posts, as on the bookcase's ends.
+	for side in [-1, 1]:
+		KilnModel.add(self, Furniture.moulding("Pilaster"), _trim, Transform3D(
+			Basis.from_scale(Vector3(_POST / 0.03, height, 1)), Vector3(side * (WIDTH / 2 - _POST / 2), BASE_HEIGHT, front)))
+
+	# The cornice: the bookcase's crown, run round the front and sides, under
+	# a cap that overhangs it, flush with the wall behind.
+	const CAP := 0.025
+	var crown_top := CASE_TOP + CORNICE_HEIGHT - CAP
+	Furniture.run(self, "Crown", Vector3(-WIDTH / 2 - 0.035, crown_top, front), Vector3.RIGHT, WIDTH + 0.07, Vector3.BACK, _trim)
+	Furniture.run(self, "Crown", Vector3(WIDTH / 2, crown_top, front), Vector3.FORWARD, DEPTH, Vector3.RIGHT, _trim)
+	Furniture.run(self, "Crown", Vector3(-WIDTH / 2, crown_top, back), Vector3.BACK, DEPTH, Vector3.LEFT, _trim)
+	_box(Vector3(WIDTH + 2 * CORNICE_OVERHANG, CAP, DEPTH + CORNICE_OVERHANG),
+		Vector3(0, crown_top + CAP / 2, CORNICE_OVERHANG / 2), _trim)
 
 
 ## The shadow boxes, hung on the baize back in a grid: a walnut moulding as

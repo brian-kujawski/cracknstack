@@ -67,13 +67,12 @@ static func armchair(leather: Material, wood: Material) -> StaticBody3D:
 
 
 ## A square side table in the store's wood, like a small version of the work
-## tables: a top with a softened edge, an apron, tapered legs, and a shelf
-## low down. `leg_wood` is the wood mapped up the legs.
-static func side_table(wood: StandardMaterial3D, leg_wood: Material) -> StaticBody3D:
+## tables: a top with a softened edge, an apron, fluted legs in brass foot
+## caps (Furniture.leg), and a shelf low down.
+static func side_table(wood: StandardMaterial3D, brass: Material) -> StaticBody3D:
 	const TOP := 0.03
 	const EDGE_STEP := 0.008
-	const LEG_TOP := 0.045
-	const LEG_FOOT := 0.034
+	const LEG_TOP := 0.05
 	const LEG_INSET := 0.03
 	const APRON := 0.07
 	const SHELF_Y := 0.16
@@ -84,8 +83,7 @@ static func side_table(wood: StandardMaterial3D, leg_wood: Material) -> StaticBo
 	var leg_half := s / 2 - LEG_INSET - LEG_TOP / 2
 	var leg_height := TABLE_HEIGHT - TOP
 	for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
-		var leg := _add(body, preload("res://scripts/store/store_builder.gd")._tapered_leg(LEG_TOP, LEG_FOOT, leg_height), leg_wood)
-		leg.position = Vector3(corner.x * leg_half, 0, corner.y * leg_half)
+		Furniture.leg(body, Vector3(corner.x * leg_half, 0, corner.y * leg_half), LEG_TOP, leg_height, wood, brass)
 	var rail := 2 * leg_half
 	var rail_at := leg_half + LEG_TOP / 2 - 0.012
 	for side in [-1, 1]:
