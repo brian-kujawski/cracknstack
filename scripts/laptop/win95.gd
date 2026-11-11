@@ -15,8 +15,9 @@ const LINE := 2
 const SCANLINE_ALPHA := 0.06
 const VIGNETTE_ALPHA := 0.22
 const SHIMMER_SECONDS := 2.5
-## The marbled wallpaper's cool blue-grey, for the screen's glow in the room.
-const DESKTOP := Color8(112, 128, 146)
+## The marbled wallpaper's average colour (tools/bake_laptop_wallpaper.py
+## prints it), for the screen's glow in the room.
+const DESKTOP := Color8(135, 135, 131)
 ## The wallpaper: marbled paper at half size, 256 colours, drawn at 2x.
 const WALLPAPER := preload("res://assets/ui/frames/marbled_laptop.png")
 ## Pale warm stone where Win95 had grey, with its light and shade.

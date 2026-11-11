@@ -82,7 +82,7 @@ func build() -> void:
 	# it (a spot shines along its -z, so it's turned round).
 	var glow := SpotLight3D.new()
 	glow.name = "Glow"
-	glow.light_color = Win95.DESKTOP.lightened(0.25)
+	glow.light_color = Win95.DESKTOP
 	glow.light_energy = GLOW_ENERGY
 	glow.spot_range = GLOW_RANGE
 	glow.spot_angle = GLOW_ANGLE

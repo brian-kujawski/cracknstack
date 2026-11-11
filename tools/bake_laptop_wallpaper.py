@@ -13,7 +13,7 @@ Run after changing assets/ui/frames/marbled.png:
 
 from pathlib import Path
 
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageStat
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "assets/ui/frames/marbled.png"
@@ -35,6 +35,9 @@ def main() -> None:
     baked = small.quantize(colors=COLOURS, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG)
     baked.convert("RGB").save(TARGET, optimize=True)
     print(f"{TARGET.relative_to(ROOT)}: {baked.width}x{baked.height}, {COLOURS} colours")
+    # The screen's glow in the room uses this (Win95.DESKTOP).
+    average = [round(c) for c in ImageStat.Stat(baked.convert("RGB")).mean]
+    print("average colour: Color8(%d, %d, %d)" % tuple(average))
 
 
 if __name__ == "__main__":
