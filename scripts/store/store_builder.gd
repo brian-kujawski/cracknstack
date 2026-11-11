@@ -248,13 +248,10 @@ func _build_rug() -> void:
 	add_child(rug)
 
 
-## One wall-length, two-shelf unit on the back wall, facing the door,
-## holding every binder. It's built of the tables' dark wood, stands raised
-## on pairs of legs in their style, and its top is a surface like a table's.
+## One wall-length, two-shelf library bookcase on the back wall, facing the
+## door, holding every binder, in the tables' dark wood with brass label
+## holders; its top is a surface like a table's.
 func _build_binder_shelves() -> void:
-	## Legs: square, wider at the top than at the foot, like the tables'.
-	const LEG_TOP := 0.07
-	const LEG_FOOT := 0.05
 	var binders := CardDatabase.all_binders()
 	var most := BACK_SHELF.y - BACK_SHELF.x - 2 * ShelfUnit.SIDE_THICKNESS
 	var inner := ShelfUnit.fitted_width(binders)
@@ -263,17 +260,9 @@ func _build_binder_shelves() -> void:
 		inner = most
 	var unit := ShelfUnit.new()
 	unit.name = "BinderShelf"
-	unit.build(binders, _table_material, inner)
+	unit.build(binders, _table_material, inner, ShelfUnit.BAYS, _brass_material)
 	unit.position = Vector3((BACK_SHELF.x + BACK_SHELF.y) / 2, 0, ShelfUnit.DEPTH / 2)
 	binder_shelf = unit
-	var leg_mesh := _tapered_leg(LEG_TOP, LEG_FOOT, ShelfUnit.leg_height())
-	for x in unit.leg_spots():
-		for z in [-1, 1]:
-			var leg := MeshInstance3D.new()
-			leg.mesh = leg_mesh
-			leg.material_override = _leg_material
-			leg.position = Vector3(x, 0, z * (ShelfUnit.DEPTH / 2 - ShelfUnit.LEG_INSET))
-			unit.add_child(leg)
 	_add_shelf(unit)
 	var top := unit.top_rect()
 	surfaces.append(Rect2(top.position + Vector2(unit.position.x, unit.position.z), top.size))
