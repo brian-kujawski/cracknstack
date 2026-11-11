@@ -24,3 +24,7 @@ __pycache__/
 
 # The user's local asset workbench (import-ready art lives here before it is copied in).
 /dev/
+
+# Kiln (tools/kiln): installed with npm ci, never committed.
+node_modules/
+.kiln/

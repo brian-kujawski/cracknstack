@@ -26,8 +26,10 @@ const KEYS := [
 ]
 const DAY_AMBIENT := Color(0.9, 0.87, 0.82)
 const DAY_AMBIENT_ENERGY := 0.3
-const NIGHT_AMBIENT := Color(0.55, 0.6, 0.8)
-const NIGHT_AMBIENT_ENERGY := 0.08
+## Night stays warm (style bible §4.5: the ambient light is warm and white;
+## coloured light comes only from cards and the laptop): lamplight bounce.
+const NIGHT_AMBIENT := Color(0.85, 0.7, 0.55)
+const NIGHT_AMBIENT_ENERGY := 0.1
 ## Light from each window at full daylight.
 const WINDOW_ENERGY := 0.9
 ## How brightly the curtains and the sky behind them glow at full daylight.

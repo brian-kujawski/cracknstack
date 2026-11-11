@@ -1,0 +1,9 @@
+{
+  "name": "crack-and-stack-kiln",
+  "private": true,
+  "description": "Pins Kiln (procedural 3D models -> GLB) for rebuilding assets/models/*/*.kiln.js. Run `npm ci` here, then `npx kiln render ../../assets/models/<name>/<name>.kiln.js --out ../../assets/models/<name>/<name>.glb --views /tmp/<name>.png`.",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@instruktlabs/kiln": "1.7.0"
+  }
+}

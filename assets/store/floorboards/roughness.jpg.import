@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cr565wvsofmnc"
-path.s3tc="res://.godot/imported/albedo.jpg-014245ce71d139946d0bf97b1577f2a6.s3tc.ctex"
+uid="uid://bmudmb43qtgkq"
+path.s3tc="res://.godot/imported/roughness.jpg-ae1aeee53b7f5a2d8b94eac8887cd23f.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://assets/store/carpet/albedo.jpg"
-dest_files=["res://.godot/imported/albedo.jpg-014245ce71d139946d0bf97b1577f2a6.s3tc.ctex"]
+source_file="res://assets/store/floorboards/roughness.jpg"
+dest_files=["res://.godot/imported/roughness.jpg-ae1aeee53b7f5a2d8b94eac8887cd23f.s3tc.ctex"]
 
 [params]
 

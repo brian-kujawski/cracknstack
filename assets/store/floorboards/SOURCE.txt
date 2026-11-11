@@ -1,0 +1,5 @@
+Baked from Wood066 by ambientCG (assets/store/table_wood)
+https://ambientcg.com/view?id=Wood066
+Licence: CC0 1.0 (https://docs.ambientcg.com/license/)
+Made by tools/bake_floorboards.py: staggered 10.5 cm boards cut from the walnut, shaded apart, seams grooved.
+Used for: the floor (store_builder.gd FLOOR).

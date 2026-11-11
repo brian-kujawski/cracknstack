@@ -106,14 +106,24 @@ const TABLE_WOOD_SIZE := 0.6
 ## backs (assets/store/felt), and how many metres one copy of it covers.
 const FELT := "felt"
 const FELT_SIZE := 0.3
-## The shop's carpet (assets/store/carpet), and how many metres one copy
-## of it covers.
-const CARPET := "carpet"
-const CARPET_SIZE := 0.5
+## The floorboards (assets/store/floorboards, baked from the walnut by
+## tools/bake_floorboards.py), and how many metres one copy covers.
+const FLOOR := "floorboards"
+const FLOOR_SIZE := 1.68
 ## Painted plaster on the walls and ceiling (assets/store/plaster), and how
-## many metres one copy of it covers.
+## many metres one copy of it covers. The walls above the panelling are
+## parchment (style bible §4.5, user 2026-11-11), the ceiling a paler cream.
 const PLASTER := "plaster"
 const PLASTER_SIZE := 2.0
+const PARCHMENT := Color("d6c39a")
+const CEILING_CREAM := Color("d9ccb2")
+## The rug under the tables (assets/store/rug, tools/bake_rug.py): its
+## centre, its size, and its height, just under the first layer of cards
+## lying on the floor (PileWorld.CARD_THICKNESS) so it never hides them.
+const RUG := "rug"
+const RUG_AT := Vector2(6.0, 4.1)
+const RUG_SIZE := Vector2(5.0, 4.6)
+const RUG_HEIGHT := 0.0004
 ## The armchair's leather (assets/store/leather, the binders' hide), a worn
 ## brown, and how many metres one copy of it covers.
 const LEATHER := "leather"
@@ -161,8 +171,9 @@ var wall_frames: Array[WallFrame] = []
 ## The back-wall binder shelf.
 var binder_shelf: ShelfUnit
 
-var _wall_material := _textured(PLASTER, PLASTER_SIZE)
-var _floor_material := _textured(CARPET, CARPET_SIZE)
+var _wall_material := _tinted(_textured(PLASTER, PLASTER_SIZE), PARCHMENT)
+var _ceiling_material := _tinted(_textured(PLASTER, PLASTER_SIZE), CEILING_CREAM)
+var _floor_material := _textured(FLOOR, FLOOR_SIZE)
 var _table_material := _textured(TABLE_WOOD, TABLE_WOOD_SIZE)
 ## The same wood for the legs, mapped by the legs' own UVs so the grain runs
 ## up them (world mapping would lay it across, like the top's).
@@ -196,11 +207,34 @@ func _ready() -> void:
 func _build_shell() -> void:
 	var half := WALL_THICKNESS / 2
 	_add_solid(Vector3(WIDTH, 0.2, DEPTH), Vector3(WIDTH / 2, -0.1, DEPTH / 2), _floor_material)
-	_add_solid(Vector3(WIDTH, 0.2, DEPTH), Vector3(WIDTH / 2, CEILING_HEIGHT + 0.1, DEPTH / 2), _wall_material)
+	_add_solid(Vector3(WIDTH, 0.2, DEPTH), Vector3(WIDTH / 2, CEILING_HEIGHT + 0.1, DEPTH / 2), _ceiling_material)
 	_add_wall_x(0.0, WIDTH, -half)
 	_add_wall_x(0.0, WIDTH, DEPTH + half)
 	_add_wall_z(-half, 0.0, DEPTH)
 	_add_wall_z(WIDTH + half, 0.0, DEPTH)
+	var panelling := WallPanelling.new()
+	panelling.name = "WallPanelling"
+	panelling.build(WallPanelling.room_runs(WIDTH, DEPTH, DOOR_Z, ShopDoor.footprint().size.x + 0.04),
+		_table_material, CEILING_HEIGHT)
+	add_child(panelling)
+	_build_rug()
+
+
+## The rug: a flat quad just above the floor, under the tables. It takes no
+## part in physics; cards land on the floor beneath it as before.
+func _build_rug() -> void:
+	var quad := PlaneMesh.new()
+	quad.size = RUG_SIZE
+	var rug := MeshInstance3D.new()
+	rug.name = "Rug"
+	rug.mesh = quad
+	var material := StandardMaterial3D.new()
+	material.albedo_texture = load("res://assets/store/%s/albedo.jpg" % RUG)
+	material.roughness = 1.0
+	rug.material_override = material
+	rug.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	rug.position = Vector3(RUG_AT.x, RUG_HEIGHT, RUG_AT.y)
+	add_child(rug)
 
 
 ## One wall-length, two-shelf unit on the back wall, facing the door,
@@ -697,6 +731,12 @@ static func _textured(name: String, size: float) -> StandardMaterial3D:
 	material.uv1_triplanar = true
 	material.uv1_world_triplanar = true
 	material.uv1_scale = Vector3.ONE / size
+	return material
+
+
+## `material` with its colour multiplied by `tint` (returned for chaining).
+static func _tinted(material: StandardMaterial3D, tint: Color) -> StandardMaterial3D:
+	material.albedo_color = tint
 	return material
 
 

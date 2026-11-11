@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cvfuqtgic7h86"
-path.s3tc="res://.godot/imported/normal.jpg-2e18c610fe92d6dfce522b1cf3abdae3.s3tc.ctex"
+uid="uid://dckeh2qh35yby"
+path.s3tc="res://.godot/imported/albedo.jpg-9202ce3ad73e1a3d8112fcc971146ae8.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://assets/store/carpet/normal.jpg"
-dest_files=["res://.godot/imported/normal.jpg-2e18c610fe92d6dfce522b1cf3abdae3.s3tc.ctex"]
+source_file="res://assets/store/floorboards/albedo.jpg"
+dest_files=["res://.godot/imported/albedo.jpg-9202ce3ad73e1a3d8112fcc971146ae8.s3tc.ctex"]
 
 [params]
 
@@ -22,7 +22,7 @@ compress/lossy_quality=0.7
 compress/uastc_level=0
 compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
-compress/normal_map=1
+compress/normal_map=0
 compress/channel_pack=0
 mipmaps/generate=true
 mipmaps/limit=-1
