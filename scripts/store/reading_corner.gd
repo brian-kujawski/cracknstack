@@ -24,6 +24,7 @@ const TABLE_HEIGHT := 0.6
 ## The floor lamp: its round base, and its shade, which spans SHADE_BOTTOM
 ## to LAMP_HEIGHT.
 const LAMP_BASE := 0.32
+const FLOOR_LAMP := preload("res://assets/models/floor_lamp/floor_lamp.glb")
 const LAMP_HEIGHT := 1.73
 const SHADE_BOTTOM := 1.43
 const SHADE_RADII := Vector2(0.15, 0.23)
@@ -100,11 +101,11 @@ static func side_table(wood: StandardMaterial3D, leg_wood: Material) -> StaticBo
 ## no bright cones out of the top and bottom. `light` is the store's lamp colour.
 static func floor_lamp(brass: Material, shade_cloth: StandardMaterial3D, light: Color) -> StaticBody3D:
 	var body := _body()
-	_add(body, _taper(LAMP_BASE / 2 - 0.01, LAMP_BASE / 2, 0.025), brass).position.y = 0.0125
-	_add(body, _taper(0.03, 0.06, 0.03), brass).position.y = 0.04
-	var stem_top := SHADE_BOTTOM + 0.08
-	_add(body, _taper(0.011, 0.011, stem_top - 0.05), brass).position.y = (stem_top + 0.05) / 2
-	_add(body, _taper(0.02, 0.02, 0.05), brass).position.y = stem_top + 0.02
+	# The stepped base, turned stem and finial come from Kiln
+	# (assets/models/floor_lamp), built to these heights.
+	var parts := KilnModel.parts(FLOOR_LAMP, ["Base", "Stem", "Finial"])
+	for part in ["Base", "Stem", "Finial"]:
+		KilnModel.add(body, parts[part], brass)
 
 	var shade_height := LAMP_HEIGHT - SHADE_BOTTOM
 	var shade_mesh := _taper(SHADE_RADII.x, SHADE_RADII.y, shade_height)

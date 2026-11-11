@@ -35,7 +35,8 @@ const WINDOW_ENERGY := 0.9
 ## How brightly the curtains and the sky behind them glow at full daylight.
 const CURTAIN_GLOW := 0.45
 const SKY_GLOW := 1.4
-const NIGHT_SKY := Color(0.03, 0.04, 0.09)
+## Night through the leaded glass: dark, but light enough to show the lead.
+const NIGHT_SKY := Color(0.08, 0.1, 0.17)
 ## The room is closed, so the environment sky is never seen directly: it is
 ## only what glossy surfaces (the floorboards most) reflect. main.tscn paints
 ## it in the room's own parchment and walnut so those reflections read as the
