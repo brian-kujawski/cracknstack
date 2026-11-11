@@ -239,3 +239,35 @@ static func fleuron(on: Control) -> void:
 		on.draw_rect(Rect2(half.position + Vector2(0, 1), half.size), Color(1, 1, 1, 0.1))
 	on.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -7), c + Vector2(7, 0), c + Vector2(0, 7),
 		c + Vector2(-7, 0)]), GOLD)
+
+
+## A gem-cut tag pinned over a plate's top-right corner, turned a little, as
+## if clipped on ("NEW" on a value tag, "Needed" on the card plate). It
+## takes no room in the plate's layout, so nothing under it moves. Add it as
+## a child of the plate's PanelContainer; `inset` is how far the plate's
+## frame and padding reach beyond the content.
+class CornerTag:
+	extends Control
+
+	const TURN := 0.3
+
+	var chip: PanelContainer
+	var inset: Vector2
+
+	func _init(text: String, filled := true, plate_inset := Vector2(27, 23)) -> void:
+		inset = plate_inset
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip = HudStyle.chip(text, filled)
+		chip.name = "Tag"
+		add_child(chip)
+		resized.connect(_place)
+		chip.resized.connect(_place)
+
+	func _place() -> void:
+		chip.size = chip.get_combined_minimum_size()
+		chip.pivot_offset = chip.size / 2
+		chip.rotation = TURN
+		# Centred a little in from the frame's outer corner, so it overhangs
+		# the top and right edges.
+		var corner := Vector2(size.x + inset.x, -inset.y)
+		chip.position = (corner + Vector2(-chip.size.x * 0.32, 4) - chip.size / 2).round()

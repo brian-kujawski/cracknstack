@@ -944,7 +944,7 @@ func _test_hud() -> void:
 	Progression.reset()
 	_check(main.current_chapter(pile.binders).is_empty(), "no set unlocked, no chapter to count")
 	main._update_stats()
-	_check(not hud.chapter_block.visible and hud.money_label.text == "$0.00" and hud.level_label.text == "1",
+	_check(not hud.chapter_block.visible and hud.money_label.text == "$0.00" and hud.level_label.text == "LEVEL 1",
 		"the status plate: money, no chapter yet, Level 1")
 
 	# A chapter counts only its unlocked sets; so does the laptop.

@@ -25,11 +25,14 @@ const BANNER_FADE := 0.5
 const POPUP_DWELL := 1.0
 ## How far above a shipping box's base its panel floats (metres).
 const POPUP_LIFT := 0.24
-## A revealed card's value tag: from RARE_TAG_CENTS it's gold, from
-## HIGH_VALUE_CENTS it's "High value" with a glow. It shows this long.
+## A revealed card's value tag: from RARE_TAG_CENTS it's "Score!" in gilt,
+## from HIGH_VALUE_CENTS "Jackpot!" with a gleam and a glow. It shows this
+## long.
 const RARE_TAG_CENTS := 50
 const HIGH_VALUE_CENTS := 300
 const VALUE_TAG_SHOWN := 4.0
+## Room inside the value tag's frame.
+const VALUE_TAG_PADDING := Vector2(30, 10)
 ## Where the value tag sits, as a share of the screen: by the top right
 ## corner of a card held up close.
 const VALUE_TAG_AT := Vector2(0.66, 0.14)
@@ -104,7 +107,7 @@ static func needed_tag_unlocked() -> bool:
 func _build_status() -> void:
 	status = HudStyle.plate_panel(14, Vector2(20, 16), "Status")
 	status.name = "Status"
-	status.custom_minimum_size.x = 380
+	status.custom_minimum_size.x = 340
 	var lines: VBoxContainer = status.get_node("Lines")
 	var money_row := HBoxContainer.new()
 	money_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -121,40 +124,12 @@ func _build_status() -> void:
 	chapter_block = HudStyle.counter("Chapter 1")
 	chapter_block.name = "Chapter"
 	lines.add_child(chapter_block)
-	var level_row := HBoxContainer.new()
-	level_row.add_theme_constant_override("separation", 18)
-	level_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lines.add_child(level_row)
-	level_row.add_child(_level_badge())
-	mana_block = HudStyle.counter("Mana", HudStyle.MANA)
+	# The level names the Mana bar: "LEVEL 4 ...... 37 / 100".
+	mana_block = HudStyle.counter("Level 1", HudStyle.MANA)
 	mana_block.name = "Mana"
-	mana_block.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mana_block.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	level_row.add_child(mana_block)
+	lines.add_child(mana_block)
+	level_label = mana_block.find_child("Caption", true, false)
 	add_child(status)
-
-
-## The level number on a gold diamond.
-func _level_badge() -> Control:
-	var badge := Control.new()
-	badge.name = "Level"
-	badge.custom_minimum_size = Vector2(54, 54)
-	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	badge.draw.connect(func() -> void:
-		var c := badge.size / 2
-		var r := 26.0
-		var points := PackedVector2Array([c + Vector2(0, -r), c + Vector2(r, 0), c + Vector2(0, r), c + Vector2(-r, 0)])
-		badge.draw_colored_polygon(points, HudStyle.GOLD)
-		# Cut like a gem: a lighter upper-left facet over the gilt.
-		badge.draw_colored_polygon(PackedVector2Array([points[3], points[0], points[1], c]), Color(1, 1, 1, 0.16))
-		points.append(points[0])
-		badge.draw_polyline(points, UiStyle.BORDER, 2.0, true))
-	level_label = HudStyle.number("1", 26, HudStyle.INK)
-	level_label.set_anchors_preset(Control.PRESET_FULL_RECT)
-	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	badge.add_child(level_label)
-	return badge
 
 
 ## Fills the top-left plate. `chapter` is {"name", "organized", "pockets"},
@@ -165,7 +140,7 @@ func set_status(money: int, chapter: Dictionary, level: int, progress: int, per_
 	if not chapter.is_empty():
 		(chapter_block.find_child("Caption", true, false) as Label).text = String(chapter.name).to_upper()
 		HudStyle.set_counter(chapter_block, chapter.organized, chapter.pockets)
-	level_label.text = str(level)
+	level_label.text = "LEVEL %d" % level
 	if per_level > 0:
 		HudStyle.set_counter(mana_block, progress, per_level)
 	else:
@@ -192,9 +167,9 @@ func show_money_delta(cents: int) -> void:
 # --- Bottom left: what's in hand ----------------------------------------------
 
 func _build_card_plate() -> void:
-	card_plate = HudStyle.plate_panel(6, Vector2(20, 16), "CardPlate")
+	card_plate = HudStyle.plate_panel(2, Vector2(20, 12), "CardPlate")
 	card_plate.name = "CardPlate"
-	card_plate.custom_minimum_size.x = 480
+	card_plate.custom_minimum_size.x = 400
 	card_plate.visible = false
 	add_child(card_plate)
 
@@ -204,33 +179,51 @@ func _card_lines() -> VBoxContainer:
 	for child in lines.get_children():
 		lines.remove_child(child)
 		child.queue_free()
+	var chip := card_plate.get_node_or_null("Chip")
+	if chip != null:
+		card_plate.remove_child(chip)
+		chip.queue_free()
 	return lines
 
 
-## A card's plate: its Needed / Duplicate chip (if unlocked and known), name,
-## set, number of total with its rarity, and what it sells for.
+## A card's plate, two lines, each read left to right with its answer on
+## the right: the name and what it sells for, then where it goes (set,
+## number) and its rarity. Needed / Duplicate (once unlocked) is a tag
+## clipped on the corner, so it never pushes the lines about.
 func show_card(card: CardData, copy_status := CopyStatus.NONE) -> void:
 	var lines := _card_lines()
 	if copy_status != CopyStatus.NONE and needed_tag_unlocked():
 		var needed := copy_status == CopyStatus.NEEDED
-		var chip := HudStyle.chip("Needed" if needed else "Duplicate", needed)
+		var chip := HudStyle.CornerTag.new("Needed" if needed else "Duplicate", needed)
 		chip.name = "Chip"
-		lines.add_child(chip)
+		card_plate.add_child(chip)
 	var set_data := CardDatabase.get_set(card.set_code)
-	lines.add_child(HudStyle.name_label(card.name))
-	lines.add_child(HudStyle.label(set_data.name, HudStyle.FONT_SIZE, HudStyle.MUTED))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(HudStyle.label("%s #%s/%s" % [set_data.code, set_data.number_text(card.collector_number),
-		set_data.number_text(set_data.card_count)]))
-	row.add_child(HudStyle.gem(card.rarity))
-	var rarity := HudStyle.label(CardData.Rarity.keys()[card.rarity].capitalize())
-	rarity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(rarity)
-	row.add_child(HudStyle.number(Progression.money_text(Prices.sale_cents(card)), HudStyle.FONT_SIZE))
-	lines.add_child(row)
+	var top := _plate_row(HudStyle.name_label(card.name))
+	var price := HudStyle.number(Progression.money_text(Prices.sale_cents(card)), HudStyle.FONT_SIZE)
+	price.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(price)
+	lines.add_child(top)
+	var where := HudStyle.label("%s · %s #%s/%s" % [set_data.name, set_data.code, set_data.number_text(card.collector_number),
+		set_data.number_text(set_data.card_count)], HudStyle.SMALL_FONT_SIZE, HudStyle.MUTED)
+	var bottom := _plate_row(where)
+	bottom.add_child(HudStyle.gem(card.rarity))
+	bottom.add_child(HudStyle.label(CardData.Rarity.keys()[card.rarity].capitalize(), HudStyle.SMALL_FONT_SIZE, HudStyle.MUTED))
+	lines.add_child(bottom)
 	card_plate.visible = true
+
+
+## A plate line: `left` takes the room, whatever's added after sits right.
+static func _plate_row(left: Control) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(left)
+	var gap := Control.new()
+	gap.custom_minimum_size.x = 16
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(gap)
+	return row
 
 
 ## A pack or a box in hand: its first line as a name, the rest under it
@@ -489,31 +482,30 @@ func _build_value_tag() -> void:
 	value_tag = PanelContainer.new()
 	value_tag.name = "ValueTag"
 	value_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	value_tag.custom_minimum_size.x = 250
 	var lines := VBoxContainer.new()
 	lines.name = "Lines"
-	lines.add_theme_constant_override("separation", 2)
+	lines.add_theme_constant_override("separation", 0)
 	lines.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	value_tag.add_child(lines)
-	var top := HBoxContainer.new()
-	top.name = "Top"
-	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lines.add_child(top)
-	var tier := HudStyle.caption("", UiStyle.SMALL)
+	var tier := HudStyle.caption("", UiStyle.BODY)
 	tier.name = "Tier"
-	tier.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top.add_child(tier)
-	var new_chip := HudStyle.chip("NEW", true)
-	new_chip.name = "New"
-	top.add_child(new_chip)
-	var price := HudStyle.name_label("", UiStyle.HEADING)
+	tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lines.add_child(tier)
+	# Lining figures: Almendra's old-style 1 reads as an I ("$0.II").
+	var price := HudStyle.number("", UiStyle.HEADING)
 	price.name = "Price"
+	price.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lines.add_child(price)
+	# NEW is clipped over the top-right corner, turned like a sticker.
+	var new_tag := HudStyle.CornerTag.new("NEW", true, Vector2(VALUE_TAG_PADDING.x + HudStyle.BAND + UiStyle.EDGE,
+		VALUE_TAG_PADDING.y + HudStyle.BAND + UiStyle.EDGE))
+	new_tag.name = "New"
+	value_tag.add_child(new_tag)
 	value_tag.visible = false
 	add_child(value_tag)
 
 
-## 0 plain, 1 gold (RARE_TAG_CENTS and up), 2 "High value" (HIGH_VALUE_CENTS).
+## 0 plain, 1 "Score!" (RARE_TAG_CENTS and up), 2 "Jackpot!" (HIGH_VALUE_CENTS).
 static func value_tier(cents: int) -> int:
 	if cents >= HIGH_VALUE_CENTS:
 		return 2
@@ -528,12 +520,13 @@ func show_value_tag(card: CardData, first_copy: bool) -> void:
 	var tier := value_tier(cents)
 	# A HUD plate; a valuable card's price is gilt, a high-value one gleams
 	# with a gold glow round the frame (earned value, bible §4).
-	var style: UiStyle.Frame = HudStyle.plate(Vector2(20, 10), "ValueTag")
+	var style: UiStyle.Frame = HudStyle.plate(VALUE_TAG_PADDING, "ValueTag")
 	style.glow = Color(UiStyle.GLEAM, [0.0, 0.22, 0.5][tier])
 	style.glow_size = [0, 16, 34][tier]
 	value_tag.add_theme_stylebox_override("panel", style)
 	var tier_label: Label = value_tag.find_child("Tier", true, false)
-	tier_label.text = ["", "VALUABLE", "HIGH VALUE"][tier]
+	tier_label.text = ["", "SCORE!", "JACKPOT!"][tier]
+	tier_label.visible = tier > 0
 	(value_tag.find_child("New", true, false) as Control).visible = first_copy
 	var price: Label = value_tag.find_child("Price", true, false)
 	price.text = Progression.money_text(cents)
