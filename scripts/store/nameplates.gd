@@ -225,6 +225,11 @@ static func _add_vertex(out: Dictionary, at: Vector3, normal: Vector3, finish: A
 ## it, scaled to TEXT_HEIGHT caps (or down to fit `max_width`).
 static func _add_letters(out: Dictionary, center: Vector3, code: String, max_width: float, finish: Array) -> void:
 	var text := TextMesh.new()
+	# Engraved in EB Garamond 600 capitals with lining figures, like the
+	# binder spines: set codes must read at a glance, and Almendra's
+	# letterforms and old-style figures don't ("M10" read as "MIO"). A real
+	# weight, not embolden, which broke the extruded outlines.
+	text.font = UiStyle.text_font(600)
 	text.text = code
 	text.font_size = 64
 	text.pixel_size = 0.001

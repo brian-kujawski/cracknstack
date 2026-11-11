@@ -49,7 +49,8 @@ func build(wood: Material) -> void:
 	var words := Label3D.new()
 	words.name = "Incoming"
 	words.text = "INCOMING"
-	words.font = BinderLettering.FONT
+	# Stencilled on the board: the machine voice, bold (style bible §5.3).
+	words.font = UiStyle.machine_font(700)
 	words.font_size = 64
 	words.outline_size = 0
 	words.modulate = LETTERING

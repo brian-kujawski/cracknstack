@@ -128,6 +128,11 @@ static func machine_font(weight := 400) -> Font:
 	return _variation("machine%d" % weight, _SOURCE_SANS, weight, {})
 
 
+## The machine voice with tabular (even-width) figures, for readouts.
+static func machine_mono(weight := 600) -> Font:
+	return _variation("mono%d" % weight, _SOURCE_SANS, weight, {"tnum": 1})
+
+
 static func _variation(key: String, base: Font, weight: int, features: Dictionary) -> FontVariation:
 	if not _fonts.has(key):
 		var f := FontVariation.new()

@@ -1981,7 +1981,8 @@ static func _sleeve(card: MeshInstance3D, cents: int) -> void:
 	card.add_child(label)
 	var price := Label3D.new()
 	price.text = Progression.money_text(cents)
-	price.font = BinderLettering.FONT
+	# A printed price sticker: the machine voice (style bible §5.3).
+	price.font = UiStyle.machine_font(700)
 	price.font_size = 48
 	price.outline_size = 0
 	price.modulate = ProductBox.INK

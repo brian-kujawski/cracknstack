@@ -34,7 +34,8 @@ func build(wood: Material) -> void:
 		_add(Vector3(TAPE_WIDTH, 0.0045, MAT.y), Vector3(side * (MAT.x - TAPE_WIDTH) / 2, 0.00225, 0), tape)
 	var words := Label3D.new()
 	words.text = "OUTGOING"
-	words.font = BinderLettering.FONT
+	# Printed on the mat: the machine voice, bold (style bible §5.3).
+	words.font = UiStyle.machine_font(700)
 	words.font_size = 64
 	words.outline_size = 0
 	words.modulate = TAPE

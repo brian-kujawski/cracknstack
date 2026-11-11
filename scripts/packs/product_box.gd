@@ -137,8 +137,9 @@ func details() -> String:
 ## the box.
 func _print(text: String, at: Vector3, face: Basis, width: float, share: float, colour := Color(0.97, 0.85, 0.5)) -> void:
 	var label := Label3D.new()
-	label.text = text
-	label.font = BinderLettering.FONT
+	# Printed packaging: the machine voice in bold capitals (style bible §5.3).
+	label.text = text.to_upper()
+	label.font = UiStyle.machine_font(700)
 	label.font_size = 64
 	label.outline_size = 0
 	label.modulate = colour
