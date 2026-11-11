@@ -111,6 +111,7 @@ func _ready() -> void:
 	_modal.mouse_filter = Control.MOUSE_FILTER_STOP
 	_modal.visible = false
 	_screen.add_child(_modal)
+	_screen.add_child(Win95.crt_glass())
 	visible = false
 
 
@@ -211,9 +212,20 @@ func _build_bezel() -> void:
 
 
 func _build_desktop() -> void:
-	_desktop = ColorRect.new()
+	# The marbled wallpaper, tiled at 2x with hard pixels (style bible §8).
+	var paper := TextureRect.new()
+	paper.texture = Win95.WALLPAPER
+	paper.stretch_mode = TextureRect.STRETCH_TILE
+	paper.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	paper.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	paper.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+	paper.scale = Vector2.ONE * Win95.LINE
+	paper.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_desktop = Control.new()
 	_desktop.name = "Desktop"
-	(_desktop as ColorRect).color = Win95.DESKTOP
+	_desktop.clip_contents = true
+	_desktop.add_child(paper)
+	_desktop.resized.connect(func() -> void: paper.size = _desktop.size / Win95.LINE)
 	_desktop.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_desktop.offset_bottom = -TASKBAR_HEIGHT
 	_desktop.gui_input.connect(func(event: InputEvent) -> void:
@@ -256,6 +268,9 @@ func _desktop_icon(app: String, title: String) -> Control:
 	caption.add_theme_constant_override("shadow_offset_x", 1)
 	caption.add_theme_constant_override("shadow_offset_y", 1)
 	caption.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
+	# A dark rim so the name reads on any part of the marbled paper.
+	caption.add_theme_constant_override("outline_size", 5)
+	caption.add_theme_color_override("font_outline_color", Color(Win95.TITLE, 0.85))
 	caption.name = "Caption"
 	icon.add_child(caption)
 	icon.pressed.connect(open_app.bind(app))
@@ -541,17 +556,25 @@ func _build_shop(into: Control) -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 10)
 	into.add_child(column)
+	# Shareware title art: the shop's name in the game's name voice, gilt on
+	# dark stone (style bible §10).
 	var banner := ColorRect.new()
-	banner.color = Color8(128, 0, 0)
-	banner.custom_minimum_size = Vector2(0, 56)
+	banner.color = Win95.TITLE
+	banner.custom_minimum_size = Vector2(0, 60)
 	column.add_child(banner)
-	var shop_name := Win95.label("CARD SHOP  -  sealed product by mail", 26, Color8(255, 230, 120))
+	banner.add_child(Win95.title_shade())
+	var shop_name := UiStyle.label("Card Shop", UiStyle.name_font(), UiStyle.LEAD, UiStyle.GILT)
 	shop_name.set_anchors_preset(Control.PRESET_FULL_RECT)
 	shop_name.offset_left = 16
 	shop_name.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_name.add_theme_constant_override("outline_size", 1)
-	shop_name.add_theme_color_override("font_outline_color", Color8(255, 230, 120))
 	banner.add_child(shop_name)
+	var strap := Win95.label("sealed product by mail", Win95.FONT_SIZE, Win95.LIGHT)
+	strap.autowrap_mode = TextServer.AUTOWRAP_OFF
+	strap.set_anchors_preset(Control.PRESET_FULL_RECT)
+	strap.offset_right = -16
+	strap.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	strap.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	banner.add_child(strap)
 
 	var body := HBoxContainer.new()
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL

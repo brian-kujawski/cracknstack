@@ -34,6 +34,7 @@ func _init(app_id: String, title: String, window_size: Vector2) -> void:
 	_title_bar.mouse_filter = Control.MOUSE_FILTER_STOP
 	_title_bar.gui_input.connect(_on_title_input)
 	add_child(_title_bar)
+	_title_bar.add_child(Win95.title_shade())
 	_title = Win95.label(title, Win95.TITLE_FONT_SIZE, Win95.WHITE)
 	_title.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_title.position = Vector2(10, 2)
