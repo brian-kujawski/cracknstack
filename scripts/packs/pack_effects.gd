@@ -7,7 +7,9 @@ extends Node
 ## - the flash: the whole screen goes white for an instant as the pack
 ##   tears open;
 ## - the glow: a soft burst of colour behind the card up close when a rare
-##   (gold) or a mythic (orange-red) is revealed.
+##   (gold) or a mythic (orange-red) is revealed; a rare or mythic worth a
+##   "Score!" or more glows in its own colour instead, like light through
+##   stained glass (style bible §7).
 
 ## How far in front of the camera the veil hangs: behind anything held up
 ## close, in front of the room.
@@ -22,6 +24,9 @@ const FLASH_OUT := 0.45
 const RARE_GLOW := Color(1.0, 0.78, 0.3)
 const MYTHIC_GLOW := Color(1.0, 0.42, 0.12)
 const GLOW_SECONDS := 1.6
+## From this sale value (cents) a rare or mythic glows in its own colour:
+## the value tag's "Score!" line (Hud.RARE_TAG_CENTS).
+const COLOUR_GLOW_CENTS := 50
 
 var veil := 0.0
 var _veil_target := 0.0
@@ -111,6 +116,30 @@ func glow(colour: Color, at: Vector3) -> void:
 	_glow_tween.tween_method(_set_glow, 1.0, 0.35, GLOW_SECONDS * 0.4)
 	_glow_tween.tween_method(_set_glow, 0.35, 0.0, GLOW_SECONDS * 0.6)
 	_glow_tween.tween_callback(_glow_mesh.hide)
+
+
+## The glow for revealing `card`, or Color(0, 0, 0, 0) for none: commons
+## and uncommons pull quietly; a rare or mythic worth COLOUR_GLOW_CENTS or
+## more takes its colour (UiStyle.CARD_LIGHT); a cheaper one keeps the
+## rarity's gold or orange-red.
+static func reveal_colour(card: CardData, cents: int) -> Color:
+	if card == null or card.rarity < CardData.Rarity.RARE:
+		return Color(0, 0, 0, 0)
+	if cents >= COLOUR_GLOW_CENTS:
+		return card_light(card.colors)
+	return MYTHIC_GLOW if card.rarity == CardData.Rarity.MYTHIC else RARE_GLOW
+
+
+## The light of a card's colours: one colour its own, two or more
+## multicolour gold, none (or unknown letters) colourless silver-stone.
+static func card_light(colors: PackedStringArray) -> Color:
+	var known: Array[Color] = []
+	for letter in colors:
+		if UiStyle.CARD_LIGHT.has(letter):
+			known.append(UiStyle.CARD_LIGHT[letter])
+	if known.size() == 1:
+		return known[0]
+	return UiStyle.MULTICOLOUR_LIGHT if known.size() > 1 else UiStyle.COLOURLESS_LIGHT
 
 
 ## Stops the glow at once (the card it was behind has gone).

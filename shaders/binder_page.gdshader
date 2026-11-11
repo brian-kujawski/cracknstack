@@ -13,6 +13,15 @@ uniform int used_pockets = 0;
 uniform vec3 page_color = vec3(0.1, 0.1, 0.11);
 // rgb colour, a strength: lights up when the page is complete.
 uniform vec4 glow = vec4(0.0);
+// The inside of a cover (no page there): marbled endpaper (style bible §8),
+// turned, mirrored and offset per set (Binder.endpaper_pose) so no two
+// binders' papers line up the same way.
+uniform bool endpaper_on = false;
+uniform sampler2D endpaper : source_color, filter_linear_mipmap, repeat_enable;
+// x quarter turns (0-3), y mirrored (0/1), zw offset in tiles.
+uniform vec4 endpaper_pose = vec4(0.0);
+// How many metres one tile of the paper covers.
+const float ENDPAPER_TILE = 0.32;
 
 // Keep in step with Binder.PAGE and Binder.CELL.
 const vec2 PAGE = vec2(0.24, 0.31);
@@ -21,7 +30,18 @@ const vec2 POCKET = vec2(0.067, 0.092);
 
 void fragment() {
 	vec3 color = page_color;
-	if (used_pockets > 0) {
+	if (endpaper_on) {
+		vec2 uv = UV * PAGE / ENDPAPER_TILE;
+		for (int i = 0; i < int(endpaper_pose.x); i++) {
+			uv = vec2(uv.y, -uv.x);
+		}
+		if (endpaper_pose.y > 0.5) {
+			uv.x = -uv.x;
+		}
+		// A touch dimmer than the paper itself, so the cards stay the brightest
+		// thing in an open binder.
+		color = texture(endpaper, uv + endpaper_pose.zw).rgb * 0.82;
+	} else if (used_pockets > 0) {
 		vec2 m = (UV - 0.5) * PAGE;
 		vec2 cell = clamp(floor(m / CELL + 1.5), vec2(0.0), vec2(2.0));
 		vec2 d = m - (cell - 1.0) * CELL;
@@ -34,6 +54,6 @@ void fragment() {
 		}
 	}
 	ALBEDO = color;
-	ROUGHNESS = 0.7;
+	ROUGHNESS = endpaper_on ? 0.85 : 0.7;
 	EMISSION = glow.rgb * glow.a;
 }

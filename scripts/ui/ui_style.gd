@@ -39,6 +39,18 @@ const GLEAM := Color("f0cf73")
 
 ## The few places colour appears (bible §4.4).
 const MANA := Color("5b9bd5")
+## The five colours as light (bible §4.4, §7): a high-value rare or mythic's
+## pull glow, keyed by Scryfall colour letter. Two or more colours glow
+## multicolour gold; no colour, pale silver-stone.
+const CARD_LIGHT := {
+	"W": Color("f4ecd0"),
+	"U": Color("5b9bd5"),
+	"B": Color("9c8ca8"),
+	"R": Color("d9643e"),
+	"G": Color("5fa86a"),
+}
+const MULTICOLOUR_LIGHT := Color("f0cf73")
+const COLOURLESS_LIGHT := Color("c9c4ba")
 const GAIN := Color("5fa86a")
 ## A pull's colour moment, by the card's colour (bible §7): W U B R G,
 ## multicolour and colourless.
