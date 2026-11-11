@@ -1,6 +1,6 @@
 class_name ShopClock
 extends StaticBody3D
-## The longcase (grandfather) clock at the shelf end of the left-hand wall,
+## The longcase (grandfather) clock between the front windows,
 ## in the tables' dark wood with brass fittings. Its hands show the shop's
 ## time of day (DayCycle), and behind the glass door in its trunk the
 ## pendulum swings from a pivot up in the hood, behind the dial.
@@ -16,7 +16,16 @@ extends StaticBody3D
 
 const WIDTH := 0.5
 const DEPTH := 0.32
-const HEIGHT := 2.05
+const HEIGHT := 2.21
+## The plinth's bottom and top, over its bun feet.
+const PLINTH := Vector2(0.05, 0.15)
+## The top of the hood's case, under its frieze, crown and cap.
+const HOOD_TOP := 1.88
+const CAP := 0.025
+## How far the crest's arch rises over the cap (assets/models/clock).
+const CREST_PEAK := 0.145
+## The finials, columns, feet and crest, from Kiln.
+const PARTS := preload("res://assets/models/clock/clock.glb")
 ## The trunk's door: its glass, bottom and top.
 const GLASS := Vector2(0.3, 1.2)
 ## The trunk's height range, between the plinth and the hood.
@@ -37,6 +46,8 @@ var day: DayCycle
 ## Where the pendulum is in its swing, 0..TAU.
 var phase := 0.0
 
+static var _parts := {}
+
 var _pendulum: Node3D
 var _hour_hand: Node3D
 var _minute_hand: Node3D
@@ -54,14 +65,49 @@ static func pace(day_seconds: float) -> float:
 func build(wood: Material, brass: Material) -> void:
 	add_to_group(ReadingCorner.FURNITURE)
 	var dark := ReadingCorner.tinted(wood as StandardMaterial3D, 0.7)
+	# Mouldings and turnings a shade lighter than the case, like the
+	# bookcase's and the cabinets' trim.
+	var trim := ReadingCorner.tinted(wood as StandardMaterial3D, 1.12)
+	if _parts.is_empty():
+		_parts = KilnModel.parts(PARTS, ["Finial", "HoodColumn", "BunFoot", "Crest"])
 	var front := DEPTH / 2
-	# Plinth, trunk with its waist mouldings, hood and crown.
-	_part(Vector3(WIDTH, 0.14, DEPTH), Vector3(0, 0.07, 0), wood)
-	_part(Vector3(WIDTH + 0.02, 0.025, DEPTH + 0.02), Vector3(0, 0.15, 0), wood)
-	_part(Vector3(WIDTH, 0.03, DEPTH), Vector3(0, 1.32, 0), wood)
-	_part(Vector3(0.46, 0.6, DEPTH - 0.02), Vector3(0, 1.63, -0.01), wood)
-	_part(Vector3(WIDTH + 0.04, 0.04, DEPTH + 0.03), Vector3(0, 1.95, 0), wood)
-	_part(Vector3(WIDTH - 0.04, 0.06, DEPTH - 0.04), Vector3(0, 2.0, -0.01), dark)
+	# Plinth on four bun feet, a sunk panel in its front, the bookcase's base
+	# cap where it meets the trunk.
+	for x in [-1, 1]:
+		for z in [-1, 1]:
+			KilnModel.add(self, _parts["BunFoot"], trim, Transform3D(Basis(), Vector3(x * 0.2, 0, z * 0.11)))
+	_part(Vector3(WIDTH, PLINTH.y - PLINTH.x, DEPTH), Vector3(0, (PLINTH.x + PLINTH.y) / 2, 0), wood)
+	_part(Vector3(WIDTH - 0.1, 0.055, 0.01), Vector3(0, (PLINTH.x + PLINTH.y) / 2, front - 0.003), dark)
+	var trunk_front := 0.11
+	Furniture.run(self, "BaseCap", Vector3(-0.2 - 0.018, PLINTH.y, trunk_front), Vector3.RIGHT, 0.436, Vector3.BACK, trim)
+	for side in [-1, 1]:
+		Furniture.run(self, "BaseCap", Vector3(side * 0.2, PLINTH.y, trunk_front if side > 0 else -0.16),
+			Vector3.FORWARD if side > 0 else Vector3.BACK, 0.27, Vector3.RIGHT * side, trim)
+	# The hood: a bed moulding flaring out from the trunk, the case behind the
+	# dial between two turned columns, a crown and cap, the arched crest and
+	# three brass finials.
+	var hood := Vector2(TRUNK.y + 0.03, HOOD_TOP)
+	Furniture.run(self, "Crown", Vector3(-0.2 - 0.035, hood.x, trunk_front), Vector3.RIGHT, 0.47, Vector3.BACK, trim)
+	for side in [-1, 1]:
+		Furniture.run(self, "Crown", Vector3(side * 0.2, hood.x, trunk_front if side > 0 else -0.16),
+			Vector3.FORWARD if side > 0 else Vector3.BACK, 0.27, Vector3.RIGHT * side, trim)
+	var hood_front := 0.135
+	_part(Vector3(0.46, hood.y - hood.x, hood_front + 0.16), Vector3(0, (hood.x + hood.y) / 2, (hood_front - 0.16) / 2), wood)
+	for side in [-1, 1]:
+		KilnModel.add(self, _parts["HoodColumn"], trim, Transform3D(Basis(), Vector3(side * 0.205, hood.x, hood_front)))
+	var crown_top := hood.y + 0.05
+	Furniture.run(self, "Crown", Vector3(-0.23 - 0.035, crown_top, hood_front + 0.01), Vector3.RIGHT, 0.53, Vector3.BACK, trim)
+	for side in [-1, 1]:
+		Furniture.run(self, "Crown", Vector3(side * 0.23, crown_top, hood_front + 0.01 if side > 0 else -0.16),
+			Vector3.FORWARD if side > 0 else Vector3.BACK, 0.305, Vector3.RIGHT * side, trim)
+	_part(Vector3(0.46, 0.05, 0.3), Vector3(0, hood.y + 0.025, -0.01), wood)
+	var cap_top := crown_top + CAP
+	_part(Vector3(0.54, CAP, 0.34), Vector3(0, crown_top + CAP / 2, 0.01), trim)
+	KilnModel.add(self, _parts["Crest"], wood, Transform3D(Basis(), Vector3(0, cap_top, 0.1)))
+	for side in [-1, 1]:
+		_part(Vector3(0.035, 0.03, 0.035), Vector3(side * 0.235, cap_top + 0.015, 0.11), wood)
+		KilnModel.add(self, _parts["Finial"], brass, Transform3D(Basis(), Vector3(side * 0.235, cap_top + 0.03, 0.11)))
+	KilnModel.add(self, _parts["Finial"], brass, Transform3D(Basis(), Vector3(0, cap_top + CREST_PEAK, 0.112)))
 	# The trunk is a hollow case, 40 cm across and 26 deep: sides, a dark
 	# back, and a door with a frame round the glass.
 	var trunk_h := TRUNK.y - TRUNK.x
@@ -90,6 +136,9 @@ func build(wood: Material, brass: Material) -> void:
 		_part(Vector3(0.004, 0.4, 0.004), Vector3(side * 0.09, 1.18, -0.07), brass)
 	# Dial: a brass bezel round a cream face, hour marks, two hands.
 	var dial_z := front - 0.01
+	# The square brass dial plate behind the round face: its corners are
+	# the spandrels.
+	_part(Vector3(0.36, 0.36, 0.006), Vector3(0, DIAL_HEIGHT, 0.137), brass)
 	var bezel := _cylinder(DIAL_RADIUS + 0.015, 0.012, Vector3(0, DIAL_HEIGHT, dial_z), brass)
 	bezel.rotation.x = PI / 2
 	var face_material := StandardMaterial3D.new()

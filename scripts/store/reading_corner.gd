@@ -14,10 +14,10 @@ const FURNITURE := &"furniture"
 ## The armchair: width and depth, and the seat cushion's top.
 const CHAIR_SIZE := Vector2(0.85, 0.9)
 const CHAIR_HEIGHT := 1.02
-const CHAIR_ARM := 0.16
 const CHAIR_ARM_TOP := 0.66
 const SEAT_HEIGHT := 0.49
 const CHAIR_LEG := 0.09
+const ARMCHAIR := preload("res://assets/models/armchair/armchair.glb")
 ## The side table: square top, at about the chair's arm height.
 const TABLE_TOP := 0.65
 const TABLE_HEIGHT := 0.6
@@ -25,42 +25,32 @@ const TABLE_HEIGHT := 0.6
 ## to LAMP_HEIGHT.
 const LAMP_BASE := 0.32
 const FLOOR_LAMP := preload("res://assets/models/floor_lamp/floor_lamp.glb")
-const LAMP_HEIGHT := 1.73
-const SHADE_BOTTOM := 1.43
+const LAMP_HEIGHT := 1.58
+const SHADE_BOTTOM := 1.3
 const SHADE_RADII := Vector2(0.15, 0.23)
 ## The lamp's light: soft and all round, as through a cloth shade, and how
 ## brightly the shade itself glows.
 const LAMP_ENERGY := 0.6
 const LAMP_RANGE := 4.0
-const SHADE_GLOW := 1.6
+const SHADE_GLOW := 1.0
+## The shade's parchment, and how many pleats it's folded into.
+const SHADE_COLOUR := Color(0.95, 0.8, 0.58)
+const SHADE_PLEATS := 40
 
 
-## An upholstered armchair: rolled arms, a seat and back cushion, a back
-## leaning back a little, on four short wooden legs.
-static func armchair(leather: Material, wood: Material) -> StaticBody3D:
+## A tailored leather club chair from Kiln (assets/models/armchair): rolled
+## arms faced with brass nailheads, a buttoned back raked a little, a firm
+## seat cushion, on a walnut rail and four short turned legs. Built to
+## CHAIR_SIZE, CHAIR_HEIGHT, SEAT_HEIGHT and CHAIR_ARM_TOP; solid as two
+## boxes, the arms' height all over and the back to its full height.
+static func armchair(leather: Material, wood: Material, brass: Material) -> StaticBody3D:
 	var body := _body()
+	var parts := KilnModel.parts(ARMCHAIR, ["Leather", "Wood", "Brass"])
+	KilnModel.add(body, parts["Leather"], leather)
+	KilnModel.add(body, parts["Wood"], wood)
+	KilnModel.add(body, parts["Brass"], brass).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var w := CHAIR_SIZE.x
 	var d := CHAIR_SIZE.y
-	for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
-		var leg := _add(body, _taper(0.024, 0.017, CHAIR_LEG), wood)
-		leg.position = Vector3(corner.x * (w / 2 - 0.07), CHAIR_LEG / 2, corner.y * (d / 2 - 0.07))
-	var base_top := CHAIR_LEG + 0.27
-	_add(body, rounded_box(Vector3(w, base_top - CHAIR_LEG, d - 0.02), 0.03), leather).position.y = (CHAIR_LEG + base_top) / 2
-	var arm_bottom := base_top - 0.06
-	for side in [-1, 1]:
-		var arm := _add(body, rounded_box(Vector3(CHAIR_ARM, CHAIR_ARM_TOP - arm_bottom, d - 0.03), 0.07), leather)
-		arm.position = Vector3(side * (w / 2 - CHAIR_ARM / 2), (arm_bottom + CHAIR_ARM_TOP) / 2, 0.01)
-	var back := _add(body, rounded_box(Vector3(w, CHAIR_HEIGHT - arm_bottom, 0.2), 0.07), leather)
-	back.position = Vector3(0, (arm_bottom + CHAIR_HEIGHT) / 2, -d / 2 + 0.1)
-	back.rotation.x = -0.1
-	# The cushions fill the space between the arms, in front of the back.
-	var inner := w - 2 * CHAIR_ARM - 0.01
-	var seat_back := -d / 2 + 0.2
-	var seat := _add(body, rounded_box(Vector3(inner, SEAT_HEIGHT - base_top + 0.01, d / 2 - seat_back), 0.045), leather)
-	seat.position = Vector3(0, (base_top + SEAT_HEIGHT) / 2 - 0.005, (seat_back + d / 2) / 2)
-	var cushion := _add(body, rounded_box(Vector3(inner, 0.48, 0.14), 0.05), leather)
-	cushion.position = Vector3(0, SEAT_HEIGHT + 0.25, seat_back + 0.05)
-	cushion.rotation.x = -0.2
 	_shape(body, Vector3(w, CHAIR_ARM_TOP, d), Vector3(0, CHAIR_ARM_TOP / 2, 0))
 	_shape(body, Vector3(w, CHAIR_HEIGHT, 0.25), Vector3(0, CHAIR_HEIGHT / 2, -d / 2 + 0.125))
 	return body
@@ -106,18 +96,27 @@ static func floor_lamp(brass: Material, shade_cloth: StandardMaterial3D, light: 
 		KilnModel.add(body, parts[part], brass)
 
 	var shade_height := LAMP_HEIGHT - SHADE_BOTTOM
-	var shade_mesh := _taper(SHADE_RADII.x, SHADE_RADII.y, shade_height)
-	shade_mesh.cap_top = false
-	shade_mesh.cap_bottom = false
+	# A pleated parchment shade, lit from inside: it glows a warm amber rather
+	# than white, with a thin brass rim round its top and bottom.
 	var glow: StandardMaterial3D = shade_cloth.duplicate()
+	glow.albedo_color = SHADE_COLOUR
 	glow.emission_enabled = true
-	glow.emission = light
+	glow.emission = SHADE_COLOUR * light
 	glow.emission_energy_multiplier = SHADE_GLOW
 	glow.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var shade := _add(body, shade_mesh, glow)
+	var shade := _add(body, pleated_shade(SHADE_RADII.x, SHADE_RADII.y, shade_height, SHADE_PLEATS), glow)
 	shade.position.y = SHADE_BOTTOM + shade_height / 2
 	# The light comes through the cloth, so the shade mustn't block it.
 	shade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for rim in [[SHADE_RADII.y, SHADE_BOTTOM], [SHADE_RADII.x, LAMP_HEIGHT]]:
+		var ring := TorusMesh.new()
+		ring.inner_radius = rim[0] - 0.002
+		ring.outer_radius = rim[0] + 0.004
+		ring.rings = 48
+		ring.ring_segments = 6
+		var band := _add(body, ring, brass)
+		band.position.y = rim[1]
+		band.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 	var lamp := OmniLight3D.new()
 	lamp.position.y = SHADE_BOTTOM + 0.13
@@ -134,6 +133,29 @@ static func floor_lamp(brass: Material, shade_cloth: StandardMaterial3D, light: 
 	_shape(body, Vector3(0.05, SHADE_BOTTOM, 0.05), Vector3(0, SHADE_BOTTOM / 2, 0))
 	_shape(body, Vector3(2 * SHADE_RADII.y, shade_height, 2 * SHADE_RADII.y), shade.position)
 	return body
+
+
+## A lamp shade `height` tall, `top` and `bottom` round, centred on its
+## origin, open at both ends: the cloth folded into `pleats` sharp pleats.
+static func pleated_shade(top: float, bottom: float, height: float, pleats: int) -> ArrayMesh:
+	const DEPTH := 0.007
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(0xFFFFFFFF)  # Flat faces, so each fold catches light.
+	var steps := pleats * 2
+	var ring := func(i: int, radius: float, y: float) -> Vector3:
+		var r := radius - (DEPTH if i % 2 == 1 else 0.0)
+		var a := TAU * i / steps
+		return Vector3(cos(a) * r, y, sin(a) * r)
+	for i in steps:
+		var b0: Vector3 = ring.call(i, bottom, -height / 2)
+		var b1: Vector3 = ring.call(i + 1, bottom, -height / 2)
+		var t0: Vector3 = ring.call(i, top, height / 2)
+		var t1: Vector3 = ring.call(i + 1, top, height / 2)
+		for v in [b0, t0, t1, b0, t1, b1]:
+			st.add_vertex(v)
+	st.generate_normals()
+	return st.commit()
 
 
 ## A box with rounded edges and corners, `radius` round, centred on its
@@ -193,15 +215,6 @@ static func _box(size: Vector3) -> BoxMesh:
 
 
 ## A round post or disc, `top` and `bottom` its radii.
-static func _taper(top: float, bottom: float, height: float) -> CylinderMesh:
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = top
-	mesh.bottom_radius = bottom
-	mesh.height = height
-	mesh.radial_segments = 24
-	return mesh
-
-
 static func _shape(body: StaticBody3D, size: Vector3, at: Vector3) -> void:
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()

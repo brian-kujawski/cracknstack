@@ -97,13 +97,13 @@ const SHELF_ART_SPAN := 1.6
 ## a portrait frame at the shelf end and one at the door end. Each is
 ## [centre along z, centre height, art size, mat, moulding].
 const CORNER_ART := [
-	[3.95, 2.26, Vector2(0.75, 0.55), 0.08, 0.045],
-	[3.095, 2.433, Vector2(0.36, 0.263), 0.06, 0.035],
-	[3.095, 1.901, Vector2(0.36, 0.263), 0.06, 0.035],
-	[4.805, 2.433, Vector2(0.36, 0.263), 0.06, 0.035],
-	[4.805, 1.901, Vector2(0.36, 0.263), 0.06, 0.035],
-	[2.495, 2.23, Vector2(0.3, 0.42), 0.06, 0.035],
-	[5.405, 2.23, Vector2(0.3, 0.42), 0.06, 0.035],
+	[3.95, 2.08, Vector2(0.75, 0.55), 0.08, 0.045],
+	[3.095, 2.253, Vector2(0.36, 0.263), 0.06, 0.035],
+	[3.095, 1.721, Vector2(0.36, 0.263), 0.06, 0.035],
+	[4.805, 2.253, Vector2(0.36, 0.263), 0.06, 0.035],
+	[4.805, 1.721, Vector2(0.36, 0.263), 0.06, 0.035],
+	[2.495, 2.05, Vector2(0.3, 0.42), 0.06, 0.035],
+	[5.405, 2.05, Vector2(0.3, 0.42), 0.06, 0.035],
 ]
 ## The store's wood (assets/store/table_wood): tables, cabinets, the binder
 ## shelf, window frames and the door. And how many metres of real wood one
@@ -426,7 +426,7 @@ func _build_reading_corner() -> void:
 	var leather := _textured(LEATHER, LEATHER_SIZE)
 	leather.albedo_color = CHAIR_LEATHER
 	leather.normal_scale = 2.0
-	var chair := ReadingCorner.armchair(leather, _table_material)
+	var chair := ReadingCorner.armchair(leather, _table_material, _brass_material)
 	chair.name = "Armchair"
 	_place(chair, ARMCHAIR_AT, ARMCHAIR_YAW, ReadingCorner.CHAIR_SIZE)
 	var table := ReadingCorner.side_table(_table_material, _brass_material)
