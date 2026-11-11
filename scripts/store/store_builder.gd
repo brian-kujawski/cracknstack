@@ -151,6 +151,9 @@ const DRAPE_COLOUR := Color(0.34, 0.08, 0.07)
 const DRAPE_TIE := 0.58
 ## The windows' leaded glass (tools/bake_leaded_glass.py), one pane's worth.
 const LEADED_GLASS := preload("res://assets/store/leaded_glass/albedo.png")
+## The view through the windows: three pictures outside, seen with parallax
+## through old glass (shaders/window_view.gdshader, assets/store/window_view).
+const WINDOW_VIEW := preload("res://shaders/window_view.gdshader")
 
 ## Floor footprints nothing on the floor may overlap (the shelves and the
 ## table legs), as x/z rectangles. The space under a table top is open:
@@ -160,10 +163,10 @@ var obstacles: Array[Rect2] = []
 ## tables and the binder shelf, as x/z rectangles.
 var surfaces: Array[Rect2] = []
 ## For the DayCycle: the light from each window, the drapes, and the window
-## glass, which glows with the sky.
+## glass, whose view outside it tints with the daylight.
 var window_lights: Array[Light3D] = []
 var curtain_material := _drapes()
-var sky_material := StandardMaterial3D.new()
+var sky_material := ShaderMaterial.new()
 ## Every shadow box in the display cabinets, back cabinet first, each
 ## cabinet's top row first, left to right as you face it.
 var display_slots: Array[Marker3D] = []
@@ -475,9 +478,11 @@ func _build_windows() -> void:
 	const FRAME := 0.07
 	const FRAME_DEPTH := 0.06
 	const CURTAIN_Z := 0.13
-	sky_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	sky_material.albedo_color = Color.BLACK
-	sky_material.albedo_texture = LEADED_GLASS
+	sky_material.shader = WINDOW_VIEW
+	sky_material.set_shader_parameter("leaded", LEADED_GLASS)
+	sky_material.set_shader_parameter("wall_z", DEPTH)
+	for layer in ["near", "mid", "far"]:
+		sky_material.set_shader_parameter(layer + "_layer", load("res://assets/store/window_view/%s.png" % layer))
 	curtain_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var size: Vector2 = WINDOW_SIZE
 	for x in WINDOW_XS:

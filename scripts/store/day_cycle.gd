@@ -34,7 +34,8 @@ const NIGHT_AMBIENT_ENERGY := 0.1
 const WINDOW_ENERGY := 0.9
 ## How brightly the curtains and the sky behind them glow at full daylight.
 const CURTAIN_GLOW := 0.45
-const SKY_GLOW := 1.4
+## How bright the view through the windows is at full daylight.
+const SKY_GLOW := 0.85
 ## Night through the leaded glass: dark, but light enough to show the lead.
 const NIGHT_SKY := Color(0.08, 0.1, 0.17)
 ## The room is closed, so the environment sky is never seen directly: it is
@@ -51,10 +52,10 @@ var running := true
 var _environment: Environment
 var _window_lights: Array[Light3D] = []
 var _curtain: StandardMaterial3D
-var _sky: StandardMaterial3D
+var _sky: ShaderMaterial
 
 
-func setup(environment: Environment, window_lights: Array[Light3D], curtain: StandardMaterial3D, sky: StandardMaterial3D) -> void:
+func setup(environment: Environment, window_lights: Array[Light3D], curtain: StandardMaterial3D, sky: ShaderMaterial) -> void:
 	_environment = environment
 	_window_lights = window_lights
 	_curtain = curtain
@@ -101,7 +102,7 @@ func apply() -> void:
 	if _curtain != null:
 		_curtain.emission = colour * strength * CURTAIN_GLOW
 	if _sky != null:
-		_sky.albedo_color = NIGHT_SKY.lerp(colour * SKY_GLOW, strength)
+		_sky.set_shader_parameter("daylight", NIGHT_SKY.lerp(colour * SKY_GLOW, strength))
 	if _environment != null:
 		_environment.ambient_light_color = NIGHT_AMBIENT.lerp(DAY_AMBIENT, strength)
 		_environment.ambient_light_energy = lerpf(NIGHT_AMBIENT_ENERGY, DAY_AMBIENT_ENERGY, strength)

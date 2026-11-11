@@ -1,0 +1,5 @@
+Placeholder window view, baked by tools/bake_window_view.py.
+To be replaced by hand-drawn art at the same sizes and placement:
+near.png 1680x420 (14 x 3.5 m, alpha), mid.png 1600x640 (40 x 16 m, alpha),
+far.png 2016x756 (112 x 42 m, opaque). Placement: shaders/window_view.gdshader
+(*_rect = left, bottom, width, height in room metres; *_depth = metres outside the wall).

@@ -1,7 +1,8 @@
 class_name ShopDoor
 extends StaticBody3D
-## The shop's front door (closed, not usable yet): a plain wooden door in a
-## wooden frame, with a round brass knob and three butt hinges. Its origin is
+## The shop's front door (closed, not usable yet): a four-panel wooden door
+## in a wooden frame under the bookcase's crown moulding, with a round brass
+## knob and three butt hinges. Its origin is
 ## on the floor at the middle of the doorway, against the wall, and it faces
 ## local +Z.
 
@@ -22,6 +23,13 @@ const KNOB_HEIGHT := 0.95
 const KNOB_INSET := 0.07
 ## The hinges are on this side of the slab (local x).
 const HINGE_SIDE := 1.0
+## The slab's panelling: stile and centre muntin widths, how deep the panels
+## sit behind the frame, and the rails as [centre height, height]: the top,
+## the lock rail at the knob, and the deep bottom rail.
+const STILE := 0.12
+const MUNTIN := 0.1
+const PANEL_SINK := 0.012
+const RAILS := [[2.02, 0.12], [KNOB_HEIGHT, 0.2], [0.12, 0.22]]
 
 
 ## Builds the meshes and collision, in `wood` (the furniture's), with
@@ -39,11 +47,32 @@ func build(wood: Material, brass: Material) -> void:
 	_box(Vector3(LEAF_SIZE.x, JAMB, FRAME_DEPTH), Vector3(0, top + JAMB / 2, FRAME_DEPTH / 2), wood)
 	_box(Vector3(LEAF_SIZE.x + 2 * (JAMB + CASING_WIDTH), CASING_WIDTH, CASING_DEPTH),
 		Vector3(0, top + JAMB + CASING_WIDTH / 2, FRAME_DEPTH + CASING_DEPTH / 2), wood)
+	# A crown over the head casing, as on the bookcase and cabinets.
+	var casing_width := LEAF_SIZE.x + 2 * (JAMB + CASING_WIDTH)
+	var crown_top := top + JAMB + CASING_WIDTH + 0.05
+	Furniture.run(self, "Crown", Vector3(-casing_width / 2 - 0.035, crown_top, FRAME_DEPTH + CASING_DEPTH), Vector3.RIGHT, casing_width + 0.07, Vector3.BACK, wood)
+	_box(Vector3(casing_width + 0.09, 0.02, FRAME_DEPTH + CASING_DEPTH + 0.045), Vector3(0, crown_top + 0.01, (FRAME_DEPTH + CASING_DEPTH + 0.045) / 2), wood)
 
 	# The slab, a hair clear of the floor and the frame.
 	const GAP := 0.004
 	var slab := Vector3(LEAF_SIZE.x - 2 * GAP, top - 0.01 - GAP, LEAF_DEPTH)
-	_box(slab, Vector3(0, 0.01 + slab.y / 2, LEAF_FRONT - LEAF_DEPTH / 2), wood)
+	var slab_z := LEAF_FRONT - LEAF_DEPTH / 2
+	# The panels are a shade darker, so they read as sunk behind the frame.
+	var panel_wood := wood
+	if wood is StandardMaterial3D:
+		panel_wood = wood.duplicate()
+		(panel_wood as StandardMaterial3D).albedo_color = (wood as StandardMaterial3D).albedo_color * Color(0.72, 0.72, 0.72)
+	_box(slab - Vector3(0, 0, PANEL_SINK), Vector3(0, 0.01 + slab.y / 2, slab_z - PANEL_SINK / 2), panel_wood)
+	# Four sunk panels in a frame of stiles and rails, like the cabinet doors:
+	# the frame stands PANEL_SINK proud of the panels.
+	var frame_z := LEAF_FRONT - PANEL_SINK / 2
+	var bottom := 0.01
+	var inner := slab.x - 2 * STILE
+	for side in [-1, 1]:
+		_box(Vector3(STILE, slab.y, PANEL_SINK), Vector3(side * (slab.x - STILE) / 2, bottom + slab.y / 2, frame_z), wood)
+	_box(Vector3(MUNTIN, slab.y, PANEL_SINK), Vector3(0, bottom + slab.y / 2, frame_z), wood)
+	for rail in RAILS:
+		_box(Vector3(inner, rail[1], PANEL_SINK), Vector3(0, bottom + rail[0], frame_z), wood)
 
 	# Butt hinges: a leaf on the slab's face by the hinge edge and a knuckle.
 	for y in [0.25, 1.05, 1.85]:
