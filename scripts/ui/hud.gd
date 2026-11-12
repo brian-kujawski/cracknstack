@@ -8,7 +8,7 @@ extends Control
 ## - bottom left, in context: the card (or pack, or box) in hand;
 ## - bottom right, in context: what the crosshair is on and its key;
 ## - top right, for a few seconds: notices (achievements, the radio).
-## Big moments (level up, a new set, a finished binder) get a banner at the
+## Big moments (a new set, a finished binder) get a banner at the
 ## top centre, a new day a report in the middle, and a shipping box's fill
 ## floats over the box itself after a moment's look. Main feeds it.
 

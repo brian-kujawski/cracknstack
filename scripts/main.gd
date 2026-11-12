@@ -173,8 +173,7 @@ func _ready() -> void:
 		add_child(SellConfirm.new(func() -> void: _hands.sell_held_card(box, true))))
 	_hands.end_day_requested.connect(end_day)
 	Progression.sorceries_changed.connect(_update_stats)
-	Progression.level_changed.connect(func(level: int) -> void:
-		hud.show_banner("Level up", "Level %d" % level, level_up_text(level)))
+	Progression.level_changed.connect(func(level: int) -> void: add_child(LevelUpNote.new(level)))
 	_update_stats()
 	Achievements.unlocked.connect(_on_achievement_unlocked)
 	var radio_menu := RadioMenu.new()
@@ -848,7 +847,7 @@ static func cards_organized(binders: Array[Binder], cabinets: Array = []) -> int
 	return count
 
 
-## What the level-up banner says a level opened: each ability's title and
+## What the level-up note (LevelUpNote) says a level opened, as plain text: each ability's title and
 ## what it does, one per line, then the tools now on the laptop ("" for a
 ## level that opens neither).
 static func level_up_text(level: int) -> String:
@@ -859,7 +858,7 @@ static func level_up_text(level: int) -> String:
 	for entry in Tools.opened_at(level):
 		tools.append(entry[1])
 	if not tools.is_empty():
-		lines.append("New on the laptop: %s" % ", ".join(tools))
+		lines.append("%s: %s" % [LevelUpNote.TOOLS_CAPTION, ", ".join(tools)])
 	return "\n".join(lines)
 
 
