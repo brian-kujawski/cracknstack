@@ -27,8 +27,8 @@ const FLIP_NEXT := &"flip_next"
 const FLIP_PREVIOUS := &"flip_previous"
 const PAUSE := &"pause"
 const RADIO := &"radio"
-## Hold to rip open the booster pack in hand; with cards in hand, show the
-## next one.
+## Hold to rip open the booster pack in hand, then show its cards one by
+## one (hold to run through them); also opens a booster or bulk box.
 const RIP := &"rip"
 ## Sorceries, one key each, from 1 in the order they're learned. Each is
 ## added as it's built (Serra's Blessing, on 2, comes later).
@@ -51,7 +51,7 @@ const ACTIONS := [
 	[FLIP_PREVIOUS, "Previous page"],
 	[PAUSE, "Pause"],
 	[RADIO, "Radio"],
-	[RIP, "Rip open a pack (hold), or show the next card"],
+	[RIP, "Rip open a pack (hold), and reveal its cards"],
 	[CAST_TELEPORT, "Cast Teleport"],
 ]
 

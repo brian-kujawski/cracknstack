@@ -66,11 +66,21 @@ extends Node
 ## close, commons on top and the rare slot at the back. They come out the
 ## size they were in the pack, a little further off, and come up to full
 ## size quickly. Each press of Space then shows the next card, the one on
-## top going to the back; a rare or a mythic comes up with a glow, and once
-## the last card is shown the room comes back. Space once more lowers the
-## stack back into your hand. Let go of Space before the end and the tear stays where it
-## got to, but the room comes back and the pack stops shaking. The cards
-## are new copies (see PackContents), so they can be cards you already have.
+## top going to the back, and holding Space runs through them (the first at
+## once, the next reveal_repeat_delay later, then one every
+## reveal_repeat_seconds), stopping on the last; a rare or a mythic comes up
+## with a glow, and once the last card is shown the room comes back. Space
+## once more lowers the stack back into your hand. Let go of Space before
+## the end and the tear stays where it got to, but the room comes back and
+## the pack stops shaking. The cards are new copies (see PackContents), so
+## they can be cards you already have.
+##
+## Opening a pack is one path, and only Space moves it on (opening_pack()):
+## from the first tear until the stack is lowered, every other key and
+## button does nothing, but for the mouse tilting the card up close, R and
+## T turning it, and Esc. Outside a pack, Space only ever opens things (a
+## pack in hand, a booster or bulk box); the wheel picks which card in hand
+## is on top.
 ##
 ## Selling (ShippingBox): with a card in hand, click a shipping box that
 ## stands on the floor or a table and the card is sold: it's sleeved,
@@ -177,6 +187,12 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX,
 @export var pack_knife_share := 0.375
 @export var pack_burst_seconds := 0.45
 @export var reveal_seconds := 0.22
+## Holding Space while a pack's cards are being revealed keeps showing the
+## next: the first at once, the next this many seconds later, then one
+## every reveal_repeat_seconds, until the last card (as the sorting tray and
+## gathering cards repeat).
+@export var reveal_repeat_delay := 0.25
+@export var reveal_repeat_seconds := 0.1
 ## How long the cards out of a pack take to come up from the pack's size to
 ## full size up close, and how long they wait first.
 @export var emerge_seconds := 0.3
@@ -261,6 +277,10 @@ var _linger := 0.0
 ## Every card of the pack just ripped has been shown, and the next Space
 ## lowers the stack.
 var _revealed_all := false
+## Counts down to the next card shown while Space is held mid-reveal
+## (reveal_repeat_delay, reveal_repeat_seconds); below 0 when Space isn't
+## being held on a reveal.
+var _reveal_repeat := -1.0
 ## How far back toward the pack's size the card up close is (1 just out of
 ## the pack, 0 full size); see emerge_seconds.
 var _emerge := 0.0
@@ -414,6 +434,12 @@ func _physics_process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if pile == null or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
+	handle_input(event)
+
+
+## What a key or button does, with the mouse captured (the tests call it
+## directly).
+func handle_input(event: InputEvent) -> void:
 	if event.is_action_released(Controls.RIP):
 		_ripping = false
 	if event is InputEventMouseMotion:
@@ -441,6 +467,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_released(Controls.USE_HAND):
 		release_hand()
+	elif opening_pack():
+		# One path through a pack: only Space moves it on. R and T still
+		# turn a card up close, which the next card shown undoes.
+		if event.is_action_pressed(Controls.RIP):
+			press_rip()
+		elif event.is_action_pressed(Controls.FLIP_CARD) and _zoomed and held_card_id >= 0:
+			turn_over(not _turned_over)
+		elif event.is_action_pressed(Controls.TURN_SIDEWAYS) and _zoomed and held_card_id >= 0:
+			turn_sideways(not _sideways)
 	elif _placing >= 0.0:
 		return # One thing at a time while putting something down.
 	elif event.is_action_pressed(Controls.RIP):
@@ -490,6 +525,14 @@ func _shipping_box_at_hand() -> ShippingBox:
 	if held_box == null and _aim == Aim.BOX and _aim_box is ShippingBox:
 		return _aim_box
 	return null
+
+
+## Whether a pack is being opened: from the first tear (Space held, or let
+## go part way) through its cards being revealed, until Space lowers the
+## stack. Only Space does anything then (see _unhandled_input).
+func opening_pack() -> bool:
+	return _ripping or (held_pack != null and held_pack.tear > 0.0) or revealing > 0 \
+		or (_revealed_all and _zoomed)
 
 
 func _hands_empty() -> bool:
@@ -873,15 +916,20 @@ func _flip(direction: int) -> void:
 
 ## Brings the next card in hand to the top (1), or the bottom one (-1); the
 ## old top card goes to the back or just behind.
+## A hand up close stays up close.
 func cycle_hand(direction: int) -> void:
 	if behind.is_empty():
 		return
+	var zoomed := _zoomed
 	if direction > 0:
 		behind.append(held_card_id)
 		_hold(behind.pop_front())
 	else:
 		behind.push_front(held_card_id)
 		_hold(behind.pop_back())
+	if zoomed:
+		_zoomed = true
+		_set_zoom_amount(1.0)
 
 
 ## Whether what's in hand can be put down where you're aiming: the floor, a
@@ -1720,9 +1768,11 @@ func _take_pack_node(pack: BoosterPack) -> void:
 	held_pack_changed.emit(pack.set_code)
 
 
-## Space: with a pack in hand, start ripping it; once a pack's cards have
-## all been shown, lower the stack into your hand; otherwise show the next
-## card.
+## Space: with a pack in hand, start ripping it; while a pack's cards are
+## being revealed, show the next (and keep going while it's held); once
+## they've all been shown, lower the stack into your hand; with empty hands
+## on a booster or bulk box (or with one in hand), open it. Nothing else:
+## the wheel cycles an ordinary hand.
 func press_rip() -> void:
 	if held_box != null and not is_product(held_box):
 		return
@@ -1733,11 +1783,12 @@ func press_rip() -> void:
 			open_box(_aim_box)
 	elif held_pack != null:
 		_start_ripping()
+	elif revealing > 0:
+		reveal_next()
+		_reveal_repeat = reveal_repeat_delay if revealing > 0 else -1.0
 	elif _revealed_all and _zoomed:
 		_revealed_all = false
 		_set_zoomed(false)
-	else:
-		reveal_next()
 
 
 ## A new, empty shipping box from the crate by the door, into your hand.
@@ -2141,6 +2192,7 @@ func _process(delta: float) -> void:
 	var use_held := Input.is_action_pressed(Controls.USE_HAND) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	repeat_tray_drop(delta, use_held)
 	repeat_pulls(delta, use_held)
+	repeat_reveal(delta, Input.is_action_pressed(Controls.RIP) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED)
 	if _ripping and (held_pack == null or not Input.is_action_pressed(Controls.RIP)):
 		_ripping = false
 	if _ripping and not _gliding():
@@ -2213,6 +2265,22 @@ func rip_pack() -> Array[int]:
 	return ids
 
 
+## While Space is held on a pack's cards, the next one comes up when it's
+## due. Letting go, or the last card coming up, stops it: lowering the
+## stack takes a press of its own, so the last card is always seen.
+func repeat_reveal(delta: float, held: bool) -> void:
+	if _reveal_repeat < 0.0:
+		return
+	if not held or revealing <= 0:
+		_reveal_repeat = -1.0
+		return
+	_reveal_repeat -= delta
+	if _reveal_repeat > 0.0:
+		return
+	reveal_next()
+	_reveal_repeat = maxf(_reveal_repeat + reveal_repeat_seconds, 0.0) if revealing > 0 else -1.0
+
+
 func _set_emerge(amount: float) -> void:
 	_emerge = amount
 	_pose_held_card()
@@ -2233,11 +2301,7 @@ func reveal_next() -> void:
 	tween.tween_method(func(t: float) -> void: outgoing.transform = start.interpolate_with(end, t), 0.0, 1.0,
 		glide_seconds(reveal_seconds)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	tween.tween_callback(outgoing.queue_free)
-	var zoomed := _zoomed
-	cycle_hand(1)
-	if zoomed:
-		_zoomed = true
-		_set_zoom_amount(1.0)
+	cycle_hand(1) # Up close stays up close.
 	_pack_effects.end_glow()
 	if revealing > 0:
 		revealing -= 1
