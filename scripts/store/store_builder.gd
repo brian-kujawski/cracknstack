@@ -114,10 +114,15 @@ const TABLE_WOOD_SIZE := 0.6
 ## backs (assets/store/felt), and how many metres one copy of it covers.
 const FELT := "felt"
 const FELT_SIZE := 0.3
+## The baize dyed deeper than its photo, a billiard-table green that sits
+## back behind the cards instead of shouting.
+const FELT_TINT := Color(0.55, 0.68, 0.58)
 ## The floorboards (assets/store/floorboards, baked from the walnut by
 ## tools/bake_floorboards.py), and how many metres one copy covers.
 const FLOOR := "floorboards"
 const FLOOR_SIZE := 1.68
+## The floorboards a little less orange than their bake, toward the walnut.
+const FLOOR_TINT := Color(0.84, 0.8, 0.8)
 ## Painted plaster on the walls and ceiling (assets/store/plaster), and how
 ## many metres one copy of it covers. The walls above the panelling are
 ## parchment (style bible §4.5, user 2026-11-11), the ceiling a paler cream.
@@ -191,13 +196,13 @@ var binder_shelf: ShelfUnit
 
 var _wall_material := _tinted(_textured(PLASTER, PLASTER_SIZE), PARCHMENT)
 var _ceiling_material := _tinted(_textured(PLASTER, PLASTER_SIZE), CEILING_CREAM)
-var _floor_material := _textured(FLOOR, FLOOR_SIZE)
+var _floor_material := _tinted(_textured(FLOOR, FLOOR_SIZE), FLOOR_TINT)
 var _table_material := _textured(TABLE_WOOD, TABLE_WOOD_SIZE)
 ## The same wood for the legs, mapped by the legs' own UVs so the grain runs
 ## up them (world mapping would lay it across, like the top's).
 ## The bookcase's trim (its mouldings and top), a shade lighter than the wood.
 var _trim_material: Material = ShelfUnit._tinted(_table_material, 1.12)
-var _felt_material := _textured(FELT, FELT_SIZE)
+var _felt_material := _tinted(_textured(FELT, FELT_SIZE), FELT_TINT)
 var _fixture_material := _metal(Color(0.12, 0.13, 0.12), 0.45)
 var _brass_material := _brass()
 

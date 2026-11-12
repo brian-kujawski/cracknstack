@@ -15,7 +15,7 @@ const CANOPY_DEPTH := 0.04
 ## The shade's cased glass: deep green, glossy, lit only from the room.
 const GREEN_GLASS := Color(0.07, 0.24, 0.12)
 ## How brightly the shade's white opal lining glows.
-const LINING_GLOW := 1.6
+const LINING_GLOW := 0.7
 ## Picture light: the hood's centre relative to its wall plate, as built in
 ## picture_light.kiln.js.
 const HOOD_DROP := 0.06
@@ -42,7 +42,7 @@ static func pendant(parent: Node3D, rim: Vector3, ceiling: float, brass: Materia
 	glass.clearcoat_enabled = true
 	glass.clearcoat_roughness = 0.05
 	var lining := StandardMaterial3D.new()
-	lining.albedo_color = Color(0.95, 0.92, 0.85)
+	lining.albedo_color = Color(0.82, 0.75, 0.62)
 	lining.emission_enabled = true
 	lining.emission = Color("ffd199")
 	lining.emission_energy_multiplier = LINING_GLOW
