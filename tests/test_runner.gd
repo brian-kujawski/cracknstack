@@ -4452,6 +4452,62 @@ func _test_booster_packs() -> void:
 	_check(ids[0] == tipped.size() and Collection.count() == tipped.size() + ids.size(), "made after the bulk box's copies")
 	_check(hands.held_card_id == ids[0] and hands.behind.back() == ids[-1], "commons on top, the rare slot at the back")
 	_check(hands.held_pack == null and hands._zoomed and hands.revealing == ids.size() - 1, "the cards are up close, to be revealed")
+	_check(hands.opening_pack(), "the pack is being opened")
+	# Mid-reveal, nothing but Space moves it on.
+	var press_action := func(action: StringName) -> void:
+		var down := InputEventAction.new()
+		down.action = action
+		down.pressed = true
+		hands.handle_input(down)
+		var up := InputEventAction.new()
+		up.action = action
+		hands.handle_input(up)
+	for action in [Controls.FLIP_NEXT, Controls.FLIP_PREVIOUS, Controls.INSPECT, Controls.USE_HAND,
+			Controls.TOSS, Controls.INTERACT, Controls.CAST_TELEPORT]:
+		press_action.call(action)
+		_check(hands.held_card_id == ids[0] and hands.hand_count() == ids.size() and hands._zoomed
+			and hands.revealing == ids.size() - 1 and hands._placing < 0.0,
+			"mid-reveal, %s does nothing" % action)
+	press_action.call(Controls.FLIP_CARD)
+	_check(hands._turned_over and hands.revealing == ids.size() - 1, "R still turns the card up close over")
+	press_action.call(Controls.FLIP_CARD)
+	press_action.call(Controls.RIP)
+	_check(hands.held_card_id == ids[1] and hands.revealing == ids.size() - 2 and hands._zoomed, "Space shows the next card")
+	# Held, Space runs through them: the next after the delay, then quicker.
+	hands.repeat_reveal(hands.reveal_repeat_delay * 0.5, true)
+	_check(hands.held_card_id == ids[1], "held, the next card waits a moment")
+	hands.repeat_reveal(hands.reveal_repeat_delay * 0.5 + 0.001, true)
+	_check(hands.held_card_id == ids[2], "then comes up")
+	hands.repeat_reveal(hands.reveal_repeat_seconds + 0.001, true)
+	_check(hands.held_card_id == ids[3], "and the rest follow quicker")
+	hands.repeat_reveal(0.01, false)
+	hands.repeat_reveal(10.0, true)
+	_check(hands.held_card_id == ids[3], "letting go of Space stops it")
+	press_action.call(Controls.RIP)
+	for i in ids.size() * 2:
+		hands.repeat_reveal(hands.reveal_repeat_seconds + 0.001, true)
+	_check(hands.held_card_id == ids[-1] and hands.revealing == 0 and hands._zoomed and hands.opening_pack(),
+		"held to the end, it stops on the last card, still up close")
+	for action in [Controls.FLIP_NEXT, Controls.INSPECT, Controls.TOSS]:
+		press_action.call(action)
+	_check(hands.held_card_id == ids[-1] and hands._zoomed, "with every card shown, only Space lowers the stack")
+	press_action.call(Controls.RIP)
+	_check(not hands._zoomed and not hands.opening_pack() and hands.held_card_id == ids[-1], "Space lowers it")
+	press_action.call(Controls.RIP)
+	_check(hands.held_card_id == ids[-1], "and an ordinary hand isn't cycled by Space")
+	press_action.call(Controls.FLIP_NEXT)
+	_check(hands.held_card_id != ids[-1], "the wheel does that")
+	press_action.call(Controls.INSPECT)
+	press_action.call(Controls.FLIP_NEXT)
+	_check(hands._zoomed, "and a hand up close stays up close as it turns")
+	press_action.call(Controls.INSPECT)
+	hands.behind.clear()
+	hands._hold(-1)
+	var again := BoosterPack.new()
+	again.setup(front.set_code)
+	pile.add_child(again)
+	hands.held_pack = again
+	ids = hands.rip_pack()
 	var full_size := Hands.zoomed_distance(camera.fov, PileWorld.CARD_SIZE.y)
 	_check(hands._emerge == 1.0 and -hands._held_view.position.z > full_size,
 		"fresh out of the pack, the cards start further off, the size they were in it")
@@ -4467,7 +4523,7 @@ func _test_booster_packs() -> void:
 	_check(not hands._zoomed and hands.held_card_id == ids[-1], "Space once more lowers the stack into your hand, rare on top")
 	hands._set_zoomed(true)
 	hands.press_rip()
-	_check(hands.held_card_id == ids[0], "after that, Space just shows the next card")
+	_check(hands.held_card_id == ids[-1], "after that, Space doesn't cycle the hand, even up close")
 	hands._set_zoomed(false)
 	hands.restore_hand([] as Array[int])
 
