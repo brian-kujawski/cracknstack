@@ -8,4 +8,3 @@ const TEXT := "A rare card! It doesn't go in a binder. Take it to the display ca
 
 func _init() -> void:
 	text = TEXT
-	accent = RareCards.ACCENT

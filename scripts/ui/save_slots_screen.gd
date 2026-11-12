@@ -31,17 +31,21 @@ func _init(from_game := false) -> void:
 	_refresh()
 
 
-func _make_row(slot: String) -> HBoxContainer:
+## A slot's row, in a well cut into the page: its name, then when it was
+## saved and how far along it is, then its buttons.
+func _make_row(slot: String) -> PanelContainer:
+	var well := PanelContainer.new()
+	well.add_theme_stylebox_override("panel", UiStyle.Well.new(Vector2(24, 12)))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 16)
-	var title := Label.new()
-	title.text = Saves.SLOT_NAMES[slot]
+	well.add_child(row)
+	var title := UiStyle.label(Saves.SLOT_NAMES[slot], UiStyle.name_font(), UiStyle.LEAD)
 	title.custom_minimum_size.x = NAME_WIDTH
-	title.add_theme_font_size_override("font_size", MenuStyle.BUTTON_FONT_SIZE)
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(title)
-	var details := Label.new()
+	var details := UiStyle.label("", UiStyle.text_font(), UiStyle.BODY, UiStyle.PAPER_MUTED)
 	details.custom_minimum_size.x = DETAILS_WIDTH
-	details.add_theme_font_size_override("font_size", MenuStyle.BUTTON_FONT_SIZE)
+	details.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(details)
 	var found := {"details": details}
 	if in_game:
@@ -55,7 +59,7 @@ func _make_row(slot: String) -> HBoxContainer:
 	row.add_child(load)
 	found["load"] = load
 	rows[slot] = found
-	return row
+	return well
 
 
 func _row_button(text: String) -> Button:

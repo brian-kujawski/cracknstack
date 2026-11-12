@@ -12,7 +12,7 @@ const DISCLAIMER := "Crack & Stack is unofficial Fan Content permitted under the
 const TEXTURES := [
 	"Wood: Wood066 by ambientCG (ambientcg.com), CC0.",
 	"Table and cabinet baize: Fabric037 by ambientCG (ambientcg.com), CC0.",
-	"Carpet: Carpet016 by ambientCG (ambientcg.com), CC0.",
+	"Floorboards: baked from Wood066 by ambientCG (ambientcg.com), CC0.",
 	"Walls: PaintedPlaster017 by ambientCG (ambientcg.com), CC0.",
 	"Binder leather: Leather025 by ambientCG (ambientcg.com), CC0.",
 	"Brass: Metal048B by ambientCG (ambientcg.com), CC0.",
@@ -20,7 +20,9 @@ const TEXTURES := [
 ]
 ## One line per font in assets/fonts/ (each has its licence beside it).
 const FONTS := [
-	"Binder lettering: EB Garamond by Georg Duffner and Octavio Pardo, SIL Open Font License 1.1.",
+	"EB Garamond by Georg Duffner and Octavio Pardo, SIL Open Font License 1.1.",
+	"Almendra and Almendra SC by Ana Sanfelippo, SIL Open Font License 1.1.",
+	"Source Sans 3 by Paul D. Hunt for Adobe, SIL Open Font License 1.1.",
 ]
 
 

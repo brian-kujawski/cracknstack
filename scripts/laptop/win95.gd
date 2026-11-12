@@ -1,23 +1,38 @@
 class_name Win95
 extends RefCounted
-## The laptop's look: a mid-90s desktop. Grey bevelled windows and buttons,
-## navy title bars, a teal desktop. Everything is drawn in code (Bevel, a
-## StyleBox), so there are no images to keep. Sizes are in pixels at
-## 1920 x 1080, like every menu; LINE is one "screen pixel" of the old
-## look, drawn two pixels wide so it reads at that size.
+## The laptop's look: a mid-90s desktop that has joined the game's family
+## (style bible §10). The structure is Win95's (bevelled windows and
+## buttons, title bars, taskbar, Start menu), but the chrome is pale warm
+## stone, the title bars dark stone and the wallpaper the marbled paper,
+## pixelated (tools/bake_laptop_wallpaper.py). Chrome is drawn in code
+## (Bevel, a StyleBox). Sizes are in pixels at 1920 x 1080, like every
+## menu; LINE is one "screen pixel" of the old look, drawn two pixels wide
+## so it reads at that size.
 
 const LINE := 2
-const DESKTOP := Color8(0, 128, 128)
-const FACE := Color8(192, 192, 192)
-const LIGHT := Color8(223, 223, 223)
-const WHITE := Color8(255, 255, 255)
-const SHADOW := Color8(128, 128, 128)
-const DARK := Color8(0, 0, 0)
-const TITLE := Color8(0, 0, 128)
-const TITLE_INACTIVE := Color8(128, 128, 128)
-const TEXT := Color8(0, 0, 0)
-const TEXT_DISABLED := Color8(128, 128, 128)
-const SELECTED := Color8(0, 0, 128)
+## The screen glass: how dark a scanline is, how dark the corners get, and
+## how long one swell of the shimmer takes.
+const SCANLINE_ALPHA := 0.06
+const VIGNETTE_ALPHA := 0.22
+const SHIMMER_SECONDS := 2.5
+## The marbled wallpaper's average colour (tools/bake_laptop_wallpaper.py
+## prints it), for the screen's glow in the room.
+const DESKTOP := Color8(135, 135, 131)
+## The wallpaper: marbled paper at half size, 256 colours, drawn at 2x.
+const WALLPAPER := preload("res://assets/ui/frames/marbled_laptop.png")
+## Pale warm stone where Win95 had grey, with its light and shade.
+const FACE := Color("cbc3b3")
+const LIGHT := Color("dfd8ca")
+const WHITE := Color("f6f1e6")
+const SHADOW := Color("857b6c")
+const DARK := UiStyle.INK
+## Title bars: dark stone, lighter towards the right (Win95.title_shade()).
+const TITLE := Color("2b2523")
+const TITLE_INACTIVE := Color("6f665c")
+const TEXT := UiStyle.INK
+const TEXT_DISABLED := Color("857b6c")
+## Selected rows and menu items: artifact stone with cream text.
+const SELECTED := UiStyle.STONE
 const FONT_SIZE := 20
 const TITLE_FONT_SIZE := 20
 
@@ -80,6 +95,8 @@ static func bevel(look := Look.RAISED, colour := FACE, margin := 8) -> Bevel:
 ## bevelled buttons, sunken scroll wells.
 static func theme() -> Theme:
 	var t := Theme.new()
+	# The machine voice (style bible §5): a plain 90s system sans.
+	t.default_font = UiStyle.machine_font()
 	t.default_font_size = FONT_SIZE
 	t.set_color("font_color", "Label", TEXT)
 	for state in ["normal", "hover"]:
@@ -105,9 +122,77 @@ static func theme() -> Theme:
 			thumb.content_margin_bottom = 10
 			t.set_stylebox(state, bar, thumb)
 	t.set_stylebox("background", "ProgressBar", bevel(Look.SUNKEN, WHITE, 4))
-	t.set_stylebox("fill", "ProgressBar", bevel(Look.FLAT, TITLE, 0))
+	t.set_stylebox("fill", "ProgressBar", bevel(Look.FLAT, SELECTED, 0))
 	t.set_color("font_color", "ProgressBar", TEXT)
 	return t
+
+
+## The lighter right-hand end of a title bar (#2b2523 to #4a3f3c), laid
+## over the bar's colour so it works for active and inactive bars alike.
+static func title_shade() -> TextureRect:
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(1, 1, 1, 0))
+	gradient.set_color(1, Color(1, 0.92, 0.88, 0.14))
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.width = 64
+	texture.height = 1
+	var shade := TextureRect.new()
+	shade.name = "Shade"
+	shade.texture = texture
+	shade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	shade.stretch_mode = TextureRect.STRETCH_SCALE
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return shade
+
+
+## The glass over the whole screen (style bible §10): faint scanlines,
+## one dark line every other pixel row, a soft darkening into the corners
+## and a slow shimmer. It takes no clicks.
+static func crt_glass() -> Control:
+	var glass := Control.new()
+	glass.name = "Glass"
+	glass.set_anchors_preset(Control.PRESET_FULL_RECT)
+	glass.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glass.process_mode = Node.PROCESS_MODE_ALWAYS
+	var rows := Image.create(1, LINE * 2, false, Image.FORMAT_RGBA8)
+	for y in LINE * 2:
+		rows.set_pixel(0, y, Color(0, 0, 0, SCANLINE_ALPHA if y >= LINE else 0.0))
+	var lines := TextureRect.new()
+	lines.name = "Scanlines"
+	lines.texture = ImageTexture.create_from_image(rows)
+	lines.stretch_mode = TextureRect.STRETCH_TILE
+	lines.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	lines.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	lines.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+	lines.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lines.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glass.add_child(lines)
+	var falloff := Gradient.new()
+	falloff.set_color(0, Color(0, 0, 0, 0))
+	falloff.set_color(1, Color(0, 0, 0, VIGNETTE_ALPHA))
+	falloff.add_point(0.55, Color(0, 0, 0, 0))
+	var round_texture := GradientTexture2D.new()
+	round_texture.gradient = falloff
+	round_texture.fill = GradientTexture2D.FILL_RADIAL
+	round_texture.fill_from = Vector2(0.5, 0.5)
+	round_texture.fill_to = Vector2(1.2, 1.2)
+	round_texture.width = 256
+	round_texture.height = 256
+	var vignette := TextureRect.new()
+	vignette.name = "Vignette"
+	vignette.texture = round_texture
+	vignette.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	vignette.stretch_mode = TextureRect.STRETCH_SCALE
+	vignette.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glass.add_child(vignette)
+	glass.ready.connect(func() -> void:
+		var tween := glass.create_tween().set_loops()
+		tween.tween_property(lines, "modulate:a", 0.6, SHIMMER_SECONDS).set_trans(Tween.TRANS_SINE)
+		tween.tween_property(lines, "modulate:a", 1.0, SHIMMER_SECONDS).set_trans(Tween.TRANS_SINE))
+	return glass
 
 
 ## A label in the laptop's text colour, wrapping to its width.

@@ -121,6 +121,8 @@ func _mark_row(band: String, marks: Array, y: float, ink: Material) -> void:
 func _label(text: String, at: Vector3, bold: bool) -> Label3D:
 	var label := Label3D.new()
 	label.text = text
+	# Silk-screened on the casing: the machine voice (style bible §5.3).
+	label.font = UiStyle.machine_font(700 if bold else 500)
 	label.font_size = 28 if bold else 22
 	label.outline_size = 0
 	label.pixel_size = 0.00018

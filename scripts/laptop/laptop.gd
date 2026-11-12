@@ -82,7 +82,7 @@ func build() -> void:
 	# it (a spot shines along its -z, so it's turned round).
 	var glow := SpotLight3D.new()
 	glow.name = "Glow"
-	glow.light_color = Win95.DESKTOP.lightened(0.25)
+	glow.light_color = Win95.DESKTOP
 	glow.light_energy = GLOW_ENERGY
 	glow.spot_range = GLOW_RANGE
 	glow.spot_angle = GLOW_ANGLE
@@ -102,9 +102,16 @@ func build() -> void:
 
 func _screen_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
-	material.albedo_color = Win95.DESKTOP.darkened(0.3)
+	# The wallpaper glowing on the lid's screen.
+	material.albedo_texture = Win95.WALLPAPER
+	# Mostly lit from within: a dim albedo so room light doesn't wash it
+	# out, and the same slice of paper the 2x desktop shows, hard pixels.
+	material.albedo_color = Color(0.3, 0.3, 0.3)
+	material.uv1_scale = Vector3(1.75, 0.9, 1)
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
 	material.emission_enabled = true
-	material.emission = Win95.DESKTOP
+	material.emission_texture = Win95.WALLPAPER
+	material.emission = Color.WHITE
 	material.emission_energy_multiplier = SCREEN_GLOW
 	material.roughness = 0.2
 	return material

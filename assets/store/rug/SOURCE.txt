@@ -1,0 +1,2 @@
+Made for Crack & Stack by tools/bake_rug.py (no outside source).
+Used for: the rug under the tables (store_builder.gd RUG).

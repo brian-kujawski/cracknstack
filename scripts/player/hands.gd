@@ -1981,7 +1981,8 @@ static func _sleeve(card: MeshInstance3D, cents: int) -> void:
 	card.add_child(label)
 	var price := Label3D.new()
 	price.text = Progression.money_text(cents)
-	price.font = BinderLettering.FONT
+	# A printed price sticker: the machine voice (style bible §5.3).
+	price.font = UiStyle.machine_font(700)
 	price.font_size = 48
 	price.outline_size = 0
 	price.modulate = ProductBox.INK
@@ -2246,16 +2247,19 @@ func reveal_next() -> void:
 			_revealed_all = true
 
 
-## A rare or mythic just revealed glows (gold or orange-red) and chimes.
+## A rare or mythic just revealed glows (PackEffects.reveal_colour: its own
+## colour when it's worth a "Score!", else gold or orange-red) and chimes.
 ## Every revealed card gets its value tag (card_revealed).
 func _reveal_flourish(id: int) -> void:
 	card_revealed.emit(id)
-	match Collection.card(id).rarity:
+	var card := Collection.card(id)
+	var colour := PackEffects.reveal_colour(card, Prices.sale_cents(card))
+	if colour.a > 0.0:
+		_pack_effects.glow(colour, _held_view.position)
+	match card.rarity:
 		CardData.Rarity.MYTHIC:
-			_pack_effects.glow(PackEffects.MYTHIC_GLOW, _held_view.position)
 			FeedbackSounds.play(pile, _camera.global_position, FeedbackSounds.Kind.MYTHIC_REVEALED)
 		CardData.Rarity.RARE:
-			_pack_effects.glow(PackEffects.RARE_GLOW, _held_view.position)
 			FeedbackSounds.play(pile, _camera.global_position, FeedbackSounds.Kind.RARE_REVEALED)
 
 

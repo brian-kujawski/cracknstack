@@ -64,6 +64,7 @@ func _ready() -> void:
 	await _run(_test_pile_stacking)
 	await _run(_test_pile_grid)
 	await _run(_test_binder_spreads)
+	await _run(_test_pull_and_endpaper_colours)
 	await _run(_test_binder_contents)
 	await _run(_test_binder_pockets)
 	await _run(_test_binder_lettering)
@@ -944,7 +945,7 @@ func _test_hud() -> void:
 	Progression.reset()
 	_check(main.current_chapter(pile.binders).is_empty(), "no set unlocked, no chapter to count")
 	main._update_stats()
-	_check(not hud.chapter_block.visible and hud.money_label.text == "$0.00" and hud.level_label.text == "1",
+	_check(not hud.chapter_block.visible and hud.money_label.text == "$0.00" and hud.level_label.text == "LEVEL 1",
 		"the status plate: money, no chapter yet, Level 1")
 
 	# A chapter counts only its unlocked sets; so does the laptop.
@@ -1591,6 +1592,31 @@ func _test_binder_spreads() -> void:
 		var pages := BinderLayout.spread_pages(binder, BinderLayout.spread_of_page(page))
 		all_found = all_found and (pages.x == page or pages.y == page)
 	_check(all_found, "spread_of_page finds every page")
+
+
+## Style bible §7/§8: a pull's glow colour and each set's endpaper pose.
+func _test_pull_and_endpaper_colours() -> void:
+	_check(PackEffects.COLOUR_GLOW_CENTS == Hud.RARE_TAG_CENTS, "a rare glows in its colour from the value tag's Score! line")
+	var card := CardData.new()
+	card.rarity = CardData.Rarity.UNCOMMON
+	card.colors = PackedStringArray(["U"])
+	_check(PackEffects.reveal_colour(card, 10000).a == 0.0, "an uncommon pulls quietly, whatever it's worth")
+	card.rarity = CardData.Rarity.RARE
+	_check(PackEffects.reveal_colour(card, 10) == PackEffects.RARE_GLOW, "a cheap rare keeps the gold glow")
+	_check(PackEffects.reveal_colour(card, 500) == UiStyle.CARD_LIGHT["U"], "a valuable blue rare glows blue")
+	card.rarity = CardData.Rarity.MYTHIC
+	_check(PackEffects.reveal_colour(card, 10) == PackEffects.MYTHIC_GLOW, "a cheap mythic keeps the orange-red glow")
+	card.colors = PackedStringArray(["W", "G"])
+	_check(PackEffects.reveal_colour(card, 500) == UiStyle.MULTICOLOUR_LIGHT, "two colours glow multicolour gold")
+	card.colors = PackedStringArray()
+	_check(PackEffects.reveal_colour(card, 500) == UiStyle.COLOURLESS_LIGHT, "no colour glows silver-stone")
+	_check(Binder.endpaper_pose("KTK") == Binder.endpaper_pose("KTK"), "a set's endpaper always lies the same way")
+	var poses := {}
+	for code in ["LEA", "LEB", "KTK", "NEO", "ONE", "FRA", "M10", "DOM"]:
+		var pose := Binder.endpaper_pose(code)
+		_check(pose.x >= 0 and pose.x <= 3 and pose.z >= 0.0 and pose.z < 1.0 and pose.w >= 0.0 and pose.w < 1.0, "endpaper pose in range for " + code)
+		poses[pose] = true
+	_check(poses.size() > 1, "different sets' endpapers lie differently")
 
 
 ## The first binder of the first set, and its cards' ids in collector order.
@@ -2606,7 +2632,9 @@ func _test_title_screen() -> void:
 	var title: Control = load(SceneFlow.TITLE_SCENE).instantiate()
 	add_child(title)
 	var labels := title.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
-	_check("CRACK & STACK" in labels and "PRESS ANY KEY TO START" in labels,
+	var wordmark := title.find_child("Wordmark", true, false)
+	var carved := [] if wordmark == null else wordmark.get_children().map(func(word: Label) -> String: return word.text)
+	_check(carved == ["Crack", "&", "Stack"] and "PRESS ANY KEY TO START" in labels,
 		"the title shows the name and PRESS ANY KEY TO START")
 	_check(not labels.any(func(t: String) -> bool: return "Wizards" in t or "Fan Content" in t),
 		"and nothing that gives away what the game is")

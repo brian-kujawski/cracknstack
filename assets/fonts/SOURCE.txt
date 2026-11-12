@@ -3,3 +3,16 @@ https://github.com/google/fonts/tree/main/ofl/ebgaramond
 Licence: SIL Open Font License 1.1 (EBGaramond-OFL.txt, which must ship with the font).
 Downloaded 2026-10-23 as EBGaramond[wght].ttf, renamed.
 Used for: the lettering pressed into the binders (BinderLettering), at weight 600, in capitals.
+
+EBGaramond-Italic.ttf: EB Garamond Italic (variable, weight axis), same authors and licence.
+Downloaded 2026-11-10 as EBGaramond-Italic[wght].ttf, renamed. Used for flavour and story lines.
+
+Almendra-Regular.ttf, Almendra-Italic.ttf, AlmendraSC-Regular.ttf: Almendra and Almendra SC by Ana Sanfelippo
+https://github.com/google/fonts/tree/main/ofl/almendra (and ofl/almendrasc)
+Licence: SIL Open Font License 1.1 (Almendra-OFL.txt, which must ship with the font).
+Downloaded 2026-11-10. Used for the "name voice" (style bible §5): headings, names, menu buttons, the wordmark.
+
+SourceSans3.ttf: Source Sans 3 (variable, weight axis) by Paul D. Hunt for Adobe
+https://github.com/google/fonts/tree/main/ofl/sourcesans3
+Licence: SIL Open Font License 1.1 (SourceSans3-OFL.txt, which must ship with the font).
+Downloaded 2026-11-10 as SourceSans3[wght].ttf, renamed. Used for the "machine voice": the laptop screen, printed labels, keycaps.

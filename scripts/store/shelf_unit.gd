@@ -1,11 +1,11 @@
 class_name ShelfUnit
 extends StaticBody3D
-## One shelving unit, any width: plain store shelving with two shelves,
-## split into bays by thin dividers, with an edge band on the front of each
-## board and a top cap. It stands raised on pairs of legs (the store adds
-## them at leg_spots(), in the tables' style), and its top is a surface like
-## a table's, for cards and binders. Its origin is on the floor, centred
-## under the unit, and its open front faces local +Z.
+## One library bookcase, any width: two shelves split into bays by thin
+## dividers, each board fronted by a moulded edge, over a panelled base on a
+## skirting, between fluted end pilasters, under a crown and a top that is a
+## surface like a table's, for cards and binders. The mouldings come from
+## Kiln (assets/models/bookcase). Its origin is on the floor, centred under
+## the unit, and its open front faces local +Z.
 ##
 ## Every space is labelled for one binder, with a nameplate on the shelf's
 ## edge under it (Nameplates), and is as wide as that binder, give or take
@@ -43,14 +43,31 @@ const BACK_THICKNESS := 0.02
 const BAND_DEPTH := 0.012
 const BAND_DROP := 0.008
 const CAP_THICKNESS := 0.025
-## How far the top cap overhangs the sides and front.
-const CAP_OVERHANG := 0.012
+## How far the top cap overhangs the sides and front (over the crown).
+const CAP_OVERHANG := 0.04
 ## How much narrower than its space a nameplate is, at least (half each side).
 const PLATE_CLEARANCE := 0.008
-## Leg pairs stand under both ends and every so many bay dividers.
+## The base's panels: a stile at both ends and at every so many bay
+## dividers (leg_spots(), named for the legs the shelf once stood on, and
+## still where the wall art above it is spaced).
 const LEGS_EVERY := 2
-## How far a leg's centre sits in from the unit's front and back.
+## How far the end stiles' centres sit in from the unit's ends.
 const LEG_INSET := 0.06
+const MOULDINGS := preload("res://assets/models/bookcase/bookcase.glb")
+const ROOM_MOULDINGS := preload("res://assets/models/mouldings/mouldings.glb")
+## The panelled base: how far its panels sit back from the shelf fronts, how
+## far its frame stands proud of them, the frame's width, and the skirting's
+## and base cap's heights (the skirting is the room's).
+const BASE_SET_BACK := 0.02
+const BASE_FRAME_PROUD := 0.01
+const BASE_FRAME_WIDTH := 0.06
+const SKIRTING_HEIGHT := 0.16
+const BASE_CAP_HEIGHT := 0.03
+## The crown under the top: its height, as built.
+const CROWN_HEIGHT := 0.05
+## Brass label holders: lips above and below each nameplate.
+const HOLDER_LIP := 0.0025
+const HOLDER_DEPTH := 0.004
 
 ## Inside width, between the side panels.
 var width := 0.0
@@ -88,7 +105,7 @@ static func leg_height() -> float:
 
 ## Builds the meshes, collision and nameplates, with a labelled space for each
 ## binder, in order. Call once before adding to the tree.
-func build(binders: Array[BinderRange], material: Material, inner_width: float, bays := BAYS) -> void:
+func build(binders: Array[BinderRange], material: Material, inner_width: float, bays := BAYS, brass: Material = null) -> void:
 	width = inner_width
 	_bays = bays
 	var bay_ranges: Array[Vector2] = []
@@ -135,6 +152,8 @@ func build(binders: Array[BinderRange], material: Material, inner_width: float, 
 		plate_widths.append(_layout.widths[i] - PLATE_CLEARANCE)
 	nameplates.build(codes, centers, plate_widths)
 	add_child(nameplates)
+	if brass != null:
+		_build_label_holders(centers, plate_widths, brass)
 
 	for shelf in SHELF_HEIGHTS.size():
 		_section_lights.append(_build_section_light(shelf))
@@ -325,25 +344,25 @@ func _build_section_light(shelf: int) -> MeshInstance3D:
 
 ## The visible furniture. Collision stays one box over the whole unit.
 func _build_frame(material: Material) -> void:
-	var band := _tinted(material, 1.12)
+	var parts := KilnModel.parts(MOULDINGS, ["ShelfEdge", "Crown", "BaseCap", "Pilaster"])
+	var skirting: Array = KilnModel.parts(ROOM_MOULDINGS, ["Skirting"])["Skirting"]
+	var trim := _tinted(material, 1.12)
 	var dark := _tinted(material, 0.72)
+	var outer := outer_width(width)
 	var board_depth := DEPTH - BACK_THICKNESS - BAND_DEPTH
 	var board_z := -DEPTH / 2 + BACK_THICKNESS + board_depth / 2
-	var band_z := DEPTH / 2 - BAND_DEPTH / 2
-	# Sides and back run from the bottom board's underside to the top.
-	var bottom := leg_height()
-	var tall := HEIGHT - bottom
+	var front := DEPTH / 2
+	# Sides and back run from the floor to the top.
 	for side in [-1, 1]:
-		_add_box(Vector3(SIDE_THICKNESS, tall, DEPTH), Vector3(side * (width + SIDE_THICKNESS) / 2, bottom + tall / 2, 0), material)
-	_add_box(Vector3(width, tall, BACK_THICKNESS), Vector3(0, bottom + tall / 2, -DEPTH / 2 + BACK_THICKNESS / 2), dark)
+		_add_box(Vector3(SIDE_THICKNESS, HEIGHT, DEPTH), Vector3(side * (width + SIDE_THICKNESS) / 2, HEIGHT / 2, 0), material)
+	_add_box(Vector3(width, HEIGHT, BACK_THICKNESS), Vector3(0, HEIGHT / 2, -DEPTH / 2 + BACK_THICKNESS / 2), dark)
 
-	# Boards, each with an edge band on its front; the top board is the last.
+	# Boards, each fronted by a moulded edge; the top board is the last.
 	var board_tops: Array = SHELF_HEIGHTS.duplicate()
 	board_tops.append(HEIGHT)
 	for top in board_tops:
 		_add_box(Vector3(width, BOARD_THICKNESS, board_depth), Vector3(0, top - BOARD_THICKNESS / 2, board_z), material)
-		var band_height := BOARD_THICKNESS + BAND_DROP
-		_add_box(Vector3(width, band_height, BAND_DEPTH), Vector3(0, top - band_height / 2, band_z), band)
+		_add_run(parts["ShelfEdge"], Vector3(-width / 2, top, front - BAND_DEPTH), Vector3.RIGHT, width, trim)
 
 	# Dividers between bays; ShelfLayout keeps every space clear of them.
 	var lowest := leg_height()
@@ -353,10 +372,60 @@ func _build_frame(material: Material) -> void:
 		_add_box(Vector3(DIVIDER_THICKNESS, divider_height, divider_depth),
 			Vector3(x, lowest + divider_height / 2, board_z), material)
 
-	# Top cap, overhanging the sides and front (flush with the wall behind).
+	# Fluted pilasters on the ends, from the base cap up to the crown.
+	var pilaster_bottom := lowest
+	var pilaster_tall := HEIGHT - CROWN_HEIGHT - pilaster_bottom
+	for side in [-1, 1]:
+		KilnModel.add(self, parts["Pilaster"], material, Transform3D(Basis.from_scale(Vector3(1, pilaster_tall, 1)),
+			Vector3(side * (width + SIDE_THICKNESS) / 2, pilaster_bottom, front)))
+
+	# The panelled base under the lowest shelf: panels set back, a frame of
+	# stiles and rails proud of them, a cap moulding, and the skirting.
+	var base_face := front - BASE_SET_BACK
+	_add_box(Vector3(outer, lowest, 0.01), Vector3(0, lowest / 2, base_face - 0.005), dark)
+	var frame_z := base_face + BASE_FRAME_PROUD / 2
+	var rail_bottom := SKIRTING_HEIGHT
+	var rail_top := lowest - BASE_CAP_HEIGHT
+	for y in [rail_bottom + BASE_FRAME_WIDTH / 2, rail_top - BASE_FRAME_WIDTH / 2]:
+		_add_box(Vector3(outer, BASE_FRAME_WIDTH, BASE_FRAME_PROUD), Vector3(0, y, frame_z), material)
+	var stile_tall := rail_top - rail_bottom
+	for x in leg_spots():
+		_add_box(Vector3(BASE_FRAME_WIDTH, stile_tall, BASE_FRAME_PROUD), Vector3(x, rail_bottom + stile_tall / 2, frame_z), material)
+	_add_run(parts["BaseCap"], Vector3(-outer / 2, rail_top, front - BASE_SET_BACK), Vector3.RIGHT, outer, trim)
+	_add_run(skirting, Vector3(-outer / 2 - 0.022, 0, front - BASE_SET_BACK), Vector3.RIGHT, outer + 0.044, trim)
+	for side in [-1, 1]:
+		# Skirting returns along each end, back to the wall.
+		var start := Vector3(side * outer / 2, 0, front - BASE_SET_BACK if side > 0 else -DEPTH / 2)
+		_add_run(skirting, start, Vector3.FORWARD if side > 0 else Vector3.BACK, DEPTH - BASE_SET_BACK, trim, Vector3.RIGHT * side)
+
+	# Crown under the top along the front and back along both ends, then
+	# the top itself, overhanging the crown.
+	var crown_y := HEIGHT
+	_add_run(parts["Crown"], Vector3(-outer / 2 - 0.035, crown_y, front), Vector3.RIGHT, outer + 0.07, trim)
+	for side in [-1, 1]:
+		var start := Vector3(side * outer / 2, crown_y, front if side > 0 else -DEPTH / 2)
+		_add_run(parts["Crown"], start, Vector3.FORWARD if side > 0 else Vector3.BACK, DEPTH, trim, Vector3.RIGHT * side)
 	var cap := top_rect()
 	_add_box(Vector3(cap.size.x, CAP_THICKNESS, cap.size.y),
-		Vector3(cap.get_center().x, HEIGHT + CAP_THICKNESS / 2, cap.get_center().y), band)
+		Vector3(cap.get_center().x, HEIGHT + CAP_THICKNESS / 2, cap.get_center().y), trim)
+
+
+## A 1 m moulding (`part`, face toward +Z in the model) laid from `start`
+## along `along` for `length`, its face toward `facing` (the front, +Z, by
+## default). `along` must turn into `facing` as seen from above (along ×
+## up = facing), or the moulding comes out mirrored.
+func _add_run(part: Array, start: Vector3, along: Vector3, length: float, material: Material, facing := Vector3.BACK) -> void:
+	var basis := Basis(along, Vector3.UP, facing)
+	KilnModel.add(self, part, material, Transform3D(basis.scaled_local(Vector3(length, 1, 1)), start))
+
+
+## Brass lips above and below each nameplate, like a library label holder.
+func _build_label_holders(centers: Array[Vector3], plate_widths: Array[float], brass: Material) -> void:
+	for i in centers.size():
+		for side in [-1, 1]:
+			var y: float = centers[i].y + side * (Nameplates.PLATE_SIZE.y / 2 + HOLDER_LIP / 2)
+			_add_box(Vector3(plate_widths[i] + 0.004, HOLDER_LIP, HOLDER_DEPTH),
+				Vector3(centers[i].x, y, DEPTH / 2 + HOLDER_DEPTH / 2), brass)
 
 
 ## A lighter or darker copy of the shelf material, for trim and back panels.

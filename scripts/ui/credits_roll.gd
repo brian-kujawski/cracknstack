@@ -33,6 +33,9 @@ func _init() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	clip_contents = true
 	add_child(MenuStyle.backdrop(MenuStyle.TITLE_BACKDROP))
+	# Marbled paper, dimmed well down so the lines read over it, turned its
+	# own way (bible §8: never the same way twice).
+	add_child(UiStyle.marbled_backdrop(1, true, Vector2(420, 610), 1.0, Vector2.ZERO, 0.8))
 	_strip = VBoxContainer.new()
 	_strip.add_theme_constant_override("separation", 16)
 	_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -50,10 +53,18 @@ func _ready() -> void:
 func _add_block(kind: String, content) -> void:
 	match kind:
 		"title":
-			_strip.add_child(MenuStyle.heading(content, 72))
+			# The game's name is the title screen's carved wordmark.
+			if content == "CRACK & STACK":
+				var centred := CenterContainer.new()
+				centred.add_child(Wordmark.new(UiStyle.DISPLAY))
+				_strip.add_child(centred)
+			else:
+				_strip.add_child(MenuStyle.heading(content, UiStyle.DISPLAY))
 		"heading":
 			_strip.add_child(_spacer())
-			_strip.add_child(MenuStyle.heading(content, 32))
+			var heading := MenuStyle.heading(content, UiStyle.LEAD)
+			heading.add_theme_color_override("font_color", UiStyle.GILT)
+			_strip.add_child(heading)
 		"text":
 			_strip.add_child(_text(content))
 		"names":
@@ -71,8 +82,7 @@ func _spacer() -> Control:
 
 
 func _text(content: String) -> Label:
-	var label := Label.new()
-	label.text = content
+	var label := UiStyle.label(content)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.custom_minimum_size.x = TEXT_WIDTH
@@ -88,8 +98,7 @@ func _names(names: PackedStringArray) -> HBoxContainer:
 		var lines := PackedStringArray()
 		for i in range(column, names.size(), NAME_COLUMNS):
 			lines.append(names[i])
-		var label := Label.new()
-		label.text = "\n".join(lines)
+		var label := UiStyle.label("\n".join(lines), UiStyle.text_font(), UiStyle.BODY, UiStyle.PAPER_MUTED)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.custom_minimum_size.x = COLUMN_WIDTH
 		label.clip_text = true

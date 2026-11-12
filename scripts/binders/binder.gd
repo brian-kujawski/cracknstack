@@ -74,6 +74,8 @@ const PAGE_FLASH_GLOW := Color(1.0, 0.8, 0.35, 0.6)
 ## and three metal rings by the spine.
 const COVER_BOARD := 0.004
 const PAGE_INSET := Vector2(0.007, 0.008) # page edge to cover edge (x, y)
+## The marbled paper inside the covers (style bible §8).
+const ENDPAPER := preload("res://assets/ui/frames/marbled.png")
 const RING_X := -COVER.x / 2 + 0.021
 const RING_ZS := [-0.1, 0.0, 0.1]
 const RING_WIRE := 0.0018
@@ -708,6 +710,14 @@ func _stop_flashes() -> void:
 	_flashes.clear()
 
 
+## How a set's endpaper lies (binder_page.gdshader's endpaper_pose):
+## quarter turns, mirrored, and an offset, all picked from the set code, so
+## each binder's paper differs but is always the same for that binder.
+static func endpaper_pose(set_code: String) -> Vector4:
+	var h := set_code.hash()
+	return Vector4(h & 3, (h >> 2) & 1, float((h >> 3) & 255) / 256.0, float((h >> 11) & 255) / 256.0)
+
+
 ## Builds the pages and pocket cards the first time the binder is opened;
 ## closed binders on the floor stay cheap.
 func _build_open_view() -> void:
@@ -737,6 +747,8 @@ func _build_open_view() -> void:
 		page.mesh = page_mesh
 		page.material_override = ShaderMaterial.new()
 		page.material_override.shader = page_shader
+		page.material_override.set_shader_parameter("endpaper", ENDPAPER)
+		page.material_override.set_shader_parameter("endpaper_pose", endpaper_pose(binder.set_code))
 		page.rotation.x = -PI / 2
 		page.position = Vector3(_page_center_x(side), OPEN_HEIGHT, 0)
 		_open_view.add_child(page)
@@ -778,6 +790,7 @@ func _refresh_spread() -> void:
 		var used := clampi(contents.capacity() - first_pocket, 0, BinderLayout.POCKETS_PER_PAGE) if page >= 0 else 0
 		page_material.set_shader_parameter("first_number", binder.first + first_pocket)
 		page_material.set_shader_parameter("used_pockets", used)
+		page_material.set_shader_parameter("endpaper_on", page < 0)
 		page_material.set_shader_parameter("glow", PAGE_DONE_GLOW if page >= 0 and contents.is_page_complete(page) else Color(0, 0, 0, 0))
 		for i in BinderLayout.POCKETS_PER_PAGE:
 			var view := _pocket_views[side * BinderLayout.POCKETS_PER_PAGE + i]

@@ -358,6 +358,8 @@ func _build_front() -> void:
 	screen.name = "ReadoutGlass"
 	_readout = Label3D.new()
 	_readout.name = "Readout"
+	# An LED readout: the machine voice with even-width digits.
+	_readout.font = UiStyle.machine_mono()
 	_readout.font_size = 40
 	_readout.outline_size = 0
 	_readout.pixel_size = 0.0007
@@ -421,6 +423,8 @@ func _pocket(pocket_name: String, at: Vector2) -> SortingTray:
 func _print(text: String, at: Vector3) -> Label3D:
 	var label := Label3D.new()
 	label.text = text
+	# Silk-screened on the casing: the machine voice (style bible §5.3).
+	label.font = UiStyle.machine_font(700)
 	label.font_size = 22
 	label.outline_size = 0
 	label.pixel_size = 0.0004
