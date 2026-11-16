@@ -46,7 +46,7 @@ const ACTIONS := [
 	[INSPECT, "Inspect the held card"],
 	[FLIP_CARD, "Turn the inspected card over"],
 	[TURN_SIDEWAYS, "Turn the inspected card sideways"],
-	[INTERACT, "Open or close a binder"],
+	[INTERACT, "Open or close a binder (hold to lift it)"],
 	[FLIP_NEXT, "Next page"],
 	[FLIP_PREVIOUS, "Previous page"],
 	[PAUSE, "Pause"],

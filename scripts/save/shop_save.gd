@@ -74,7 +74,7 @@ static func snapshot(pile: PileWorld, hands: Hands, player: Node, day: DayCycle,
 	var progression := Progression.save_state()
 	var binders := {}
 	for binder in pile.binders:
-		var entry := {"state": binder.state, "transform": binder.global_transform, "spread": binder.spread,
+		var entry := {"state": binder.state, "transform": binder.resting_transform(), "spread": binder.spread,
 			"pockets": binder.contents.pocket_cards()}
 		if binder.state == Binder.State.TOSSED:
 			# In the air: saved lying where it would come down.

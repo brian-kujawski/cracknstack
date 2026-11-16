@@ -97,6 +97,7 @@ func _ready() -> void:
 	await _run(_test_lean_over_table)
 	await _run(_test_table_cards)
 	await _run(_test_binder_toss)
+	await _run(_test_binder_lift)
 	await _run(_test_save_files)
 	await _run(_test_shop_save)
 	await _run(_test_turn_over)
@@ -2499,16 +2500,21 @@ func _test_onscreen_text() -> void:
 	var hands := Hands.new()
 	var capacity := binder.contents.capacity()
 	var filled := "Cards Filled: 1/%d (%d%%)" % [capacity, floori(100.0 / capacity)]
-	_check(hands._binder_hint(binder) == filled + "\nE: Open Binder", "closed binder hint, got " + hands._binder_hint(binder))
+	_check(hands._binder_hint(binder) == filled + "\nE: Open Binder\nE: Hold to Lift Binder", "closed binder hint, got " + hands._binder_hint(binder))
 	binder.state = Binder.State.OPEN
 	binder.spread = 1
 	var pages := BinderLayout.page_count(range_data)
-	_check(hands._binder_hint(binder) == "%s\nPages 2–3 of %d\nE: Close Binder" % [filled, pages],
+	_check(hands._binder_hint(binder) == "%s\nPages 2–3 of %d\nE: Close Binder\nE: Hold to Lift Binder" % [filled, pages],
 		"open binder hint, got " + hands._binder_hint(binder))
 	binder.spread = 0
 	_check(hands._binder_hint(binder).contains("\nPage 1 of %d\n" % pages), "the first spread shows one page")
+	binder.lifted = true
+	_check(hands._binder_hint(binder).ends_with("\nE: Set Binder Down\nE: Hold to Close Binder"),
+		"up to read, E sets it down and holding E closes it; got " + hands._binder_hint(binder))
+	binder.lifted = false
 	hands._aim_pocket = 2
-	_check(hands._binder_hint(binder) == "%s #003: ???\n%s\nPage 1 of %d\nE: Close Binder" % [set_data.code, filled, pages],
+	hands._aim_binder = binder
+	_check(hands._binder_hint(binder) == "%s #003: ???\n%s\nPage 1 of %d\nE: Close Binder\nE: Hold to Lift Binder" % [set_data.code, filled, pages],
 		"the pocket line sits on top, above the binder's lines; got " + hands._binder_hint(binder))
 	hands._aim_pocket = -1
 	_check(hands._pocket_hint(binder, 0) == "%s #001\n%s" % [set_data.code, CardDatabase.get_card(ids[0]).name],
@@ -3605,6 +3611,142 @@ func _test_binder_toss() -> void:
 	hands.revealing = 0
 	_check(hands.toss_held() and hands.hand_count() == 0, "once they're all shown, it tosses the lot")
 	_land_tossed(pile)
+	holder.free()
+	pile.free()
+
+
+func _test_binder_lift() -> void:
+	for child in get_children():
+		if child is PileWorld:
+			child.free()
+	var pile := PileWorld.new()
+	add_child(pile)
+	pile.build_one_of_each(Rect2(0, 0, 12, 8), [] as Array[Rect2], 11)
+	var clear := Rect2(4.0, 3.0, 2.0, 2.0)
+	for id in CardDatabase.card_count():
+		var at := pile.card_position(id)
+		if pile.is_on_floor(id) and clear.has_point(Vector2(at.x, at.z)):
+			pile.pick_up(id)
+	var floor_body := StaticBody3D.new()
+	var floor_shape := CollisionShape3D.new()
+	floor_shape.shape = WorldBoundaryShape3D.new()
+	floor_body.add_child(floor_shape)
+	pile.add_child(floor_body)
+	var binder := Binder.new()
+	binder.setup(CardDatabase.all_binders()[0], Color.RED, pile)
+	pile.add_child(binder)
+	pile.binders.append(binder)
+	binder.put_down(pile, Vector3(5.0, 0.0, 4.0), 0.0)
+	for i in 30:
+		await get_tree().physics_frame
+
+	var hands := Hands.new()
+	var camera := Camera3D.new()
+	camera.name = "Camera3D"
+	camera.position.y = 1.53 # Standing, leaning in a little.
+	var holder := CharacterBody3D.new()
+	holder.add_child(camera)
+	holder.add_child(hands)
+	holder.process_mode = Node.PROCESS_MODE_DISABLED
+	add_child(holder)
+	holder.global_position = Vector3(5.0, 0.0, 4.2) # Right over it, facing -z.
+	hands.pile = pile
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+
+	# A tap of E opens it flat at once; let go and it stays open.
+	hands._toggle_binder()
+	_check(binder.is_open() and not binder.lifted, "E opens a closed binder flat at once")
+	hands.advance_interact(0.1, false)
+	_check(binder.is_open() and not binder.lifted, "and a tap leaves it open flat")
+	var flat := binder.global_transform
+
+	# Held on a flat binder, E lifts it up to read instead of closing it.
+	hands._toggle_binder()
+	hands.advance_interact(0.1, true)
+	_check(binder.is_open() and not binder.lifted, "a flat binder waits while E is held")
+	hands.advance_interact(hands.lift_hold_seconds, true)
+	_check(binder.lifted and hands.lifted() == binder, "held, it goes up to read")
+	await get_tree().create_timer(Binder.LIFT_SECONDS + 0.1).timeout
+	var eye := camera.global_position
+	var tilt := rad_to_deg(binder.global_basis.y.angle_to(Vector3.UP))
+	_check(absf(tilt - 50.0) < 1.0, "up to read, its pages tilt up toward you (%.1f degrees)" % tilt)
+	_check(binder.global_basis.z.dot(Vector3.BACK) > 0.6, "facing you")
+	var ahead := eye.z - binder.global_position.z
+	_check(ahead > 0.4 and binder.global_position.y < eye.y - 0.2 and binder.global_position.y > 0.5,
+		"in front of you, below your eyes (%.2f ahead, %.2f high)" % [ahead, binder.global_position.y])
+	_check(binder.resting_transform().is_equal_approx(flat), "a save keeps it where it rose from")
+
+	# Every pocket is a short turn away, not straight down: the corner
+	# pockets are the furthest.
+	binder.flip(1)
+	var pages := BinderLayout.spread_pages(binder.binder, binder.spread)
+	var widest := 0.0
+	var steepest := 0.0
+	for page in [pages.x, pages.y]:
+		for cell in BinderLayout.POCKETS_PER_PAGE:
+			var pocket: int = page * BinderLayout.POCKETS_PER_PAGE + cell
+			var at := binder.pocket_pose(pocket).origin
+			_check(binder.pocket_at(at) == pocket, "pocket %d is still found where it's aimed at, tilted" % pocket)
+			var to := at - eye
+			widest = maxf(widest, rad_to_deg(absf(atan2(to.x, -to.z))))
+			steepest = maxf(steepest, rad_to_deg(atan2(-to.y, Vector2(to.x, to.z).length())))
+	_check(widest < 30.0 and steepest < 60.0,
+		"its corner pockets are %.0f degrees aside and %.0f down, well clear of straight down" % [widest, steepest])
+	_check(hands._binder_hint(binder).ends_with("E: Set Binder Down\nE: Hold to Close Binder"), "the hint says what E does now")
+
+	# While it's up, E means it wherever you look; a tap sets it down open.
+	hands._aim = Hands.Aim.NONE
+	hands._aim_binder = null
+	hands._toggle_binder()
+	hands.advance_interact(0.05, false)
+	await get_tree().create_timer(Binder.LIFT_SECONDS + 0.1).timeout
+	_check(binder.is_open() and not binder.lifted and hands.lifted() == null and binder.global_transform.is_equal_approx(flat),
+		"E with a binder up sets it back down open where it was, wherever you look")
+
+	# Up again, then held E sets it down and closes it.
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._toggle_binder()
+	hands.advance_interact(hands.lift_hold_seconds, true)
+	_check(binder.lifted, "up again")
+	hands._toggle_binder()
+	_check(not binder.lifted and binder.is_open(), "E: down at once")
+	hands.advance_interact(hands.lift_hold_seconds, true)
+	_check(binder.state == Binder.State.CLOSED and absf(binder.global_basis.y.y - 1.0) < 0.001
+		and Vector2(binder.global_position.x - flat.origin.x, binder.global_position.z - flat.origin.z).length() < 0.01,
+		"held, it closes too, lying where it was")
+	for i in 30:
+		await get_tree().physics_frame
+
+	# A tap on a flat binder still closes it, once E comes back up.
+	hands._toggle_binder()
+	hands.advance_interact(0.05, false)
+	hands._toggle_binder()
+	_check(binder.is_open(), "a flat binder doesn't close while E is still down")
+	hands.advance_interact(0.05, false)
+	_check(binder.state == Binder.State.CLOSED, "a tap closes it")
+	for i in 30:
+		await get_tree().physics_frame
+
+	# Walking away sets it down open.
+	hands._toggle_binder()
+	hands.advance_interact(hands.lift_hold_seconds, true)
+	_check(binder.lifted, "up to read")
+	holder.global_position = Vector3(5.0, 0.0, 5.8)
+	hands._physics_process(1.0 / 60.0)
+	_check(binder.is_open() and not binder.lifted and hands.lifted() == null, "walking away sets it down open")
+	await get_tree().create_timer(Binder.LIFT_SECONDS + 0.1).timeout
+
+	# Closed some other way while up (finished, say): it shuts where it rose from.
+	holder.global_position = Vector3(5.0, 0.0, 4.2)
+	hands._aim = Hands.Aim.BINDER
+	hands._aim_binder = binder
+	hands._toggle_binder()
+	hands.advance_interact(hands.lift_hold_seconds, true)
+	binder.close()
+	_check(binder.state == Binder.State.CLOSED and not binder.lifted and absf(binder.global_basis.y.y - 1.0) < 0.001
+		and binder.global_position.y < 0.1, "closed while up, it shuts lying where it rose from")
 	holder.free()
 	pile.free()
 

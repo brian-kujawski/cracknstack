@@ -39,6 +39,17 @@ extends Node
 ## that card up close the same way, and F again sends it home. E opens or closes the binder
 ## you're looking at, and the mouse wheel turns its pages.
 ##
+## Hold E to lift an open binder up to read (Binder.lift): it rises off
+## where it lies into a reading pose in front of you, tilted toward you, so
+## filing never means looking straight down at it (where turning to reach a
+## corner pocket spins the whole view). Each press acts at once, and holding
+## on goes one step further:
+## - closed: E opens it flat; held, it goes on up to read;
+## - open flat: a tap closes it; held, it goes up to read instead;
+## - up to read: E sets it down open where it rose from; held, it closes too.
+## While a binder is up, E always means that binder, wherever you look, and
+## walking away from it (lift_walk_away) sets it down open.
+##
 ## Cards on tables count as lying about just like floor cards, for
 ## everything below.
 ##
@@ -219,6 +230,22 @@ enum Aim { NONE, FLOOR, SURFACE, BINDER, LOOSE_CARD, SHELF, CABINET, RADIO, BOX,
 ## long (a quicker hop than a single pick-up, so the repeat keeps pace).
 @export var pull_glide_seconds := 0.08
 @export var sell_drop_seconds := 0.18
+## Holding E this long goes on to the next step (see the binder steps up
+## top): up to read, or, from there, closed.
+@export var lift_hold_seconds := 0.3
+## Walk this far (across the floor) from a binder up to read and it's set
+## down open.
+@export var lift_walk_away := 1.1
+
+## The reading pose of a lifted binder: the middle of its pages this far
+## ahead of your eyes and this far below them, tilted this far up toward
+## you. Far enough ahead that its corner pockets are a short turn away
+## (about 25 degrees) rather than straight down.
+const LIFT_AHEAD := 0.5
+const LIFT_BELOW := 0.38
+const LIFT_TILT := 50.0 * PI / 180.0
+## Its near edge stays at least this far above whatever is under it.
+const LIFT_CLEARANCE := 0.02
 
 ## Where the held card sits relative to the camera: low and to the right,
 ## or close up and square to your face (see zoomed_distance).
@@ -363,6 +390,14 @@ var _hint := ""
 var _shown_card: CardData
 ## Tithe: the binder lit, and the top card and level it was worked out for.
 var _tithe_binder: Binder
+## The binder up to read (Binder.lift), or null.
+var lifted_binder: Binder
+## E held on a binder (see the binder steps up top): how long it's been held
+## (-1 when it isn't), which binder, and the step it was at when pressed.
+enum BinderStep { CLOSED, FLAT, LIFTED }
+var _interact_held := -1.0
+var _interact_binder: Binder
+var _interact_from := BinderStep.CLOSED
 var _tithe_for := -1
 var _tithe_level := 0
 ## Ripping: how far along (0 to 1), and whether Space is being held for it.
@@ -426,6 +461,12 @@ func _physics_process(delta: float) -> void:
 		_tithe_level = Progression.level()
 		update_tithe()
 	pile.set_highlight(_aim_lying_card() if has_room() else -1)
+	advance_interact(delta, Input.is_action_pressed(Controls.INTERACT))
+	var up := lifted()
+	if up != null:
+		var away := up.global_position - _camera.global_position
+		if Vector2(away.x, away.z).length() > lift_walk_away:
+			set_binder_down(up)
 	_update_hover()
 	_update_ghost(delta)
 	_update_hint()
@@ -442,6 +483,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func handle_input(event: InputEvent) -> void:
 	if event.is_action_released(Controls.RIP):
 		_ripping = false
+	if event.is_action_released(Controls.INTERACT):
+		_release_interact()
 	if event is InputEventMouseMotion:
 		if _zoomed:
 			# Hands sees input before the player, so marking it handled keeps
@@ -484,6 +527,8 @@ func handle_input(event: InputEvent) -> void:
 		_use_hand()
 	elif event.is_action_pressed(Controls.TOSS):
 		toss_held()
+	elif event.is_action_pressed(Controls.INTERACT) and lifted() != null:
+		_toggle_binder()
 	elif event.is_action_pressed(Controls.INTERACT) and _shipping_box_at_hand() != null:
 		_shipping_box_at_hand().seal()
 	elif event.is_action_pressed(Controls.INTERACT) and _laptop_at_hand() != null:
@@ -860,22 +905,115 @@ func _fly_to_pocket(id: int, from: Transform3D, binder: Binder, pocket: int, lan
 				true, [binder.get_rid()]))
 
 
+## E pressed: the binder up to read if there is one, else the one you're
+## looking at, takes its first step at once (see the binder steps up top);
+## holding E takes the next (advance_interact).
 func _toggle_binder() -> void:
-	if carried_binder != null or _aim != Aim.BINDER:
-		return
-	var binder := _aim_binder
-	var before := PutDown.global_aabb(binder)
-	if binder.is_open():
-		binder.close()
+	var binder := lifted()
+	if binder == null:
+		if carried_binder != null or _aim != Aim.BINDER:
+			return
+		binder = _aim_binder
+	if binder.lifted:
+		_interact_from = BinderStep.LIFTED
+		set_binder_down(binder)
+	elif binder.is_open():
+		# A tap closes it, but only once E comes back up: held, it goes up
+		# to read instead.
+		_interact_from = BinderStep.FLAT
 	elif binder.state == Binder.State.CLOSED:
+		_interact_from = BinderStep.CLOSED
+		var before := PutDown.global_aabb(binder)
 		binder.open()
 		var pocket := tithe_pocket(binder)
 		if pocket >= 0:
 			binder.show_pocket(pocket)
+		# What lay on it, or on what it now covers, settles onto it as it is now.
+		PutDown.disturb(pile, before.merge(PutDown.global_aabb(binder)))
 	else:
 		return
-	# What lay on it, or on what it now covers, settles onto it as it is now.
+	_interact_binder = binder
+	_interact_held = 0.0
+
+
+## E held: once it's been held lift_hold_seconds, the binder it was pressed
+## on takes its next step: up to read (from closed or flat), or closed (from
+## up to read). Let go sooner and a tap on a flat binder closes it.
+func advance_interact(delta: float, held: bool) -> void:
+	if _interact_held < 0.0:
+		return
+	if not held:
+		_release_interact()
+		return
+	_interact_held += delta
+	if _interact_held < lift_hold_seconds:
+		return
+	_interact_held = -1.0
+	var binder := _interact_binder
+	if not is_instance_valid(binder) or not binder.is_open() or binder.lifted:
+		return
+	if _interact_from == BinderStep.LIFTED:
+		_close_binder(binder)
+	else:
+		lift_binder(binder)
+
+
+func _release_interact() -> void:
+	if _interact_held < 0.0:
+		return
+	_interact_held = -1.0
+	var binder := _interact_binder
+	if _interact_from == BinderStep.FLAT and is_instance_valid(binder) and binder.is_open() and not binder.lifted:
+		_close_binder(binder)
+
+
+func _close_binder(binder: Binder) -> void:
+	var before := PutDown.global_aabb(binder)
+	binder.close()
 	PutDown.disturb(pile, before.merge(PutDown.global_aabb(binder)))
+
+
+## The binder up to read, or null.
+func lifted() -> Binder:
+	if lifted_binder != null and (not is_instance_valid(lifted_binder) or not lifted_binder.lifted):
+		lifted_binder = null
+	return lifted_binder
+
+
+## Lifts an open binder up to read, in front of you (reading_pose).
+func lift_binder(binder: Binder) -> void:
+	if not binder.is_open() or binder.lifted:
+		return
+	var before := PutDown.global_aabb(binder)
+	binder.lift(reading_pose(binder))
+	lifted_binder = binder
+	# Whatever lay on its pages falls where it was.
+	PutDown.disturb(pile, before, [binder.get_rid()])
+
+
+## Sets a binder up to read back down where it rose from, still open.
+func set_binder_down(binder: Binder) -> void:
+	binder.lower()
+	if binder == lifted_binder:
+		lifted_binder = null
+
+
+## Where a binder goes up to read: square to the way you face, its pages'
+## middle LIFT_AHEAD in front of your eyes and LIFT_BELOW under them,
+## tilted LIFT_TILT up toward you, and its near edge clear of whatever is
+## under it (a table top, the floor).
+func reading_pose(binder: Binder) -> Transform3D:
+	var eye := _camera.global_position
+	var yaw: float = (get_parent() as Node3D).global_rotation.y
+	var facing := Basis(Vector3.UP, yaw)
+	var basis := facing * Basis(Vector3.RIGHT, LIFT_TILT)
+	var middle := eye + facing * Vector3(0, 0, -LIFT_AHEAD) + Vector3.DOWN * LIFT_BELOW
+	var origin := middle - basis.y * Binder.OPEN_HEIGHT
+	var near_drop := Binder.COVER.y / 2 * sin(LIFT_TILT)
+	if binder.is_inside_tree():
+		var under := binder.rest_height(Vector2(origin.x, origin.z), yaw, eye.y)
+		origin.y = maxf(origin.y, under + near_drop + LIFT_CLEARANCE)
+	return Transform3D(basis, origin)
 
 
 ## Tithe: opening a binder with a Needed card of it in hand turns to that
@@ -1351,6 +1489,9 @@ func _update_hint() -> void:
 			text = "%s: End Day" % _key(Controls.INTERACT)
 	if _laptop_at_hand() != null:
 		text = "%s: Use Laptop" % _key(Controls.INTERACT)
+	if lifted() != null:
+		# E means the binder up to read, wherever you look.
+		text = _binder_hint(lifted_binder)
 	if text != _hint:
 		_hint = text
 		hint_changed.emit(text)
@@ -1395,6 +1536,7 @@ func _binder_hint(binder: Binder) -> String:
 		Binder.State.CLOSED:
 			if carried_binder == null:
 				lines.append("%s: Open Binder" % _key(Controls.INTERACT))
+				lines.append("%s: Hold to Lift Binder" % _key(Controls.INTERACT))
 		Binder.State.OPEN:
 			var pages := BinderLayout.spread_pages(binder.binder, binder.spread)
 			var shown := []
@@ -1403,10 +1545,15 @@ func _binder_hint(binder: Binder) -> String:
 					shown.append(str(page + 1))
 			lines.append("%s %s of %d" % ["Pages" if shown.size() > 1 else "Page", "–".join(shown),
 				BinderLayout.page_count(binder.binder)])
-			lines.append("%s: Close Binder" % _key(Controls.INTERACT))
+			if binder.lifted:
+				lines.append("%s: Set Binder Down" % _key(Controls.INTERACT))
+				lines.append("%s: Hold to Close Binder" % _key(Controls.INTERACT))
+			else:
+				lines.append("%s: Close Binder" % _key(Controls.INTERACT))
+				lines.append("%s: Hold to Lift Binder" % _key(Controls.INTERACT))
 			# On top: the block is anchored at the bottom, so lines that come and
 			# go as you aim grow it upward and leave the binder's lines in place.
-			if _aim_pocket >= 0:
+			if _aim_pocket >= 0 and _aim_binder == binder:
 				lines.insert(0, _pocket_hint(binder, _aim_pocket))
 	return "\n".join(lines)
 

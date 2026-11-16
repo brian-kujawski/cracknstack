@@ -2,7 +2,11 @@ class_name Binder
 extends RigidBody3D
 ## One set's binder (plan §3.2). It starts closed on top of the pile; the
 ## player can carry it, set it down on the floor or a table, open it flat
-## there to file cards into its pockets, and shelve it spine out.
+## there to file cards into its pockets, and shelve it spine out. Open, it
+## can also be lifted (lift()): it rises off where it lies into a reading
+## pose in front of the player, tilted toward them, so filing doesn't mean
+## looking straight down at it. Lowered (lower()) or closed, it goes back to
+## where it rose from.
 ##
 ## The origin is the middle of the binder's underside. Closed, it lies cover
 ## up with the spine along its -x edge. Open, the two pages lie side by side
@@ -59,6 +63,8 @@ const TOSS_AIR_DRAG := 1.2
 const TOSS_BOUNCE := 0.35
 const TOSS_EDGE_REACH := 0.18
 const SETTLE_SECONDS := 0.18
+## How long lifting an open binder up to read, or lowering it back, takes.
+const LIFT_SECONDS := 0.25
 
 const LOCKED_GLOW := Color(1.0, 0.78, 0.3, 0.3)
 ## A locked-in pocket card looks like its plain face: the lock-in flash
@@ -157,6 +163,11 @@ var _toss_tumble := Vector3.ZERO
 var _toss_exclude: Array[RID] = []
 ## Once it's come down: the pose it's settling into (null until then).
 var _landing = null
+## Lifted up to read (open only): it hangs in the air at a reading pose, and
+## `_rest` is the global pose it rose from, where it goes back down to.
+var lifted := false
+var _rest := Transform3D.IDENTITY
+var _lift_tween: Tween
 
 
 func setup(range_data: BinderRange, accent: Color, world: PileWorld) -> void:
@@ -319,6 +330,10 @@ func open(lower := true) -> void:
 func close() -> void:
 	if state != State.OPEN:
 		return
+	if lifted:
+		# Straight back to where it rose from, then shut there.
+		_end_lift()
+		global_transform = _rest
 	state = State.CLOSED
 	set_hover(-1)
 	_stop_flashes()
@@ -418,12 +433,58 @@ func put_down(parent: Node, point: Vector3, yaw: float, from_height := NAN) -> v
 	let_go()
 
 
+## Lifts the open binder up to read: it glides from where it lies to the
+## global pose `to` (Hands works out the reading pose) and hangs there.
+## Pockets, filing and page turns all work as when it lies flat.
+func lift(to: Transform3D) -> void:
+	if state != State.OPEN or lifted:
+		return
+	_rest = global_transform
+	lifted = true
+	_glide_to(to)
+
+
+## Lowers a lifted binder back to where it rose from, still open.
+func lower() -> void:
+	if not lifted:
+		return
+	lifted = false
+	_glide_to(_rest)
+
+
+## Where it lies, or, lifted, where it rose from (and goes back to): what a
+## save keeps.
+func resting_transform() -> Transform3D:
+	return _rest if lifted else global_transform
+
+
+func _glide_to(to: Transform3D) -> void:
+	if _lift_tween != null and _lift_tween.is_valid():
+		_lift_tween.kill()
+	if not is_inside_tree():
+		global_transform = to
+		return
+	var from := global_transform
+	_lift_tween = create_tween()
+	_lift_tween.tween_method(func(t: float) -> void: global_transform = from.interpolate_with(to, t),
+		0.0, 1.0, LIFT_SECONDS).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+
+
+func _end_lift() -> void:
+	lifted = false
+	if _lift_tween != null and _lift_tween.is_valid():
+		_lift_tween.kill()
+
+
 ## Something under it went or changed (PutDown.disturb): lying closed, it
 ## wakes so physics settles it; open (held flat, out of physics), it's
-## lowered onto whatever is under it now.
+## lowered onto whatever is under it now. Lifted, it's up in the air and
+## nothing under it matters.
 func settle() -> void:
 	if state == State.CLOSED and not freeze:
 		sleeping = false
+	elif state == State.OPEN and lifted:
+		return
 	elif state == State.OPEN and is_inside_tree():
 		global_position.y = rest_height(Vector2(global_position.x, global_position.z), global_rotation.y,
 			global_position.y + 0.005)
