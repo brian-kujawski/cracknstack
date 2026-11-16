@@ -4884,6 +4884,16 @@ func _test_laptop() -> void:
 	_check(pile.get_child_count() == before, "and nothing arrives until the morning")
 	_check(screen.shop_status.text.begins_with("Ordered: ") and screen.shop_status.text.contains("tomorrow morning"), "the shop says it's on its way")
 	_check((shop.find_child("Order_pack", true, false) as Button).disabled, "Order greys out again once you can't afford it")
+	# Money earned with the laptop shut (selling cards) lights Order up the
+	# next time it's opened, without closing and reopening the shop window.
+	screen.close()
+	Progression.earn_money(Prices.product_cents("pack", code))
+	screen.open()
+	_check(screen.windows.has("shop") and not (shop.find_child("Order_pack", true, false) as Button).disabled,
+		"money earned away from the laptop lights Order up when it's opened again")
+	_check(screen.shop_status.text == LaptopScreen.money_line(), "and the shop's money line shows the new money")
+	screen.order_product("pack", code)
+	_check(Progression.money == 123, "and the pack can be ordered")
 	var day: int = main.day_number
 	main.start_new_day()
 	_check(main.orders.is_empty() and main.day_number == day + 1, "a new day empties the orders")
