@@ -3,7 +3,10 @@
 *.translation
 # export_presets.cfg is tracked: it holds no secrets (Godot keeps export
 # credentials in .godot/export_credentials.cfg).
-builds/
+# Exports and playtest builds. The .gdignore keeps Godot from importing them
+# (and packing an old build into the next export).
+builds/*
+!builds/.gdignore
 
 # Real card data comes from tools/import_scryfall.py. The card metadata is
 # tracked (each set's trimmed Scryfall data and the built cards.json, a few MB
