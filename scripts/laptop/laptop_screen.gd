@@ -533,6 +533,17 @@ func _refresh(app: String) -> void:
 		"story":
 			var text := window.find_child("Text", true, false) as Label
 			text.text = story_text(_stats().get("organized", 0))
+		"shop":
+			# Money (sales, morning deliveries) and unlocks change while the
+			# laptop's shut: Order buttons, "- locked" rows and the money
+			# line follow what you have now.
+			for set_data in shop_sets():
+				var row := window.find_child("Set_" + set_data.code, true, false) as Button
+				if row != null:
+					row.text = _row_text(set_data)
+			if shop_status != null:
+				shop_status.text = money_line()
+			_redraw_shop(shop_set)
 
 
 func _stats() -> Dictionary:
